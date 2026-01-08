@@ -8,6 +8,16 @@ import Input from "@/components/ui/Input";
 import { api, ApiError, apiMaybe } from "@/lib/api";
 import { clearToken } from "@/lib/auth";
 import type { Player, Team, Tournament } from "@/lib/types";
+import StatusBadge from "@/components/StatusBadge";
+import GroupsPanel from "@/components/GroupsPanel";
+import type {
+  TournamentStatus,
+  TournamentStatusResponse,
+  GenerateGroupsResponse,
+  TournamentGroup,
+  StartTournamentResponse,
+} from "@/lib/types";
+
 
 type IdParam = { id: string };
 
@@ -34,6 +44,22 @@ export default function TournamentDetailPage() {
   const [p1, setP1] = useState<number | "">("");
   const [p2, setP2] = useState<number | "">("");
   const [creatingTeam, setCreatingTeam] = useState(false);
+  
+  // Delete player from tournament
+  const [removingPlayerId, setRemovingPlayerId] = useState<number | null>(null);
+
+  // Delete team from tournament
+  const [deletingTeamId, setDeletingTeamId] = useState<number | null>(null);
+
+  // Status + Groups
+  const [status, setStatus] = useState<TournamentStatus>("upcoming");
+  const [updatingStatus, setUpdatingStatus] = useState(false);
+
+  const [groups, setGroups] = useState<TournamentGroup[]>([]);
+  const [teamsPerGroup, setTeamsPerGroup] = useState<number>(2);
+  const [generatingGroups, setGeneratingGroups] = useState(false);
+
+  const [startingTournament, setStartingTournament] = useState(false);
 
   const registeredIds = useMemo(() => new Set(registeredPlayers.map((p) => p.id)), [registeredPlayers]);
 
@@ -68,6 +94,10 @@ const availableForTeams = useMemo(() => {
       const tournaments = await api<Tournament[]>("/tournaments");
       const found = tournaments.find((t) => t.id === tournamentId) ?? null;
       setTournament(found);
+      const st = await api<TournamentStatusResponse>(
+        `/tournaments/${tournamentId}/status`
+      );
+      setStatus(st.status);
 
       // 2) players globales
       const players = await api<Player[]>("/players");
@@ -136,6 +166,73 @@ const availableForTeams = useMemo(() => {
       setAddingPlayer(false);
     }
   }
+  async function removePlayerFromTournament(playerId: number) {
+    const player = registeredPlayers.find((p) => p.id === playerId);
+  
+    const isInTeam = teams.some((team) =>
+      team.players?.some((p) => p.id === playerId)
+    );
+  
+    const confirmed = window.confirm(
+      isInTeam
+        ? `El jugador "${player?.name}" está en un equipo.\n\nSi continuás, el equipo será eliminado.\n\n¿Querés continuar?`
+        : `¿Quitar al jugador "${player?.name}" del torneo?`
+    );
+  
+    if (!confirmed) return;
+  
+    setRemovingPlayerId(playerId);
+    setError(null);
+  
+    try {
+      await api(
+        `/tournaments/${tournamentId}/players/${playerId}`,
+        { method: "DELETE" }
+      );
+  
+      // 1️⃣ eliminar jugador del estado local
+      setRegisteredPlayers((prev) =>
+        prev.filter((p) => p.id !== playerId)
+      );
+  
+      // 2️⃣ eliminar equipos donde estaba ese jugador
+      setTeams((prev) =>
+        prev.filter(
+          (team) => !team.players?.some((p) => p.id === playerId)
+        )
+      );
+    } catch (err: any) {
+      setError(err?.message ?? "Failed to remove player");
+    } finally {
+      setRemovingPlayerId(null);
+    }
+  }
+  async function deleteTeam(teamId: number) {
+    const team = teams.find((t) => t.id === teamId);
+  
+    const confirmed = window.confirm(
+      `¿Eliminar el equipo #${teamId}?\n\nLos jugadores seguirán registrados en el torneo.`
+    );
+  
+    if (!confirmed) return;
+  
+    setDeletingTeamId(teamId);
+    setError(null);
+  
+    try {
+      await api(
+        `/tournaments/${tournamentId}/teams/${teamId}`,
+        { method: "DELETE" }
+      );
+  
+      // 🔹 eliminar solo el equipo (jugadores quedan libres)
+      setTeams((prev) => prev.filter((t) => t.id !== teamId));
+    } catch (err: any) {
+      setError(err?.message ?? "Failed to delete team");
+    } finally {
+      setDeletingTeamId(null);
+    }
+  }
   
 
   async function createTeam() {
@@ -173,6 +270,50 @@ const availableForTeams = useMemo(() => {
       setCreatingTeam(false);
     }
   }
+  async function generateGroups() {
+    setGeneratingGroups(true);
+    setError(null);
+  
+    try {
+      const res = await api<GenerateGroupsResponse>(
+        `/tournaments/${tournamentId}/groups/generate`,
+        {
+          method: "POST",
+          body: { teams_per_group: teamsPerGroup },
+        }
+      );
+  
+      setGroups(res.groups);
+    } catch (err: any) {
+      setError(err?.message ?? "Failed to generate groups");
+    } finally {
+      setGeneratingGroups(false);
+    }
+  }
+
+  async function startTournament() {
+    const confirmed = window.confirm(
+      "¿Iniciar torneo?\n\nUna vez iniciado, no vas a poder editar jugadores/equipos."
+    );
+    if (!confirmed) return;
+  
+    setStartingTournament(true);
+    setError(null);
+  
+    try {
+      const res = await api<StartTournamentResponse>(`/tournaments/${tournamentId}/start`, {
+        method: "POST",
+        body: {},
+      });
+  
+      setStatus(res.status);
+    } catch (err: any) {
+      setError(err?.message ?? "Failed to start tournament");
+    } finally {
+      setStartingTournament(false);
+    }
+  }  
+  
   async function deleteTournament() {
     const confirmed = window.confirm(
       "¿Estás seguro de que querés eliminar este torneo?\n\nSe borrarán jugadores y equipos asociados."
@@ -205,7 +346,7 @@ const availableForTeams = useMemo(() => {
       <div className="flex items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold">Tournament</h1>
-          <p className="text-sm text-zinc-600">Detalle, jugadores y equipos.</p>
+          <p className="text-sm text-zinc-300">Detalle, jugadores y equipos.</p>
         </div>
 
         <div className="flex gap-2">
@@ -239,10 +380,28 @@ const availableForTeams = useMemo(() => {
           )}
 
           <Card>
-            <div className="p-5 space-y-1">
+          <div className="p-5 flex items-start justify-between gap-3">
+            <div className="space-y-1">
               <div className="text-lg font-semibold">{tournament?.name ?? `Torneo #${tournamentId}`}</div>
               <div className="text-sm text-zinc-600">{tournament?.date ?? "—"}</div>
+              <div className="pt-1">
+                <StatusBadge status={status} />
+              </div>
             </div>
+
+            <div className="flex flex-col items-end gap-2">
+              <Button
+                onClick={startTournament}
+                disabled={startingTournament || status !== "upcoming" || groups.length === 0 || teams.length < 1}
+              >
+                {startingTournament ? "Iniciando..." : "Iniciar torneo"}
+              </Button>
+
+              <div className="text-xs text-zinc-500 text-right max-w-[260px]">
+                Requiere al menos 1 equipo y que las zonas estén generadas.
+              </div>
+            </div>
+          </div>
           </Card>
 
           {/* Registered Players */}
@@ -272,7 +431,7 @@ const availableForTeams = useMemo(() => {
 
                   <Button
                     onClick={addPlayerToTournament}
-                    disabled={addingPlayer || selectedPlayerId === ""}
+                    disabled={addingPlayer || selectedPlayerId === "" || status !== "upcoming"}
                     className="md:w-44"
                   >
                     {addingPlayer ? "Agregando..." : "Agregar"}
@@ -283,15 +442,36 @@ const availableForTeams = useMemo(() => {
                   {registeredSorted.length === 0 ? (
                     <div className="text-sm text-zinc-600">No hay jugadores registrados.</div>
                   ) : (
-                    registeredSorted.map((p) => (
-                      <div
-                        key={p.id}
-                        className="flex items-center justify-between rounded-xl border border-zinc-200 p-3"
-                      >
-                        <div className="text-sm font-medium">{p.name}</div>
-                        <div className="text-xs text-zinc-500">#{p.id}</div>
-                      </div>
-                    ))
+                    registeredSorted.map((p) => {
+                      const isInTeam = teams.some((team) =>
+                        team.players?.some((tp) => tp.id === p.id)
+                      );
+                    
+                      return (
+                        <div
+                          key={p.id}
+                          className="flex items-center justify-between rounded-xl border border-zinc-200 p-3"
+                        >
+                          <div>
+                            <div className="text-sm font-medium">{p.name}</div>
+                            {isInTeam && (
+                              <div className="text-xs text-orange-600">
+                                Asignado a un equipo
+                              </div>
+                            )}
+                          </div>
+                    
+                          <Button
+                            variant="danger"
+                            disabled={removingPlayerId === p.id}
+                            onClick={() => removePlayerFromTournament(p.id)}
+                          >
+                            {removingPlayerId === p.id ? "Quitando..." : "Quitar"}
+                          </Button>
+                        </div>
+                      );
+                    })
+                    
                   )}
                 </div>
               </div>
@@ -341,7 +521,8 @@ const availableForTeams = useMemo(() => {
                       creatingTeam ||
                       p1 === "" ||
                       p2 === "" ||
-                      p1 === p2 ||
+                      p1 === p2 || 
+                      status !== "upcoming" ||
                       availableForTeams.length < 2
                     }
                   >
@@ -357,19 +538,46 @@ const availableForTeams = useMemo(() => {
                   ) : (
                     <div className="space-y-2">
                       {teams.map((team) => (
-                        <div key={team.id} className="rounded-xl border border-zinc-200 p-3">
-                          <div className="text-sm font-medium">Team #{team.id}</div>
-                          <div className="text-sm text-zinc-700">
-                            {team.players?.[0]?.name ?? "?"} &nbsp; / &nbsp; {team.players?.[1]?.name ?? "?"}
+                        <div
+                          key={team.id}
+                          className="rounded-xl border border-zinc-200 p-3 flex items-start justify-between gap-3"
+                        >
+                          <div>
+                            <div className="text-sm font-medium">Team #{team.id}</div>
+                            <div className="text-sm text-zinc-700">
+                              {team.players?.[0]?.name ?? "?"} &nbsp; / &nbsp; {team.players?.[1]?.name ?? "?"}
+                            </div>
+                            <div className="text-xs text-zinc-500">
+                              tournament_id: {team.tournament_id}
+                            </div>
                           </div>
-                          <div className="text-xs text-zinc-500">tournament_id: {team.tournament_id}</div>
+
+                          <Button
+                            variant="danger"
+                            disabled={deletingTeamId === team.id}
+                            onClick={() => deleteTeam(team.id)}
+                          >
+                            {deletingTeamId === team.id ? "Eliminando..." : "Eliminar"}
+                          </Button>
                         </div>
                       ))}
+
                     </div>
                   )}
                 </div>
               </div>
             </Card>
+
+            {/* Zonas / Grupos */}
+            <GroupsPanel
+              status={status}
+              teams={teams}
+              groups={groups}
+              teamsPerGroup={teamsPerGroup}
+              setTeamsPerGroup={setTeamsPerGroup}
+              generating={generatingGroups}
+              onGenerate={generateGroups}
+            />
           </div>
         </>
       )}

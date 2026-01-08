@@ -6,7 +6,7 @@ export default function DashboardPage() {
     <div className="space-y-4">
       <div>
         <h1 className="text-2xl font-semibold">Dashboard</h1>
-        <p className="text-sm text-zinc-600">Gestioná jugadores y torneos.</p>
+        <p className="text-sm text-zinc-300">Gestioná jugadores y torneos.</p>
       </div>
 
       <div className="grid gap-3 md:grid-cols-2">

@@ -23,3 +23,38 @@ export type LoginResponse = {
   access_token: string;
   token_type: "bearer";
 };
+
+export type TournamentStatus = "upcoming" | "ongoing" | "finished";
+
+export type TournamentStatusResponse = {
+  status: TournamentStatus;
+};
+
+export type TournamentStatusUpdate = {
+  status: TournamentStatus;
+};
+
+export type GroupGenerateRequest = {
+  teams_per_group: number;
+};
+
+export type GroupTeamRef = {
+  team_id: number;
+};
+
+export type TournamentGroup = {
+  id: number;
+  name: string;
+  teams: GroupTeamRef[];
+};
+
+export type GenerateGroupsResponse = {
+  message: string;
+  groups: TournamentGroup[];
+};
+
+export type StartTournamentResponse = {
+  id: number;
+  status: TournamentStatus;
+  message: string;
+};
