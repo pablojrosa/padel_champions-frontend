@@ -89,26 +89,25 @@ export default function GroupsPanel({
                 </div>
 
                 <div className="mt-3 space-y-2">
-                  {g.teams.map((t, idx) => (
-                    <div
-                      key={`${g.id}-${t.team_id}-${idx}`}
-                      className="flex items-center justify-between rounded-xl border border-zinc-200 px-3 py-2"
-                    >
-                      <div className="text-sm text-zinc-800">
-                        Team #{t.team_id}
-                      </div>
-                      <div className="text-xs text-zinc-500">team_id</div>
+                    {g.teams.map((t) => (
+                        <div
+                        key={`${g.id}-${t.id}`}
+                        className="rounded-xl border border-zinc-200 px-3 py-2"
+                        >
+                        <div className="text-sm font-medium text-zinc-800">
+                            Team #{t.id}
+                        </div>
+
+                        <div className="text-sm text-zinc-700">
+                            {t.players.map((p) => p.name).join(" / ")}
+                        </div>
+                        </div>
+                    ))}
                     </div>
-                  ))}
-                </div>
+
               </div>
             ))
           )}
-        </div>
-
-        <div className="text-xs text-zinc-500">
-          Nota: hoy el backend devuelve solo <code>team_id</code> por zona. Si querés mostrar nombres
-          (p1/p2), después agregamos un endpoint GET groups “expandido” o resolvemos desde el estado local de teams.
         </div>
       </div>
     </Card>

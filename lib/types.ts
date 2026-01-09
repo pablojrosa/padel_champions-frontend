@@ -58,3 +58,18 @@ export type StartTournamentResponse = {
   status: TournamentStatus;
   message: string;
 };
+
+export type GroupTeamOut = {
+  id: number;
+  players: {
+    id: number;
+    name: string;
+  }[];
+};
+
+
+export type TournamentGroupOut = {
+  id: number;
+  name: string;
+  teams: GroupTeamOut[];
+};

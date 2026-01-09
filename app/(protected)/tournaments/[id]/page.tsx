@@ -10,6 +10,7 @@ import { clearToken } from "@/lib/auth";
 import type { Player, Team, Tournament } from "@/lib/types";
 import StatusBadge from "@/components/StatusBadge";
 import GroupsPanel from "@/components/GroupsPanel";
+import type { TournamentGroupOut } from "@/lib/types";
 import type {
   TournamentStatus,
   TournamentStatusResponse,
@@ -55,7 +56,7 @@ export default function TournamentDetailPage() {
   const [status, setStatus] = useState<TournamentStatus>("upcoming");
   const [updatingStatus, setUpdatingStatus] = useState(false);
 
-  const [groups, setGroups] = useState<TournamentGroup[]>([]);
+  const [groups, setGroups] = useState<TournamentGroupOut[]>([]);
   const [teamsPerGroup, setTeamsPerGroup] = useState<number>(2);
   const [generatingGroups, setGeneratingGroups] = useState(false);
 
@@ -114,6 +115,14 @@ const availableForTeams = useMemo(() => {
       // 4) teams (optional endpoint)
       const tTeams = (await apiMaybe<Team[]>(`/tournaments/${tournamentId}/teams`)) ?? [];
       setTeams(tTeams);
+      // 5) groups / zones
+      const tGroups =
+      (await apiMaybe<TournamentGroupOut[]>(
+        `/tournaments/${tournamentId}/groups`
+      )) ?? [];
+
+      setGroups(tGroups);
+
     } catch (err: any) {
       if (err instanceof ApiError && err.status === 401) {
         clearToken();
@@ -282,8 +291,10 @@ const availableForTeams = useMemo(() => {
           body: { teams_per_group: teamsPerGroup },
         }
       );
-  
-      setGroups(res.groups);
+      const tGroups = await api<TournamentGroupOut[]>(
+        `/tournaments/${tournamentId}/groups`
+      );
+      setGroups(tGroups);
     } catch (err: any) {
       setError(err?.message ?? "Failed to generate groups");
     } finally {
@@ -438,7 +449,7 @@ const availableForTeams = useMemo(() => {
                   </Button>
                 </div>
 
-                <div className="space-y-2">
+                <div className="max-h-90 overflow-y-auto space-y-2 pr-1">
                   {registeredSorted.length === 0 ? (
                     <div className="text-sm text-zinc-600">No hay jugadores registrados.</div>
                   ) : (
@@ -446,7 +457,6 @@ const availableForTeams = useMemo(() => {
                       const isInTeam = teams.some((team) =>
                         team.players?.some((tp) => tp.id === p.id)
                       );
-                    
                       return (
                         <div
                           key={p.id}
@@ -529,9 +539,9 @@ const availableForTeams = useMemo(() => {
                     {creatingTeam ? "Creando..." : "Crear equipo"}
                   </Button>
                 </div>
-
-                <div className="pt-2 border-t border-zinc-200">
-                  <div className="font-medium mb-2">Teams</div>
+                <div className="font-medium mb-2">Teams</div>
+                <div className="max-h-64 overflow-y-auto space-y-2 pr-1">
+                  
 
                   {teams.length === 0 ? (
                     <div className="text-sm text-zinc-600">No hay equipos creados.</div>
@@ -569,6 +579,7 @@ const availableForTeams = useMemo(() => {
             </Card>
 
             {/* Zonas / Grupos */}
+            <div className="md:col-span-2">
             <GroupsPanel
               status={status}
               teams={teams}
@@ -578,6 +589,8 @@ const availableForTeams = useMemo(() => {
               generating={generatingGroups}
               onGenerate={generateGroups}
             />
+            </div>
+            
           </div>
         </>
       )}
