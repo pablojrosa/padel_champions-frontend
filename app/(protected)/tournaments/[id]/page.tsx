@@ -349,8 +349,6 @@ const availableForTeams = useMemo(() => {
       setDeletingTournament(false);
     }
   }
-  
-  
 
   return (
     <div className="space-y-4">
@@ -581,14 +579,16 @@ const availableForTeams = useMemo(() => {
             {/* Zonas / Grupos */}
             <div className="md:col-span-2">
             <GroupsPanel
+              tournamentId={tournamentId}
               status={status}
-              teams={teams}
               groups={groups}
+              setGroups={setGroups}
               teamsPerGroup={teamsPerGroup}
               setTeamsPerGroup={setTeamsPerGroup}
               generating={generatingGroups}
               onGenerate={generateGroups}
             />
+
             </div>
             
           </div>

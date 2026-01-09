@@ -61,12 +61,8 @@ export type StartTournamentResponse = {
 
 export type GroupTeamOut = {
   id: number;
-  players: {
-    id: number;
-    name: string;
-  }[];
+  players: { name: string }[];
 };
-
 
 export type TournamentGroupOut = {
   id: number;
