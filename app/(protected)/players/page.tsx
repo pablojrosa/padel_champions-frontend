@@ -16,14 +16,19 @@ export default function PlayersPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const [name, setName] = useState("");
+  const [editFirstName, setEditFirstName] = useState("");
+  const [editLastName, setEditLastName] = useState("");
+  const [editCategory, setEditCategory] = useState("");
+  const [first_name, setFirstName] = useState("");
+  const [last_name, setLastName] = useState("");
+  const [category, setCategory] = useState("");
+
   const [creating, setCreating] = useState(false);
 
   const [editingId, setEditingId] = useState<number | null>(null);
-  const [editingName, setEditingName] = useState("");
   const [savingId, setSavingId] = useState<number | null>(null);
 
-  const sorted = useMemo(() => [...items].sort((a, b) => a.name.localeCompare(b.name)), [items]);
+  const sorted = useMemo(() => [...items].sort((a, b) => a.first_name.localeCompare(b.first_name)), [items]);
 
   async function load() {
     setLoading(true);
@@ -49,13 +54,15 @@ export default function PlayersPage() {
   }, []);
 
   async function createPlayer() {
-    if (!name.trim()) return;
+    if (!first_name.trim() || !last_name.trim() || !category.trim()) return;
     setCreating(true);
     setError(null);
     try {
-      const created = await api<Player>("/players", { method: "POST", body: { name } });
+      const created = await api<Player>("/players", { method: "POST", body: { first_name, last_name, category } });
       setItems((prev) => [created, ...prev]);
-      setName("");
+      setFirstName("");
+      setLastName("");
+      setCategory("");
     } catch (err: any) {
       setError(err?.message ?? "Failed to create player");
     } finally {
@@ -69,11 +76,17 @@ export default function PlayersPage() {
     try {
       const updated = await api<Player>(`/players/${id}`, {
         method: "PUT",
-        body: { name: editingName },
+        body: {
+          first_name: editFirstName,
+          last_name: editLastName,
+          category: editCategory,
+        },
       });
       setItems((prev) => prev.map((p) => (p.id === id ? updated : p)));
       setEditingId(null);
-      setEditingName("");
+      setEditFirstName("");
+      setEditLastName("");
+      setEditCategory("");
     } catch (err: any) {
       setError(err?.message ?? "Failed to update player");
     } finally {
@@ -104,8 +117,34 @@ export default function PlayersPage() {
       <Card>
         <div className="p-5 space-y-3">
           <div className="flex flex-col gap-2 md:flex-row">
-            <Input placeholder="Nombre del jugador" value={name} onChange={(e) => setName(e.target.value)} />
-            <Button onClick={createPlayer} disabled={creating || !name.trim()} className="md:w-40">
+          <Input
+              value={first_name}
+              onChange={(e) => setFirstName(e.target.value)}
+              placeholder="Nombre"
+              required
+            />
+
+            <Input
+              value={last_name}
+              onChange={(e) => setLastName(e.target.value)}
+              placeholder="Apellido"
+              required
+            />
+            <select
+                className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                value={category}
+                onChange={(e) => setCategory(e.target.value)}
+                required
+              >
+                <option value="">Seleccionar categoría</option>
+                {["7ma", "6ta", "5ta", "4ta", "3ra", "2da", "1ra"].map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </select>
+
+            <Button onClick={createPlayer} disabled={creating || !first_name.trim() || !last_name.trim() || !category.trim()} className="md:w-40">
               {creating ? "Creando..." : "Crear"}
             </Button>
           </div>
@@ -132,9 +171,40 @@ export default function PlayersPage() {
                   className="flex items-center justify-between gap-2 rounded-xl border border-zinc-200 p-3"
                 >
                   {editingId === p.id ? (
-                    <Input value={editingName} onChange={(e) => setEditingName(e.target.value)} />
+                    <div className="flex flex-col gap-2 md:flex-row md:items-center w-full">
+                      <Input
+                        value={editFirstName}
+                        onChange={(e) => setEditFirstName(e.target.value)}
+                        placeholder="Nombre"
+                      />
+
+                      <Input
+                        value={editLastName}
+                        onChange={(e) => setEditLastName(e.target.value)}
+                        placeholder="Apellido"
+                      />
+
+                      <select
+                        className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                        value={editCategory}
+                        onChange={(e) => setEditCategory(e.target.value)}
+                      >
+                        <option value="">Categoría</option>
+                        {["7ma", "6ta", "5ta", "4ta", "3ra", "2da", "1ra"].map((c) => (
+                          <option key={c} value={c}>
+                            {c}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
                   ) : (
-                    <div className="text-sm font-medium">{p.name}</div>
+
+                    <div className="text-sm font-medium">
+                      {p.first_name} {p.last_name}
+                      <span className="ml-2 text-xs text-zinc-500">
+                        ({p.category})
+                      </span>
+                    </div>
                   )}
 
                   <div className="flex items-center gap-2">
@@ -142,15 +212,23 @@ export default function PlayersPage() {
                       <>
                         <Button
                           onClick={() => saveEdit(p.id)}
-                          disabled={savingId === p.id || !editingName.trim()}
+                          disabled={
+                            savingId === p.id ||
+                            !editFirstName.trim() ||
+                            !editLastName.trim() ||
+                            !editCategory.trim()
+                          }
                         >
+
                           {savingId === p.id ? "Guardando..." : "Guardar"}
                         </Button>
                         <Button
                           variant="secondary"
                           onClick={() => {
                             setEditingId(null);
-                            setEditingName("");
+                            setEditFirstName("");
+                            setEditLastName("");
+                            setEditCategory("");
                           }}
                         >
                           Cancelar
@@ -162,11 +240,15 @@ export default function PlayersPage() {
                           variant="secondary"
                           onClick={() => {
                             setEditingId(p.id);
-                            setEditingName(p.name);
+                            setEditFirstName(p.first_name ?? "");
+                            setEditLastName(p.last_name ?? "");
+                            setEditCategory(p.category ?? "");
+
                           }}
                         >
                           Edit
                         </Button>
+
                         <Button variant="danger" onClick={() => deletePlayer(p.id)}>
                           Delete
                         </Button>

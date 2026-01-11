@@ -65,11 +65,11 @@ export default function TournamentDetailPage() {
   const registeredIds = useMemo(() => new Set(registeredPlayers.map((p) => p.id)), [registeredPlayers]);
 
   const availableToRegister = useMemo(() => {
-    return allPlayers.filter((p) => !registeredIds.has(p.id)).sort((a, b) => a.name.localeCompare(b.name));
+    return allPlayers.filter((p) => !registeredIds.has(p.id)).sort((a, b) => a.first_name.localeCompare(b.first_name));
   }, [allPlayers, registeredIds]);
 
   const registeredSorted = useMemo(
-    () => [...registeredPlayers].sort((a, b) => a.name.localeCompare(b.name)),
+    () => [...registeredPlayers].sort((a, b) => a.first_name.localeCompare(b.first_name)),
     [registeredPlayers]
   );
   // 🔹 jugadores que ya están en algún equipo
@@ -78,62 +78,61 @@ const playersInTeams = useMemo(() => {
     teams.flatMap((team) => team.players?.map((p) => p.id) ?? [])
   );
 }, [teams]);
-
 const availableForTeams = useMemo(() => {
   return registeredSorted.filter(
     (p) => !playersInTeams.has(p.id)
   );
 }, [registeredSorted, playersInTeams]);
 
+function hydrateTeams(rawTeams: Team[], players: Player[]): Team[] {
+  const playersById = new Map(players.map((p) => [p.id, p]));
 
-  async function load() {
-    setLoading(true);
-    setError(null);
+  return rawTeams.map((team) => ({
+    ...team,
+    players: (team.players || [])
+      .map((p) => playersById.get(p.id))
+      .filter((p): p is Player => !!p), // Filtra nulos y asegura el tipo Player
+  }));
+}
 
-    try {
-      // 1) tournament info (fallback: from tournaments list)
-      const tournaments = await api<Tournament[]>("/tournaments");
-      const found = tournaments.find((t) => t.id === tournamentId) ?? null;
-      setTournament(found);
-      const st = await api<TournamentStatusResponse>(
-        `/tournaments/${tournamentId}/status`
-      );
-      setStatus(st.status);
+async function load() {
+  setLoading(true);
+  setError(null);
 
-      // 2) players globales
-      const players = await api<Player[]>("/players");
-      setAllPlayers(players);
+  try {
+    // Disparamos todas las peticiones en paralelo
+    const [tournaments, statusRes, players, tPlayers, rawTeams, tGroups] = await Promise.all([
+      api<Tournament[]>("/tournaments"),
+      api<TournamentStatusResponse>(`/tournaments/${tournamentId}/status`),
+      api<Player[]>("/players"),
+      apiMaybe<Player[]>(`/tournaments/${tournamentId}/players`) || Promise.resolve([]),
+      apiMaybe<Team[]>(`/tournaments/${tournamentId}/teams`) || Promise.resolve([]),
+      apiMaybe<TournamentGroupOut[]>(`/tournaments/${tournamentId}/groups`) || Promise.resolve([])
+    ]);
 
-      // 3) registered players of tournament (optional endpoint)
-      const tPlayers =
-        (await apiMaybe<Player[]>(`/tournaments/${tournamentId}/players`)) ??
-        // fallback: si no existe endpoint, dejamos vacío y avisamos
-        [];
+    // Una vez que todas terminan, actualizamos los estados
+    const found = tournaments.find((t) => t.id === tournamentId) ?? null;
+    setTournament(found);
+    setStatus(statusRes.status);
+    setAllPlayers(players);
+    setRegisteredPlayers(tPlayers || []);
+    
+    // Hidratamos equipos usando los jugadores recién obtenidos
+    const hydratedTeams = hydrateTeams(rawTeams || [], tPlayers || []);
+    setTeams(hydratedTeams);
+    setGroups(tGroups || []);
 
-      setRegisteredPlayers(tPlayers);
-
-      // 4) teams (optional endpoint)
-      const tTeams = (await apiMaybe<Team[]>(`/tournaments/${tournamentId}/teams`)) ?? [];
-      setTeams(tTeams);
-      // 5) groups / zones
-      const tGroups =
-      (await apiMaybe<TournamentGroupOut[]>(
-        `/tournaments/${tournamentId}/groups`
-      )) ?? [];
-
-      setGroups(tGroups);
-
-    } catch (err: any) {
-      if (err instanceof ApiError && err.status === 401) {
-        clearToken();
-        router.replace("/login");
-        return;
-      }
-      setError(err?.message ?? "Failed to load tournament");
-    } finally {
-      setLoading(false);
+  } catch (err: any) {
+    if (err instanceof ApiError && err.status === 401) {
+      clearToken();
+      router.replace("/login");
+      return;
     }
+    setError(err?.message ?? "Failed to load tournament");
+  } finally {
+    setLoading(false);
   }
+}
 
   useEffect(() => {
     if (!Number.isFinite(tournamentId)) return;
@@ -184,8 +183,8 @@ const availableForTeams = useMemo(() => {
   
     const confirmed = window.confirm(
       isInTeam
-        ? `El jugador "${player?.name}" está en un equipo.\n\nSi continuás, el equipo será eliminado.\n\n¿Querés continuar?`
-        : `¿Quitar al jugador "${player?.name}" del torneo?`
+        ? `El jugador "${player?.first_name} ${player?.last_name}" está en un equipo.\n\nSi continuás, el equipo será eliminado.\n\n¿Querés continuar?`
+        : `¿Quitar al jugador "${player?.first_name} ${player?.last_name}" del torneo?`
     );
   
     if (!confirmed) return;
@@ -198,6 +197,13 @@ const availableForTeams = useMemo(() => {
         `/tournaments/${tournamentId}/players/${playerId}`,
         { method: "DELETE" }
       );
+      if (groups.length > 0) {
+        // Opcional: Limpiar los grupos o avisar que deben regenerarse
+        // setGroups([]); 
+        // O mejor, re-validar con el servidor:
+        const updatedGroups = await apiMaybe<TournamentGroupOut[]>(`/tournaments/${tournamentId}/groups`) ?? [];
+        setGroups(updatedGroups);
+      }
   
       // 1️⃣ eliminar jugador del estado local
       setRegisteredPlayers((prev) =>
@@ -240,6 +246,13 @@ const availableForTeams = useMemo(() => {
       setError(err?.message ?? "Failed to delete team");
     } finally {
       setDeletingTeamId(null);
+    }
+    if (groups.length > 0) {
+      // Opcional: Limpiar los grupos o avisar que deben regenerarse
+      // setGroups([]); 
+      // O mejor, re-validar con el servidor:
+      const updatedGroups = await apiMaybe<TournamentGroupOut[]>(`/tournaments/${tournamentId}/groups`) ?? [];
+      setGroups(updatedGroups);
     }
   }
   
@@ -433,7 +446,7 @@ const availableForTeams = useMemo(() => {
                     <option value="">Seleccionar jugador</option>
                     {availableToRegister.map((p) => (
                       <option key={p.id} value={p.id}>
-                        {p.name}
+                        {p.first_name} {p.last_name}
                       </option>
                     ))}
                   </select>
@@ -461,7 +474,11 @@ const availableForTeams = useMemo(() => {
                           className="flex items-center justify-between rounded-xl border border-zinc-200 p-3"
                         >
                           <div>
-                            <div className="text-sm font-medium">{p.name}</div>
+                            <div className="text-sm font-medium">{p.first_name} {p.last_name}
+                            <span className="ml-2 text-xs text-zinc-500">
+                              ({p.category})
+                            </span>
+                            </div>
                             {isInTeam && (
                               <div className="text-xs text-orange-600">
                                 Asignado a un equipo
@@ -502,7 +519,7 @@ const availableForTeams = useMemo(() => {
                     <option value="">Jugador 1</option>
                     {availableForTeams.map((p) => (
                       <option key={p.id} value={p.id}>
-                        {p.name}
+                        {p.first_name} {p.last_name}
                         </option>
                       ))}
                   </select>
@@ -517,7 +534,7 @@ const availableForTeams = useMemo(() => {
                     .filter((p) => (p1 === "" ? true : p.id !== p1))
                     .map((p) => (
                     <option key={p.id} value={p.id}>
-                      {p.name}
+                      {p.first_name} {p.last_name}
                       </option>
                     ))}
 
@@ -553,7 +570,9 @@ const availableForTeams = useMemo(() => {
                           <div>
                             <div className="text-sm font-medium">Team #{team.id}</div>
                             <div className="text-sm text-zinc-700">
-                              {team.players?.[0]?.name ?? "?"} &nbsp; / &nbsp; {team.players?.[1]?.name ?? "?"}
+                            {team.players?.[0]?.first_name} {team.players?.[0]?.last_name} /
+                            {team.players?.[1]?.first_name} {team.players?.[1]?.last_name}
+
                             </div>
                             <div className="text-xs text-zinc-500">
                               tournament_id: {team.tournament_id}
