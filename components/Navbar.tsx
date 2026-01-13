@@ -25,7 +25,7 @@ export default function Navbar() {
             variant="secondary"
             onClick={() => {
               clearToken();
-              router.replace("/login");
+              router.replace("/");
             }}
           >
             Logout

@@ -17,6 +17,14 @@ export default function TournamentsPage() {
   const [error, setError] = useState<string | null>(null);
 
   const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
+  const [location, setLocation] = useState("");
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
+  const [startTime, setStartTime] = useState("");
+  const [endTime, setEndTime] = useState("");
+  const [matchDuration, setMatchDuration] = useState("");
+  const [courtsCount, setCourtsCount] = useState("");
   const [creating, setCreating] = useState(false);
 
   async function load() {
@@ -49,10 +57,28 @@ export default function TournamentsPage() {
     try {
       const created = await api<Tournament>("/tournaments", {
         method: "POST",
-        body: { name },
+        body: {
+          name,
+          description: description.trim() ? description.trim() : null,
+          location: location.trim() ? location.trim() : null,
+          start_date: startDate || null,
+          end_date: endDate || null,
+          start_time: startTime || null,
+          end_time: endTime || null,
+          match_duration_minutes: matchDuration ? Number(matchDuration) : null,
+          courts_count: courtsCount ? Number(courtsCount) : null,
+        },
       });
       setItems((prev) => [created, ...prev]);
       setName("");
+      setDescription("");
+      setLocation("");
+      setStartDate("");
+      setEndDate("");
+      setStartTime("");
+      setEndTime("");
+      setMatchDuration("");
+      setCourtsCount("");
     } catch (err: any) {
       setError(err?.message ?? "Failed to create tournament");
     } finally {
@@ -69,12 +95,66 @@ export default function TournamentsPage() {
 
       <Card>
         <div className="p-5 space-y-3">
-          <div className="flex flex-col gap-2 md:flex-row">
+          <div className="flex flex-col gap-2">
             <Input
               placeholder="Nombre del torneo"
               value={name}
               onChange={(e) => setName(e.target.value)}
             />
+            <textarea
+              className="w-full rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 outline-none focus:border-zinc-900 focus:ring-2 focus:ring-zinc-900/20"
+              placeholder="Descripcion / reglas del torneo"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              rows={3}
+            />
+            <Input
+              placeholder="Ubicacion o link de Google Maps"
+              value={location}
+              onChange={(e) => setLocation(e.target.value)}
+            />
+            <div className="grid gap-2 md:grid-cols-2">
+              <Input
+                type="date"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+              />
+              <Input
+                type="date"
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+              />
+            </div>
+            <div className="grid gap-2 md:grid-cols-2">
+              <Input
+                type="time"
+                value={startTime}
+                onChange={(e) => setStartTime(e.target.value)}
+                placeholder="Hora de inicio"
+              />
+              <Input
+                type="time"
+                value={endTime}
+                onChange={(e) => setEndTime(e.target.value)}
+                placeholder="Hora del ultimo partido"
+              />
+            </div>
+            <div className="grid gap-2 md:grid-cols-2">
+              <Input
+                type="number"
+                min={1}
+                value={matchDuration}
+                onChange={(e) => setMatchDuration(e.target.value)}
+                placeholder="Duracion por partido (min)"
+              />
+              <Input
+                type="number"
+                min={1}
+                value={courtsCount}
+                onChange={(e) => setCourtsCount(e.target.value)}
+                placeholder="Cantidad de canchas"
+              />
+            </div>
             <Button
               onClick={createTournament}
               disabled={creating || !name.trim()}
@@ -105,7 +185,9 @@ export default function TournamentsPage() {
                   <div>
                     <div className="font-medium">{t.name}</div>
                     <div className="text-sm text-zinc-600">
-                      {t.start_date || "Sin fecha"}
+                      {t.start_date && t.end_date
+                        ? `${t.start_date} - ${t.end_date}`
+                        : t.start_date || "Sin fecha"}
                     </div>
                   </div>
                   <div className="text-zinc-400">→</div>

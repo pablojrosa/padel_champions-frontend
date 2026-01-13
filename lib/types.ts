@@ -8,8 +8,15 @@ export type Player = {
 export type Tournament = {
   id: number;
   name: string;
+  description: string | null;
+  location: string | null;
   category: string | null;
   start_date: string | null;
+  end_date: string | null;
+  courts_count?: number | null;
+  match_duration_minutes?: number | null;
+  start_time?: string | null;
+  end_time?: string | null;
 };
 
 export type Team = {
@@ -26,7 +33,7 @@ export type LoginResponse = {
   token_type: "bearer";
 };
 
-export type TournamentStatus = "upcoming" | "ongoing" | "finished";
+export type TournamentStatus = "upcoming" | "ongoing" | "groups_finished" | "finished";
 
 export type TournamentStatusResponse = {
   status: TournamentStatus;
@@ -70,4 +77,60 @@ export type TournamentGroupOut = {
   id: number;
   name: string;
   teams: GroupTeamOut[];
+};
+
+export type MatchStage =
+  | "group"
+  | "round_of_32"
+  | "round_of_16"
+  | "quarter"
+  | "semi"
+  | "final";
+export type MatchStatus = "pending" | "ongoing" | "played";
+
+export type MatchSet = {
+  a: number;
+  b: number;
+};
+
+export type Match = {
+  id: number;
+  tournament_id: number;
+  group_id: number | null;
+  stage: MatchStage;
+  team_a_id: number;
+  team_b_id: number;
+  sets: MatchSet[] | null;
+  winner_team_id: number | null;
+  played_at: string | null;
+  status: MatchStatus;
+  scheduled_time?: string | null;
+  court_number?: number | null;
+};
+
+export type PlayoffStage = Exclude<MatchStage, "group">;
+
+export type PlayoffGenerateRequest = {
+  stage: PlayoffStage;
+  manual_pairs?: { team_a_id: number; team_b_id: number }[];
+};
+
+export type GroupStandingRow = {
+  team: GroupTeamOut;
+  played: number;
+  won: number;
+  lost: number;
+  sets_for: number;
+  sets_against: number;
+  games_for: number;
+  games_against: number;
+  points: number;
+  set_diff: number;
+  game_diff: number;
+};
+
+export type GroupStandingsOut = {
+  group_id: number;
+  group_name: string;
+  standings: GroupStandingRow[];
 };

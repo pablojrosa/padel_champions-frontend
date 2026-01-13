@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Card from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
@@ -37,8 +37,8 @@ export default function TournamentDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Add player
-  const [selectedPlayerId, setSelectedPlayerId] = useState<number | "">("");
+  // Add players (bulk)
+  const [selectedPlayerIds, setSelectedPlayerIds] = useState<number[]>([]);
   const [addingPlayer, setAddingPlayer] = useState(false);
 
   // Create team
@@ -61,6 +61,9 @@ export default function TournamentDetailPage() {
   const [generatingGroups, setGeneratingGroups] = useState(false);
 
   const [startingTournament, setStartingTournament] = useState(false);
+  const [copyMessage, setCopyMessage] = useState<string | null>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement | null>(null);
 
   const registeredIds = useMemo(() => new Set(registeredPlayers.map((p) => p.id)), [registeredPlayers]);
 
@@ -83,6 +86,7 @@ const availableForTeams = useMemo(() => {
     (p) => !playersInTeams.has(p.id)
   );
 }, [registeredSorted, playersInTeams]);
+
 
 function hydrateTeams(rawTeams: Team[], players: Player[]): Team[] {
   const playersById = new Map(players.map((p) => [p.id, p]));
@@ -140,34 +144,46 @@ async function load() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tournamentId]);
 
-  async function addPlayerToTournament() {
-    if (selectedPlayerId === "") return;
+  useEffect(() => {
+    function handleOutsideClick(event: MouseEvent) {
+      if (!menuRef.current) return;
+      if (!menuRef.current.contains(event.target as Node)) {
+        setMenuOpen(false);
+      }
+    }
+
+    document.addEventListener("mousedown", handleOutsideClick);
+    return () => document.removeEventListener("mousedown", handleOutsideClick);
+  }, []);
+
+  async function addPlayersToTournament() {
+    if (selectedPlayerIds.length === 0) return;
   
     setAddingPlayer(true);
     setError(null);
   
     try {
       await api(
-        `/tournaments/${tournamentId}/players`,
+        `/tournaments/${tournamentId}/players/bulk`,
         {
           method: "POST",
-          body: { player_id: selectedPlayerId },
+          body: { player_ids: selectedPlayerIds },
         }
       );
-  
-      const addedPlayer = allPlayers.find(
-        (p) => p.id === selectedPlayerId
+
+      const addedPlayers = allPlayers.filter((p) =>
+        selectedPlayerIds.includes(p.id)
       );
-  
-      if (addedPlayer) {
+
+      if (addedPlayers.length > 0) {
         setRegisteredPlayers((prev) => {
-          // evitamos duplicados
-          if (prev.some((p) => p.id === addedPlayer.id)) return prev;
-          return [...prev, addedPlayer];
+          const existingIds = new Set(prev.map((p) => p.id));
+          const newOnes = addedPlayers.filter((p) => !existingIds.has(p.id));
+          return [...prev, ...newOnes];
         });
       }
-  
-      setSelectedPlayerId("");
+
+      setSelectedPlayerIds([]);
     } catch (err: any) {
       setError(err?.message ?? "Failed to add player");
     } finally {
@@ -220,6 +236,23 @@ async function load() {
       setError(err?.message ?? "Failed to remove player");
     } finally {
       setRemovingPlayerId(null);
+    }
+  }
+
+  async function copyPublicLink() {
+    const origin = window.location.origin;
+    const url = `${origin}/viewer/tournaments/${tournamentId}`;
+    setCopyMessage(null);
+
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(url);
+      } else {
+        window.prompt("Copia el link publico:", url);
+      }
+      setCopyMessage("Link publico copiado.");
+    } catch (err) {
+      setCopyMessage("No se pudo copiar el link.");
     }
   }
   async function deleteTeam(teamId: number) {
@@ -282,10 +315,17 @@ async function load() {
         tournament_id: tournamentId,
         players: [player1, player2],
       };
-  
+
       setTeams(prev => [newTeam, ...prev]);
       setP1("");
       setP2("");
+
+      if (groups.length > 0) {
+        const updatedGroups = await api<TournamentGroupOut[]>(
+          `/tournaments/${tournamentId}/groups`
+        );
+        setGroups(updatedGroups);
+      }
     } catch (err: any) {
       setError(err?.message ?? "Failed to create team");
     } finally {
@@ -363,6 +403,15 @@ async function load() {
     }
   }
 
+  const tournamentDates =
+    tournament?.start_date && tournament?.end_date
+      ? `${tournament.start_date} - ${tournament.end_date}`
+      : tournament?.start_date || "—";
+  const locationLink =
+    tournament?.location && tournament.location.startsWith("http")
+      ? tournament.location
+      : null;
+
   return (
     <div className="space-y-4">
       <div className="flex items-start justify-between gap-3">
@@ -379,13 +428,72 @@ async function load() {
             Volver
           </Button>
 
-          <Button
-            variant="danger"
-            onClick={deleteTournament}
-            disabled={deletingTournament}
-          >
-            {deletingTournament ? "Eliminando..." : "Eliminar torneo"}
-          </Button>
+          <div className="relative" ref={menuRef}>
+            <Button
+              variant="secondary"
+              onClick={() => setMenuOpen((prev) => !prev)}
+              aria-haspopup="menu"
+              aria-expanded={menuOpen}
+            >
+              <span className="sr-only">Opciones</span>
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                xmlns="http://www.w3.org/2000/svg"
+                aria-hidden="true"
+              >
+                <circle cx="12" cy="5" r="2" fill="currentColor" />
+                <circle cx="12" cy="12" r="2" fill="currentColor" />
+                <circle cx="12" cy="19" r="2" fill="currentColor" />
+              </svg>
+            </Button>
+            {menuOpen && (
+              <div className="absolute right-0 z-10 mt-2 w-56 rounded-xl border border-zinc-200 bg-white p-1 shadow-lg">
+                <button
+                  type="button"
+                  className="w-full rounded-lg px-3 py-2 text-left text-sm text-zinc-800 hover:bg-zinc-50"
+                  onClick={() => {
+                    router.push(`/tournaments/${tournamentId}/matches`);
+                    setMenuOpen(false);
+                  }}
+                >
+                  Partidos
+                </button>
+                <button
+                  type="button"
+                  className="w-full rounded-lg px-3 py-2 text-left text-sm text-zinc-800 hover:bg-zinc-50"
+                  onClick={() => {
+                    router.push(`/tournaments/${tournamentId}/playoffs`);
+                    setMenuOpen(false);
+                  }}
+                >
+                  Playoffs
+                </button>
+                <button
+                  type="button"
+                  className="w-full rounded-lg px-3 py-2 text-left text-sm text-zinc-800 hover:bg-zinc-50"
+                  onClick={() => {
+                    router.push(`/tournaments/${tournamentId}/schedule`);
+                    setMenuOpen(false);
+                  }}
+                >
+                  Cronograma
+                </button>
+                <button
+                  type="button"
+                  className="w-full rounded-lg px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    deleteTournament();
+                  }}
+                >
+                  {deletingTournament ? "Eliminando..." : "Eliminar torneo"}
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
@@ -405,23 +513,47 @@ async function load() {
           <div className="p-5 flex items-start justify-between gap-3">
             <div className="space-y-1">
               <div className="text-lg font-semibold">{tournament?.name ?? `Torneo #${tournamentId}`}</div>
-              <div className="text-sm text-zinc-600">{tournament?.date ?? "—"}</div>
+              <div className="text-sm text-zinc-600">{tournamentDates}</div>
+              {tournament?.location && (
+                <div className="text-sm text-zinc-600">
+                  {locationLink ? (
+                    <a
+                      href={locationLink}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-zinc-900 underline"
+                    >
+                      Ver ubicacion
+                    </a>
+                  ) : (
+                    tournament.location
+                  )}
+                </div>
+              )}
+              {tournament?.description && (
+                <div className="text-sm text-zinc-600">
+                  {tournament.description}
+                </div>
+              )}
               <div className="pt-1">
                 <StatusBadge status={status} />
               </div>
             </div>
 
             <div className="flex flex-col items-end gap-2">
+              <Button variant="secondary" onClick={copyPublicLink}>
+                Copiar link publico
+              </Button>
+              {copyMessage && (
+                <div className="text-xs text-zinc-500">{copyMessage}</div>
+              )}
               <Button
                 onClick={startTournament}
                 disabled={startingTournament || status !== "upcoming" || groups.length === 0 || teams.length < 1}
+                className="whitespace-nowrap"
               >
                 {startingTournament ? "Iniciando..." : "Iniciar torneo"}
               </Button>
-
-              <div className="text-xs text-zinc-500 text-right max-w-[260px]">
-                Requiere al menos 1 equipo y que las zonas estén generadas.
-              </div>
             </div>
           </div>
           </Card>
@@ -437,26 +569,50 @@ async function load() {
                   </div>
                 </div>
 
-                <div className="flex flex-col gap-2 md:flex-row">
-                  <select
-                    className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                    value={selectedPlayerId}
-                    onChange={(e) => setSelectedPlayerId(e.target.value ? Number(e.target.value) : "")}
-                  >
-                    <option value="">Seleccionar jugador</option>
-                    {availableToRegister.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.first_name} {p.last_name}
-                      </option>
-                    ))}
-                  </select>
+                <div className="flex flex-col gap-2">
+                  <div className="max-h-56 overflow-y-auto rounded-xl border border-zinc-200">
+                    {availableToRegister.length === 0 ? (
+                      <div className="p-3 text-sm text-zinc-600">
+                        No hay jugadores disponibles para agregar.
+                      </div>
+                    ) : (
+                      availableToRegister.map((p) => {
+                        const checked = selectedPlayerIds.includes(p.id);
+                        return (
+                          <label
+                            key={p.id}
+                            className="flex items-center gap-3 border-b border-zinc-100 px-3 py-2 text-sm last:border-b-0"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={(e) => {
+                                setSelectedPlayerIds((prev) =>
+                                  e.target.checked
+                                    ? [...prev, p.id]
+                                    : prev.filter((id) => id !== p.id)
+                                );
+                              }}
+                              disabled={status !== "upcoming"}
+                            />
+                            <span>
+                              {p.first_name} {p.last_name}
+                              <span className="ml-2 text-xs text-zinc-500">
+                                ({p.category})
+                              </span>
+                            </span>
+                          </label>
+                        );
+                      })
+                    )}
+                  </div>
 
                   <Button
-                    onClick={addPlayerToTournament}
-                    disabled={addingPlayer || selectedPlayerId === "" || status !== "upcoming"}
+                    onClick={addPlayersToTournament}
+                    disabled={addingPlayer || selectedPlayerIds.length === 0 || status !== "upcoming"}
                     className="md:w-44"
                   >
-                    {addingPlayer ? "Agregando..." : "Agregar"}
+                    {addingPlayer ? "Agregando..." : "Agregar seleccionados"}
                   </Button>
                 </div>
 
