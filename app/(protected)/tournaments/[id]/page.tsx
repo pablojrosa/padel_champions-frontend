@@ -317,7 +317,10 @@ async function load() {
       const newTeam = {
         id: res.team_id,
         tournament_id: tournamentId,
-        players: [player1, player2],
+        players: [
+          { id: player1.id, name: `${player1.first_name} ${player1.last_name ?? ""}`.trim() },
+          { id: player2.id, name: `${player2.first_name} ${player2.last_name ?? ""}`.trim() },
+        ],
       };
 
       setTeams(prev => [newTeam, ...prev]);
