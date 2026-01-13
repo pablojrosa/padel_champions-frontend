@@ -733,9 +733,7 @@ async function load() {
                           <div>
                             <div className="text-sm font-medium">Team #{team.id}</div>
                             <div className="text-sm text-zinc-700">
-                            {team.players?.[0]?.first_name} {team.players?.[0]?.last_name} /
-                            {team.players?.[1]?.first_name} {team.players?.[1]?.last_name}
-
+                              {team.players?.[0]?.name ?? "Jugador"} / {team.players?.[1]?.name ?? "Jugador"}
                             </div>
                             <div className="text-xs text-zinc-500">
                               tournament_id: {team.tournament_id}
