@@ -95,7 +95,11 @@ function hydrateTeams(rawTeams: Team[], players: Player[]): Team[] {
     ...team,
     players: (team.players || [])
       .map((p) => playersById.get(p.id))
-      .filter((p): p is Player => !!p), // Filtra nulos y asegura el tipo Player
+      .filter((p): p is Player => !!p)
+      .map((p) => ({
+        id: p.id,
+        name: `${p.first_name} ${p.last_name ?? ""}`.trim(),
+      })),
   }));
 }
 
