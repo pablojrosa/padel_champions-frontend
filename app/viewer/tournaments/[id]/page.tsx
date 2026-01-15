@@ -196,13 +196,23 @@ export default function PublicTournamentPage() {
   return (
     <div className="mx-auto w-full max-w-6xl space-y-6 px-4 py-8">
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-        <div>
-          <h1 className="text-3xl font-semibold">
-            {tournament ? tournament.name : "Torneo"}
-          </h1>
-          <p className="mt-1 text-sm text-zinc-400">
-            {tournament?.location ? tournament.location : "Sede a confirmar"}
-          </p>
+        <div className="flex items-center gap-4">
+          {tournament?.club_logo_url ? (
+            <img
+              src={tournament.club_logo_url}
+              alt={tournament.club_name ?? "Logo del club"}
+              className="h-14 w-14 rounded-2xl border border-zinc-800 object-cover"
+            />
+          ) : null}
+          <div>
+            <h1 className="text-3xl font-semibold">
+              {tournament ? tournament.name : "Torneo"}
+            </h1>
+            <p className="mt-1 text-sm text-zinc-400">
+              {tournament?.club_name ? tournament.club_name : "Club"}
+              {tournament?.location ? ` · ${tournament.location}` : " · Sede a confirmar"}
+            </p>
+          </div>
         </div>
         <StatusBadge status={status} />
       </div>

@@ -17,6 +17,9 @@ export type Tournament = {
   match_duration_minutes?: number | null;
   start_time?: string | null;
   end_time?: string | null;
+  club_name?: string | null;
+  club_location?: string | null;
+  club_logo_url?: string | null;
 };
 
 export type Team = {
@@ -31,6 +34,14 @@ export type Team = {
 export type LoginResponse = {
   access_token: string;
   token_type: "bearer";
+};
+
+export type UserProfile = {
+  id: number;
+  email: string;
+  club_name: string | null;
+  club_location: string | null;
+  club_logo_url: string | null;
 };
 
 export type TournamentStatus = "upcoming" | "ongoing" | "groups_finished" | "finished";
