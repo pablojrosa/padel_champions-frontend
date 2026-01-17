@@ -890,6 +890,10 @@ export default function TournamentPlayoffsPage() {
                                 );
                               }
 
+                              if (item.type === "placeholder") {
+                                return null;
+                              }
+
                               const match = item.match;
                               const played = match.status === "played";
                               const canSchedule = !match.scheduled_time && !played;
