@@ -5,7 +5,7 @@ export default function DashboardPage() {
   return (
     <div className="space-y-4">
       <div>
-        <h1 className="text-2xl font-semibold">Dashboard</h1>
+        <h1 className="text-2xl font-semibold">Tablero</h1>
         <p className="text-sm text-zinc-300">Gestioná jugadores y torneos.</p>
       </div>
 
@@ -13,7 +13,7 @@ export default function DashboardPage() {
         <Link href="/players">
           <Card>
             <div className="p-5">
-              <div className="font-medium">Players</div>
+              <div className="font-medium">Jugadores</div>
               <div className="text-sm text-zinc-600">Alta, edición y bajas</div>
             </div>
           </Card>
@@ -22,7 +22,7 @@ export default function DashboardPage() {
         <Link href="/tournaments">
           <Card>
             <div className="p-5">
-              <div className="font-medium">Tournaments</div>
+              <div className="font-medium">Torneos</div>
               <div className="text-sm text-zinc-600">Crear y administrar</div>
             </div>
           </Card>
