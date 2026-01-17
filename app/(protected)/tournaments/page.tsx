@@ -70,9 +70,17 @@ export default function TournamentsPage() {
 
   return (
     <div className="space-y-4">
-      <div>
-        <h1 className="text-2xl font-semibold">Torneos</h1>
-        <p className="text-sm text-zinc-300">Creá y administrá tus torneos.</p>
+      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold">Torneos</h1>
+          <p className="text-sm text-zinc-300">Creá y administrá tus torneos.</p>
+        </div>
+        <Link
+          href="/dashboard"
+          className="inline-flex items-center justify-center rounded-xl border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-900 hover:bg-zinc-50"
+        >
+          Volver al tablero
+        </Link>
       </div>
 
       <Card>

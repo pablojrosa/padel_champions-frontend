@@ -27,6 +27,23 @@ const STAGE_ORDER: Match["stage"][] = [
   "final",
 ];
 
+const PLAYOFF_STAGES: Match["stage"][] = [
+  "round_of_32",
+  "round_of_16",
+  "quarter",
+  "semi",
+  "final",
+];
+
+const STAGE_TEAM_COUNTS: Record<Match["stage"], number> = {
+  group: 0,
+  round_of_32: 32,
+  round_of_16: 16,
+  quarter: 8,
+  semi: 4,
+  final: 2,
+};
+
 function stageLabel(stage: Match["stage"]) {
   if (stage === "round_of_32") return "16vos";
   if (stage === "round_of_16") return "Octavos";
@@ -48,6 +65,7 @@ export default function PublicTournamentPage() {
   const [standingsByGroup, setStandingsByGroup] = useState<Record<number, GroupStandingsOut>>({});
 
   const [query, setQuery] = useState("");
+  const [showGroups, setShowGroups] = useState(true);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -141,6 +159,16 @@ export default function PublicTournamentPage() {
     return matches.filter((match) => isMatchVisible(match, normalized));
   }, [matches, query, teamsById]);
 
+  const playoffMatches = useMemo(
+    () => matches.filter((match) => match.stage !== "group"),
+    [matches]
+  );
+  const hasPlayoffs = playoffMatches.length > 0;
+
+  useEffect(() => {
+    if (hasPlayoffs) setShowGroups(false);
+  }, [hasPlayoffs]);
+
   const sortedMatches = useMemo(() => {
     return [...filteredMatches].sort((a, b) => {
       const stageDiff = STAGE_ORDER.indexOf(a.stage) - STAGE_ORDER.indexOf(b.stage);
@@ -162,6 +190,52 @@ export default function PublicTournamentPage() {
     if (!sets || sets.length === 0) return "-";
     return sets.map((set) => `${set.a}-${set.b}`).join(", ");
   }
+
+  function formatSetLine(sets: Match["sets"], side: "a" | "b") {
+    if (!sets || sets.length === 0) return "";
+    return sets.map((set) => String(set[side] ?? "")).join("  ");
+  }
+
+  function normalizeTime(value?: string | null) {
+    if (!value) return "";
+    return value.slice(0, 5);
+  }
+
+  const matchesByStage = useMemo(() => {
+    const map = new Map<Match["stage"], Match[]>();
+    PLAYOFF_STAGES.forEach((stage) => map.set(stage, []));
+    playoffMatches.forEach((match) => {
+      map.get(match.stage)?.push(match);
+    });
+    return map;
+  }, [playoffMatches]);
+
+  const initialStage = useMemo(() => {
+    for (const stage of PLAYOFF_STAGES) {
+      const stageMatches = matchesByStage.get(stage) ?? [];
+      if (stageMatches.length > 0) return stage;
+    }
+    return null;
+  }, [matchesByStage]);
+
+  const activeStages = useMemo(() => {
+    if (!initialStage) return [];
+    return PLAYOFF_STAGES.filter(
+      (stage) => PLAYOFF_STAGES.indexOf(stage) >= PLAYOFF_STAGES.indexOf(initialStage)
+    );
+  }, [initialStage]);
+
+  const finalWinner = useMemo(() => {
+    const finals = matchesByStage.get("final") ?? [];
+    const finalMatch = finals.find(
+      (match) => match.status === "played" && match.winner_team_id
+    );
+    if (!finalMatch || !finalMatch.winner_team_id) return null;
+    const team = teamsById.get(finalMatch.winner_team_id);
+    const names = team?.players?.map((player) => player.name).filter(Boolean) ?? [];
+    const name = names.length > 0 ? names.join(" / ") : `Team #${finalMatch.winner_team_id}`;
+    return name;
+  }, [matchesByStage, teamsById]);
 
   function renderMatchRow(match: Match) {
     const group = match.group_id ? groupsById.get(match.group_id) : null;
@@ -194,7 +268,7 @@ export default function PublicTournamentPage() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-6xl space-y-6 px-4 py-8">
+    <div className="mx-auto w-full max-w-screen-2xl space-y-6 px-4 py-8">
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div className="flex items-center gap-4">
           {tournament?.club_logo_url ? (
@@ -263,15 +337,225 @@ export default function PublicTournamentPage() {
             </div>
           )}
 
+          {finalWinner && (
+            <Card>
+              <div className="p-5">
+                <div className="text-xs uppercase tracking-[0.18em] text-zinc-500">
+                  🏆 Pareja ganadora
+                </div>
+                <div className="mt-2 rounded-2xl border border-emerald-300 bg-emerald-100/70 px-4 py-3 text-lg font-semibold text-emerald-900">
+                  {finalWinner}
+                </div>
+              </div>
+            </Card>
+          )}
+
+          {hasPlayoffs && initialStage && (
+            <Card>
+              <div className="p-5 space-y-4">
+                <div className="text-sm font-semibold text-zinc-800">
+                  Llaves de playoffs
+                </div>
+                <div className="overflow-x-auto">
+                  <div className="flex w-full justify-between gap-8 pb-2">
+                    {activeStages.map((stage, stageIdx) => {
+                      const stageMatches = [...(matchesByStage.get(stage) ?? [])].sort(
+                        (a, b) => a.id - b.id
+                      );
+                      const expectedMatches = STAGE_TEAM_COUNTS[stage] / 2;
+                      const prevStage = stageIdx > 0 ? activeStages[stageIdx - 1] : null;
+                      const prevStageMatches = prevStage
+                        ? [...(matchesByStage.get(prevStage) ?? [])].sort(
+                            (a, b) => a.id - b.id
+                          )
+                        : [];
+                      const seededPlaceholders = Array.from(
+                        { length: expectedMatches },
+                        (_, idx) => {
+                          if (!prevStage) return { type: "placeholder", key: `${stage}-${idx}` };
+                          const left = prevStageMatches[idx * 2];
+                          const right = prevStageMatches[idx * 2 + 1];
+                          const leftWinner = left?.winner_team_id ?? null;
+                          const rightWinner = right?.winner_team_id ?? null;
+                          return {
+                            type: "placeholder",
+                            key: `${stage}-placeholder-${idx}`,
+                            seedA: leftWinner ? getTeamLabel(leftWinner) : "Por definir",
+                            seedB: rightWinner ? getTeamLabel(rightWinner) : "Por definir",
+                          };
+                        }
+                      );
+                      const items = Array.from({ length: expectedMatches }, (_, idx) => {
+                        const match = stageMatches[idx];
+                        if (match) return { type: "match", match };
+                        return seededPlaceholders[idx];
+                      });
+                      const baseMatches = initialStage
+                        ? STAGE_TEAM_COUNTS[initialStage] / 2
+                        : 0;
+                      const rowHeight = 18;
+                      const cardSpan = 5;
+                      const gapSpan = 1;
+                      const baseStep = cardSpan + gapSpan;
+                      const totalRows = Math.max(1, baseMatches * baseStep);
+                      const step = baseStep * Math.pow(2, stageIdx);
+                      const offset =
+                        stageIdx === 0
+                          ? 1
+                          : Math.max(
+                              1,
+                              Math.floor(step / 2) - Math.floor(cardSpan / 2) + 1
+                            );
+
+                      return (
+                        <div key={stage} className="min-w-[260px] space-y-3">
+                          <div className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                            {stageLabel(stage)}
+                          </div>
+                          <div
+                            className="grid gap-2"
+                            style={{
+                              gridTemplateRows: `repeat(${totalRows}, ${rowHeight}px)`,
+                            }}
+                          >
+                            {items.map((item, idx) => {
+                              const rowStart = idx * step + offset;
+                              const gridStyle = {
+                                gridRow: `${rowStart} / span ${cardSpan}`,
+                              } as const;
+
+                              if (item.type === "placeholder") {
+                                const seedA =
+                                  "seedA" in item ? item.seedA : "Por definir";
+                                const seedB =
+                                  "seedB" in item ? item.seedB : "Por definir";
+                                return (
+                                  <div
+                                    key={item.key}
+                                    className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-3 text-sm text-zinc-400"
+                                    style={gridStyle}
+                                  >
+                                    <div className="text-xs uppercase tracking-[0.12em]">
+                                      Por definir
+                                    </div>
+                                    <div className="mt-2 text-sm text-zinc-600">
+                                      {seedA}
+                                    </div>
+                                    <div className="text-xs text-zinc-400">vs</div>
+                                    <div className="text-sm text-zinc-600">
+                                      {seedB}
+                                    </div>
+                                  </div>
+                                );
+                              }
+
+                              const match = item.match;
+                              const played = match.status === "played";
+                              const schedule = match.scheduled_date
+                                ? `${match.scheduled_date} · ${normalizeTime(match.scheduled_time)}`
+                                : normalizeTime(match.scheduled_time);
+                              const scoreA = played ? formatSetLine(match.sets, "a") : "";
+                              const scoreB = played ? formatSetLine(match.sets, "b") : "";
+                              const aWinner = match.winner_team_id === match.team_a_id;
+                              const bWinner = match.winner_team_id === match.team_b_id;
+                              return (
+                                <div
+                                  key={match.id}
+                                  className={`rounded-2xl border px-3 py-2 text-sm shadow-sm ${
+                                    played
+                                      ? "border-emerald-300 bg-emerald-100/70"
+                                      : "border-zinc-200 bg-white"
+                                  }`}
+                                  style={gridStyle}
+                                >
+                                  <div className="text-xs text-zinc-500">Partido</div>
+                                  <div className="mt-1 grid grid-cols-[1fr_auto] gap-x-4 gap-y-1">
+                                    <div
+                                      className={`font-medium text-zinc-900 ${
+                                        match.winner_team_id === match.team_a_id
+                                          ? "font-semibold"
+                                          : ""
+                                      }`}
+                                    >
+                                      {getTeamLabel(match.team_a_id)}
+                                    </div>
+                                    {played && (
+                                      <div
+                                        className={`text-sm text-right ${
+                                          aWinner
+                                            ? "font-semibold text-zinc-900"
+                                            : "font-normal text-zinc-400"
+                                        }`}
+                                      >
+                                        {scoreA}
+                                      </div>
+                                    )}
+                                    <div
+                                      className={`font-medium text-zinc-900 ${
+                                        match.winner_team_id === match.team_b_id
+                                          ? "font-semibold"
+                                          : ""
+                                      }`}
+                                    >
+                                      {getTeamLabel(match.team_b_id)}
+                                    </div>
+                                    {played && (
+                                      <div
+                                        className={`text-sm text-right ${
+                                          bWinner
+                                            ? "font-semibold text-zinc-900"
+                                            : "font-normal text-zinc-400"
+                                        }`}
+                                      >
+                                        {scoreB}
+                                      </div>
+                                    )}
+                                  </div>
+                                  {played && (
+                                    <div className="mt-1 h-px w-full bg-emerald-400/70" />
+                                  )}
+                                  {schedule ? (
+                                    <div className="mt-1 text-xs text-zinc-500">
+                                      {schedule}
+                                    </div>
+                                  ) : (
+                                    <div className="mt-1 text-xs text-zinc-500">
+                                      Horario a confirmar
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            </Card>
+          )}
+
           <div className="space-y-4">
-            <h2 className="text-xl font-semibold">Zonas y posiciones</h2>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h2 className="text-xl font-semibold">Zonas y posiciones</h2>
+              {hasPlayoffs && (
+                <button
+                  type="button"
+                  onClick={() => setShowGroups((prev) => !prev)}
+                  className="text-sm font-semibold text-emerald-200 hover:text-emerald-100"
+                >
+                  {showGroups ? "Ocultar zonas" : "Mostrar zonas"}
+                </button>
+              )}
+            </div>
             {filteredGroups.length === 0 ? (
               <Card>
                 <div className="p-5 text-sm text-zinc-400">
                   Todavia no hay zonas cargadas.
                 </div>
               </Card>
-            ) : (
+            ) : showGroups ? (
               <div className="grid gap-4 lg:grid-cols-2">
                 {filteredGroups.map((group) => {
                   const standings = standingsByGroup[group.id]?.standings ?? [];
@@ -334,38 +618,46 @@ export default function PublicTournamentPage() {
                   );
                 })}
               </div>
+            ) : (
+              <Card>
+                <div className="p-5 text-sm text-zinc-400">
+                  Zonas comprimidas. Usá “Mostrar zonas” para ver la tabla completa.
+                </div>
+              </Card>
             )}
           </div>
 
-          <div className="space-y-4">
-            <h2 className="text-xl font-semibold">Partidos</h2>
-            <div className="grid gap-4 lg:grid-cols-2">
-              <Card>
-                <div className="space-y-3 p-5">
-                  <div className="text-sm font-semibold text-zinc-800">Proximos</div>
-                  {pendingMatches.length === 0 ? (
-                    <div className="text-sm text-zinc-400">No hay partidos pendientes.</div>
-                  ) : (
-                    <div className="space-y-3">
-                      {pendingMatches.map(renderMatchRow)}
-                    </div>
-                  )}
-                </div>
-              </Card>
-              <Card>
-                <div className="space-y-3 p-5">
-                  <div className="text-sm font-semibold text-zinc-800">Resultados</div>
-                  {playedMatches.length === 0 ? (
-                    <div className="text-sm text-zinc-400">No hay resultados cargados.</div>
-                  ) : (
-                    <div className="space-y-3">
-                      {playedMatches.map(renderMatchRow)}
-                    </div>
-                  )}
-                </div>
-              </Card>
+          {!hasPlayoffs && (
+            <div className="space-y-4">
+              <h2 className="text-xl font-semibold">Partidos</h2>
+              <div className="grid gap-4 lg:grid-cols-2">
+                <Card>
+                  <div className="space-y-3 p-5">
+                    <div className="text-sm font-semibold text-zinc-800">Proximos</div>
+                    {pendingMatches.length === 0 ? (
+                      <div className="text-sm text-zinc-400">No hay partidos pendientes.</div>
+                    ) : (
+                      <div className="space-y-3">
+                        {pendingMatches.map(renderMatchRow)}
+                      </div>
+                    )}
+                  </div>
+                </Card>
+                <Card>
+                  <div className="space-y-3 p-5">
+                    <div className="text-sm font-semibold text-zinc-800">Resultados</div>
+                    {playedMatches.length === 0 ? (
+                      <div className="text-sm text-zinc-400">No hay resultados cargados.</div>
+                    ) : (
+                      <div className="space-y-3">
+                        {playedMatches.map(renderMatchRow)}
+                      </div>
+                    )}
+                  </div>
+                </Card>
+              </div>
             </div>
-          </div>
+          )}
         </>
       )}
     </div>

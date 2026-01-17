@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import Card from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
@@ -25,6 +26,7 @@ const DEFAULT_SETS: EditableSet[] = [
   { a: "", b: "" },
   { a: "", b: "" },
 ];
+const HOURS = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, "0"));
 
 export default function TournamentMatchesPage() {
   const router = useRouter();
@@ -48,7 +50,8 @@ export default function TournamentMatchesPage() {
 
   const [scheduleMatch, setScheduleMatch] = useState<Match | null>(null);
   const [scheduleDate, setScheduleDate] = useState("");
-  const [scheduleTime, setScheduleTime] = useState("");
+  const [scheduleHour, setScheduleHour] = useState("");
+  const [scheduleMinute, setScheduleMinute] = useState("");
   const [scheduleCourt, setScheduleCourt] = useState("1");
   const [scheduleError, setScheduleError] = useState<string | null>(null);
   const [scheduling, setScheduling] = useState(false);
@@ -111,7 +114,8 @@ export default function TournamentMatchesPage() {
   function getStageLabel(match: Match) {
     if (match.stage === "group") {
       const group = match.group_id ? groupsById.get(match.group_id) : null;
-      return group ? group.name : "Zona";
+      if (!group) return "Zona";
+      return group.name.replace(/^group\s*/i, "Grupo ");
     }
 
     if (match.stage === "quarter") return "Cuartos";
@@ -151,13 +155,18 @@ export default function TournamentMatchesPage() {
   function openScheduleModal(match: Match) {
     setScheduleMatch(match);
     setScheduleDate(match.scheduled_date ?? "");
-    setScheduleTime(normalizeTime(match.scheduled_time));
+    const normalized = normalizeTime(match.scheduled_time);
+    const [hour = "", minute = ""] = normalized.split(":");
+    setScheduleHour(hour);
+    setScheduleMinute(minute === "00" || minute === "30" ? minute : "");
     setScheduleCourt(match.court_number ? String(match.court_number) : "1");
     setScheduleError(null);
   }
 
   function closeScheduleModal() {
     setScheduleMatch(null);
+    setScheduleHour("");
+    setScheduleMinute("");
     setScheduleError(null);
   }
 
@@ -244,8 +253,13 @@ export default function TournamentMatchesPage() {
   async function saveSchedule() {
     if (!scheduleMatch) return;
 
-    if (!scheduleDate || !scheduleTime) {
+    if (!scheduleDate || !scheduleHour || !scheduleMinute) {
       setScheduleError("Selecciona fecha y horario.");
+      return;
+    }
+
+    if (scheduleMinute !== "00" && scheduleMinute !== "30") {
+      setScheduleError("Los turnos deben ser a las :00 o :30.");
       return;
     }
 
@@ -259,6 +273,7 @@ export default function TournamentMatchesPage() {
     setScheduleError(null);
 
     try {
+      const scheduleTime = `${scheduleHour}:${scheduleMinute}`;
       const res = await api<{ updated: Match; swapped: Match | null }>(
         `/matches/${scheduleMatch.id}/schedule`,
         {
@@ -300,6 +315,23 @@ export default function TournamentMatchesPage() {
     () => matches.filter((match) => match.status === "played"),
     [matches]
   );
+  const groupStageComplete = useMemo(() => {
+    if (groups.length === 0) return false;
+
+    for (const group of groups) {
+      const groupMatches = matches.filter(
+        (match) => match.stage === "group" && match.group_id === group.id
+      );
+      const expected = (group.teams.length * (group.teams.length - 1)) / 2;
+
+      if (groupMatches.length < expected) return false;
+      if (groupMatches.some((match) => match.status !== "played" || !match.sets)) {
+        return false;
+      }
+    }
+
+    return true;
+  }, [groups, matches]);
   const matchesForTab =
     activeTab === "unscheduled"
       ? unscheduledMatches
@@ -340,25 +372,35 @@ export default function TournamentMatchesPage() {
 
           <Card>
             <div className="p-5 space-y-3">
-              <div className="flex flex-wrap items-center gap-2">
-                <Button
-                  variant={activeTab === "unscheduled" ? "primary" : "secondary"}
-                  onClick={() => setActiveTab("unscheduled")}
-                >
-                  Faltan programar ({unscheduledMatches.length})
-                </Button>
-                <Button
-                  variant={activeTab === "scheduled" ? "primary" : "secondary"}
-                  onClick={() => setActiveTab("scheduled")}
-                >
-                  Programados ({scheduledMatches.length})
-                </Button>
-                <Button
-                  variant={activeTab === "played" ? "primary" : "secondary"}
-                  onClick={() => setActiveTab("played")}
-                >
-                  Jugados ({playedMatches.length})
-                </Button>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    variant={activeTab === "unscheduled" ? "primary" : "secondary"}
+                    onClick={() => setActiveTab("unscheduled")}
+                  >
+                    Faltan programar ({unscheduledMatches.length})
+                  </Button>
+                  <Button
+                    variant={activeTab === "scheduled" ? "primary" : "secondary"}
+                    onClick={() => setActiveTab("scheduled")}
+                  >
+                    Programados ({scheduledMatches.length})
+                  </Button>
+                  <Button
+                    variant={activeTab === "played" ? "primary" : "secondary"}
+                    onClick={() => setActiveTab("played")}
+                  >
+                    Jugados ({playedMatches.length})
+                  </Button>
+                </div>
+                {groupStageComplete && (
+                  <Link
+                    href={`/tournaments/${tournamentId}/playoffs`}
+                    className="inline-flex items-center justify-center rounded-xl border border-emerald-400 px-4 py-2 text-sm font-semibold text-emerald-700 hover:bg-emerald-50"
+                  >
+                    Playoffs
+                  </Link>
+                )}
               </div>
 
               {matches.length === 0 ? (
@@ -417,7 +459,14 @@ export default function TournamentMatchesPage() {
         title="Programar partido"
         onClose={closeScheduleModal}
       >
-        <div className="space-y-4">
+        <form
+          className="space-y-4"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (scheduling) return;
+            saveSchedule();
+          }}
+        >
           <div className="text-sm text-zinc-600">
             {scheduleMatch
               ? `${getTeamLabel(scheduleMatch.team_a_id)} vs ${getTeamLabel(scheduleMatch.team_b_id)}`
@@ -430,11 +479,29 @@ export default function TournamentMatchesPage() {
               value={scheduleDate}
               onChange={(e) => setScheduleDate(e.target.value)}
             />
-            <Input
-              type="time"
-              value={scheduleTime}
-              onChange={(e) => setScheduleTime(e.target.value)}
-            />
+            <div className="grid grid-cols-2 gap-2">
+              <select
+                className="w-full rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900"
+                value={scheduleHour}
+                onChange={(e) => setScheduleHour(e.target.value)}
+              >
+                <option value="">Hora</option>
+                {HOURS.map((hour) => (
+                  <option key={hour} value={hour}>
+                    {hour}
+                  </option>
+                ))}
+              </select>
+              <select
+                className="w-full rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900"
+                value={scheduleMinute}
+                onChange={(e) => setScheduleMinute(e.target.value)}
+              >
+                <option value="">Min</option>
+                <option value="00">00</option>
+                <option value="30">30</option>
+              </select>
+            </div>
           </div>
 
           <div className="space-y-2">
@@ -455,22 +522,29 @@ export default function TournamentMatchesPage() {
           )}
 
           <div className="flex justify-end gap-2">
-            <Button variant="secondary" onClick={closeScheduleModal}>
+            <Button variant="secondary" onClick={closeScheduleModal} type="button">
               Cancelar
             </Button>
-            <Button onClick={saveSchedule} disabled={scheduling}>
+            <Button type="submit" disabled={scheduling}>
               {scheduling ? "Guardando..." : "Guardar"}
             </Button>
           </div>
-        </div>
+        </form>
       </Modal>
 
       <Modal
         open={!!selectedMatch}
-        title={selectedMatch ? `Resultado - Match #${selectedMatch.id}` : "Resultado"}
+        title="Cargar resultado"
         onClose={closeResultModal}
       >
-        <div className="space-y-4">
+        <form
+          className="space-y-4"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (!canResult || saving) return;
+            saveResult();
+          }}
+        >
           <div className="text-sm text-zinc-600">
             {selectedMatch
               ? `${getTeamLabel(selectedMatch.team_a_id)} vs ${getTeamLabel(selectedMatch.team_b_id)}`
@@ -520,14 +594,14 @@ export default function TournamentMatchesPage() {
           )}
 
           <div className="flex justify-end gap-2">
-            <Button variant="secondary" onClick={closeResultModal}>
+            <Button variant="secondary" onClick={closeResultModal} type="button">
               Cancelar
             </Button>
-            <Button onClick={saveResult} disabled={!canResult || saving}>
+            <Button type="submit" disabled={!canResult || saving}>
               {saving ? "Guardando..." : "Guardar resultado"}
             </Button>
           </div>
-        </div>
+        </form>
       </Modal>
     </div>
   );
