@@ -23,10 +23,11 @@ const faqs: { question: string; answer: React.ReactNode[] }[] = [
     ],
   },
   {
-    question: "¿Como cargo jugadores?",
+    question: "¿Como cargo parejas?",
     answer: [
-      "🧍‍♂️ Ir a Jugadores y completar nombre, apellido y categoría.",
-      "✅ Guardar y confirmar que aparece en la lista.",
+      "👥 En el detalle del torneo, tocá “Agregar pareja”.",
+      "✍️ Cargá nombre, apellido y categoría de ambos jugadores.",
+      "✅ Guardar y confirmar que la pareja aparece en la lista.",
     ],
   },
   {
@@ -34,14 +35,6 @@ const faqs: { question: string; answer: React.ReactNode[] }[] = [
     answer: [
       "🧭 Ir a Torneos y completar los datos básicos.",
       "📌 Guardar y abrir el detalle del torneo.",
-    ],
-  },
-  {
-    question: "¿Como formo equipos?",
-    answer: [
-      "👥 En el detalle del torneo, registrá jugadores al torneo.",
-      "✌️ Seleccioná dos jugadores y creá la pareja.",
-      "🔁 Repetí hasta completar los equipos necesarios.",
     ],
   },
   {
@@ -62,16 +55,9 @@ const faqs: { question: string; answer: React.ReactNode[] }[] = [
   {
     question: "¿Como cargo resultados?",
     answer: [
-      "🧾 Podés hacerlo desde Partidos o desde el Cronograma.",
-      "🟡 Primero iniciá el partido (estado “Jugando”).",
-      "🏁 Cargá sets y finalizá el partido.",
-    ],
-  },
-  {
-    question: "¿Como uso el cronograma sugerido?",
-    answer: [
-      "🗓️ Se calcula con horario, duración y canchas del torneo.",
-      "🖱️ Arrastrá partidos pendientes para reprogramar (con swap automático).",
+      "🧾 Entrá a Partidos y buscá la pestaña Programados.",
+      "🗓️ Si falta, programá el partido con fecha y hora.",
+      "🏁 Cargá los sets y guardá el resultado.",
     ],
   },
   {

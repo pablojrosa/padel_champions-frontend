@@ -25,7 +25,7 @@ export default function Navbar() {
 
   return (
     <header className="border-b border-zinc-200 bg-white">
-      <div className="mx-auto max-w-5xl px-4 md:px-6 h-14 flex items-center justify-between">
+      <div className="mx-auto max-w-6xl px-4 md:px-6 h-14 flex items-center justify-between">
         <Link href="/dashboard" className="text-lg font-semibold tracking-wide text-zinc-800">
           Padel Champions
         </Link>

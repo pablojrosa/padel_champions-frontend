@@ -71,7 +71,7 @@ export default function HomePage() {
             <div className="flex items-center justify-between text-xs uppercase tracking-[0.2em] text-zinc-500">
               Torneo en vivo
               <span className="rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2 py-1 text-[10px] text-emerald-200">
-                Ongoing
+                En curso
               </span>
             </div>
             <div className="space-y-3 rounded-2xl border border-zinc-800 bg-zinc-900/80 p-4 transition duration-300 hover:-translate-y-1 hover:border-zinc-700 hover:bg-zinc-900/90 hover:shadow-lg hover:shadow-black/30">

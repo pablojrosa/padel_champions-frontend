@@ -257,9 +257,9 @@ export default function GroupsPanel({
       <div className="p-5 space-y-3">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <div className="font-medium">Zonas (Groups)</div>
+            <div className="font-medium">Zona de grupos</div>
             <div className="text-xs text-zinc-600">
-              Se generan solo cuando el torneo está <b>upcoming</b>.
+              Se generan solo cuando el torneo está en estado <b>Por jugar</b>.
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -307,7 +307,7 @@ export default function GroupsPanel({
               onDrop={(e) => handleDrop(e, g.id)}
             >
               <div className="flex justify-between">
-                <div className="font-medium">{g.name}</div>
+                <div className="font-medium">{g.name.replace(/^Group\s+/i, "Grupo ")}</div>
                 <div className="flex items-center gap-2">
                   {status === "upcoming" && g.teams.length === 0 && (
                     <button
@@ -323,7 +323,6 @@ export default function GroupsPanel({
                   >
                     Tabla
                   </Link>
-                  <div className="text-xs text-zinc-500">#{g.id}</div>
                 </div>
               </div>
 

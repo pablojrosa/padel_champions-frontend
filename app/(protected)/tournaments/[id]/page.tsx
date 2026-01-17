@@ -414,7 +414,7 @@ async function load() {
     <div className="space-y-4">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold">Tournament</h1>
+          <h1 className="text-2xl font-semibold">Mi Torneo</h1>
           <p className="text-sm text-zinc-300">Detalle, jugadores y equipos.</p>
         </div>
 
@@ -666,19 +666,21 @@ async function load() {
             </div>
 
             <div className="flex flex-col items-end gap-2">
-              <Button variant="secondary" onClick={copyPublicLink}>
-                Copiar link publico
-              </Button>
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                <Button variant="secondary" onClick={copyPublicLink}>
+                  Copiar link publico
+                </Button>
+                <Button
+                  onClick={startTournament}
+                  disabled={startingTournament || status !== "upcoming" || groups.length === 0 || teams.length < 1}
+                  className="whitespace-nowrap"
+                >
+                  {startingTournament ? "Iniciando..." : "Iniciar torneo"}
+                </Button>
+              </div>
               {copyMessage && (
                 <div className="text-xs text-zinc-500">{copyMessage}</div>
               )}
-              <Button
-                onClick={startTournament}
-                disabled={startingTournament || status !== "upcoming" || groups.length === 0 || teams.length < 1}
-                className="whitespace-nowrap"
-              >
-                {startingTournament ? "Iniciando..." : "Iniciar torneo"}
-              </Button>
             </div>
           </div>
           </Card>
@@ -737,7 +739,9 @@ async function load() {
                                   const group = groups.find((g) =>
                                     g.teams?.some((t) => t.id === team.id)
                                   );
-                                  return group ? `Zona: ${group.name}` : "Zona: Sin asignar";
+                                  if (!group) return "Grupo: Sin asignar";
+                                  const label = group.name.replace(/^Group\s+/i, "");
+                                  return `Grupo ${label}`;
                                 })()}
                               </div>
                             </div>
