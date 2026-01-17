@@ -449,6 +449,10 @@ export default function PublicTournamentPage() {
                                 );
                               }
 
+                              if (!("match" in item)) {
+                                return null;
+                              }
+
                               const match = item.match;
                               const played = match.status === "played";
                               const schedule = match.scheduled_date
