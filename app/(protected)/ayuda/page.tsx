@@ -19,22 +19,20 @@ const faqs: { question: string; answer: React.ReactNode[] }[] = [
         </Link>
         .
       </>,
-      "🏆 Entrá a Tournaments para crear tu primer torneo.",
-      "⏰ Completá horario de inicio, último partido, duración y canchas.",
+      "🏆 Entrá a Torneos para crear tu primer torneo.",
     ],
   },
   {
     question: "¿Como cargo jugadores?",
     answer: [
-      "🧍‍♂️ Ir a Players y completar nombre, apellido y categoría.",
+      "🧍‍♂️ Ir a Jugadores y completar nombre, apellido y categoría.",
       "✅ Guardar y confirmar que aparece en la lista.",
     ],
   },
   {
     question: "¿Como creo un torneo?",
     answer: [
-      "🧭 Ir a Tournaments y completar los datos básicos.",
-      "📅 Agregar fechas, horarios y cantidad de canchas.",
+      "🧭 Ir a Torneos y completar los datos básicos.",
       "📌 Guardar y abrir el detalle del torneo.",
     ],
   },

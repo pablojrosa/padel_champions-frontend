@@ -59,14 +59,14 @@ export default function Navbar() {
                 href="/players"
                 onClick={() => setMenuOpen(false)}
               >
-                Players
+                Jugadores
               </Link>
               <Link
                 className="block rounded-lg px-3 py-2 text-sm text-zinc-800 hover:bg-zinc-50"
                 href="/tournaments"
                 onClick={() => setMenuOpen(false)}
               >
-                Tournaments
+                Torneos
               </Link>
               <button
                 type="button"

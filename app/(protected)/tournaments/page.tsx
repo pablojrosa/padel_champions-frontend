@@ -71,7 +71,7 @@ export default function TournamentsPage() {
   return (
     <div className="space-y-4">
       <div>
-        <h1 className="text-2xl font-semibold">Tournaments</h1>
+        <h1 className="text-2xl font-semibold">Torneos</h1>
         <p className="text-sm text-zinc-300">Creá y administrá tus torneos.</p>
       </div>
 

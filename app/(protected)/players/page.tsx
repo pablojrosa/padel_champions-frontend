@@ -110,7 +110,7 @@ export default function PlayersPage() {
   return (
     <div className="space-y-4">
       <div>
-        <h1 className="text-2xl font-semibold">Players</h1>
+        <h1 className="text-2xl font-semibold">Jugadores</h1>
         <p className="text-sm text-zinc-300">Cargá y mantené tu lista de jugadores.</p>
       </div>
 
