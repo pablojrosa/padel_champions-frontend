@@ -3,12 +3,12 @@ import type { TournamentStatus } from "@/lib/types";
 export default function StatusBadge({ status }: { status: TournamentStatus }) {
   const label =
     status === "upcoming"
-      ? "Upcoming"
+      ? "Por jugar"
       : status === "ongoing"
-      ? "Ongoing"
+      ? "En curso"
       : status === "groups_finished"
-      ? "Groups finished"
-      : "Finished";
+      ? "Zonas finalizadas"
+      : "Finalizado";
 
   const cls =
     status === "upcoming"

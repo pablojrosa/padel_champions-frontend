@@ -437,13 +437,16 @@ export default function TournamentMatchesPage() {
             />
           </div>
 
-          <Input
-            type="number"
-            min={1}
-            placeholder="Cancha"
-            value={scheduleCourt}
-            onChange={(e) => setScheduleCourt(e.target.value)}
-          />
+          <div className="space-y-2">
+            <label className="text-xs font-semibold text-zinc-500">Cancha</label>
+            <Input
+              type="number"
+              min={1}
+              placeholder="Numero de cancha"
+              value={scheduleCourt}
+              onChange={(e) => setScheduleCourt(e.target.value)}
+            />
+          </div>
 
           {scheduleError && (
             <div className="rounded-xl border border-red-300 bg-red-100 p-3 text-sm text-red-800">
