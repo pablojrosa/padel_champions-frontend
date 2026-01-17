@@ -602,21 +602,27 @@ export default function TournamentPlayoffsPage() {
   const canEdit = status === "ongoing" || status === "groups_finished";
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold">Playoffs</h1>
+    <div className="space-y-8">
+      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+        <div className="space-y-2">
+          <div className="text-xs uppercase tracking-[0.3em] text-zinc-400">
+            Etapas finales
+          </div>
+          <h1 className="text-3xl font-semibold">Playoffs</h1>
           <p className="text-sm text-zinc-300">Generacion y cruces por instancia.</p>
         </div>
 
-        <Button variant="secondary" onClick={() => router.push(`/tournaments/${tournamentId}`)}>
+        <Button
+          variant="secondary"
+          onClick={() => router.push(`/tournaments/${tournamentId}`)}
+        >
           Volver
         </Button>
       </div>
 
       {loading ? (
-        <Card>
-          <div className="p-5 text-sm text-zinc-600">Cargando...</div>
+        <Card className="bg-white/95">
+          <div className="p-6 text-sm text-zinc-600">Cargando...</div>
         </Card>
       ) : (
         <>
@@ -628,8 +634,8 @@ export default function TournamentPlayoffsPage() {
 
           {!hasPlayoffs && (
             <>
-              <Card>
-                <div className="p-5 space-y-4">
+              <Card className="bg-white/95">
+                <div className="p-6 space-y-4">
                   <div className="flex flex-col gap-2">
                     <div className="text-sm font-semibold text-zinc-800">Instancias disponibles</div>
                     {availableStages.length === 0 ? (
@@ -661,8 +667,8 @@ export default function TournamentPlayoffsPage() {
                 </div>
               </Card>
 
-              <Card>
-                <div className="p-5 space-y-4">
+              <Card className="bg-white/95">
+                <div className="p-6 space-y-4">
                   <div className="text-sm font-semibold text-zinc-800">Armado manual (primera ronda)</div>
 
                   {latestStage ? (
@@ -773,8 +779,8 @@ export default function TournamentPlayoffsPage() {
           )}
 
           {finalWinner && (
-            <Card>
-              <div className="p-5 space-y-3">
+            <Card className="bg-white/95">
+              <div className="p-6 space-y-3">
                 <div className="text-sm font-semibold text-zinc-800">Campeones</div>
                 <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-emerald-900">
                   <div className="text-xs uppercase tracking-wide text-emerald-700">
@@ -787,8 +793,8 @@ export default function TournamentPlayoffsPage() {
           )}
 
           {PLAYOFF_STAGES.some((stage) => (matchesByStage.get(stage) ?? []).length > 0) && (
-            <Card>
-              <div className="p-5 space-y-4">
+            <Card className="bg-white/95">
+              <div className="p-6 space-y-4">
                 <div className="text-sm font-semibold text-zinc-800">
                   Cuadro de playoffs
                 </div>

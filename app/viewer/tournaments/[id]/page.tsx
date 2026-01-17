@@ -268,7 +268,7 @@ export default function PublicTournamentPage() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-screen-2xl space-y-6 px-4 py-8">
+    <div className="mx-auto w-full max-w-screen-2xl space-y-8 px-4 py-8">
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div className="flex items-center gap-4">
           {tournament?.club_logo_url ? (
@@ -291,7 +291,7 @@ export default function PublicTournamentPage() {
         <StatusBadge status={status} />
       </div>
 
-      <Card>
+      <Card className="bg-white/95">
         <div className="grid gap-4 p-5 md:grid-cols-3">
           <div>
             <div className="text-xs uppercase text-zinc-800">Categoria</div>
@@ -314,7 +314,7 @@ export default function PublicTournamentPage() {
         </div>
       </Card>
 
-      <Card>
+      <Card className="bg-white/95">
         <div className="p-5">
           <div className="text-sm font-medium text-zinc-700">Buscar jugador o pareja</div>
           <Input
@@ -326,7 +326,7 @@ export default function PublicTournamentPage() {
       </Card>
 
       {loading ? (
-        <Card>
+        <Card className="bg-white/95">
           <div className="p-5 text-sm text-zinc-400">Cargando...</div>
         </Card>
       ) : (
@@ -338,7 +338,7 @@ export default function PublicTournamentPage() {
           )}
 
           {finalWinner && (
-            <Card>
+            <Card className="bg-white/95">
               <div className="p-5">
                 <div className="text-xs uppercase tracking-[0.18em] text-zinc-500">
                   🏆 Pareja ganadora
@@ -351,7 +351,7 @@ export default function PublicTournamentPage() {
           )}
 
           {hasPlayoffs && initialStage && (
-            <Card>
+            <Card className="bg-white/95">
               <div className="p-5 space-y-4">
                 <div className="text-sm font-semibold text-zinc-800">
                   Llaves de playoffs
@@ -550,7 +550,7 @@ export default function PublicTournamentPage() {
               )}
             </div>
             {filteredGroups.length === 0 ? (
-              <Card>
+              <Card className="bg-white/95">
                 <div className="p-5 text-sm text-zinc-400">
                   Todavia no hay zonas cargadas.
                 </div>
@@ -619,7 +619,7 @@ export default function PublicTournamentPage() {
                 })}
               </div>
             ) : (
-              <Card>
+              <Card className="bg-white/95">
                 <div className="p-5 text-sm text-zinc-400">
                   Zonas comprimidas. Usá “Mostrar zonas” para ver la tabla completa.
                 </div>

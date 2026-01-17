@@ -70,10 +70,13 @@ export default function ProfilePage() {
   }
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold">Perfil del club</h1>
+    <div className="space-y-8">
+      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+        <div className="space-y-2">
+          <div className="text-xs uppercase tracking-[0.3em] text-zinc-400">
+            Ajustes
+          </div>
+          <h1 className="text-3xl font-semibold">Perfil del club</h1>
           <p className="text-sm text-zinc-300">
             Personalizá la info que verán tus jugadores.
           </p>
@@ -84,12 +87,12 @@ export default function ProfilePage() {
       </div>
 
       {loading ? (
-        <Card>
-          <div className="p-5 text-sm text-zinc-600">Cargando...</div>
+        <Card className="bg-white/95">
+          <div className="p-6 text-sm text-zinc-600">Cargando...</div>
         </Card>
       ) : (
-        <Card>
-          <div className="p-5 space-y-4">
+        <Card className="bg-white/95">
+          <div className="p-6 space-y-5">
             <div className="grid gap-3 md:grid-cols-2">
               <div className="space-y-1">
                 <label className="text-sm font-medium">Nombre del club</label>

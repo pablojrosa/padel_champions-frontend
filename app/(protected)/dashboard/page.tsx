@@ -94,32 +94,41 @@ export default function DashboardPage() {
   );
 
   return (
-    <div className="space-y-6">
-      <div className="space-y-1">
-        <h1 className="text-2xl font-semibold">Bienvenido de nuevo! 👋</h1>
+    <div className="space-y-8">
+      <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+        <div className="space-y-2">
+          <div className="text-xs uppercase tracking-[0.3em] text-zinc-400">
+            Panel principal
+          </div>
+          <h1 className="text-3xl font-semibold">Bienvenido de nuevo</h1>
+          <p className="text-sm text-zinc-300">
+            Revisá el estado general y entrá rápido a los torneos.
+          </p>
+        </div>
+        <div className="text-xs text-zinc-400">
+          {loading ? "Actualizando métricas..." : "Actualizado ahora"}
+        </div>
       </div>
 
       <Link href="/tournaments" className="block">
-        <Card className="bg-amber-50 ring-amber-200">
-          <div className="p-5 md:p-6 flex flex-col gap-2">
-            <div className="text-xs uppercase tracking-[0.2em] text-zinc-500">
+        <Card className="bg-gradient-to-br from-amber-50 via-amber-100/70 to-amber-50 ring-amber-200/70 transition hover:-translate-y-0.5 hover:shadow-xl">
+          <div className="p-6 flex flex-col gap-2">
+            <div className="text-xs uppercase tracking-[0.28em] text-amber-700/70">
               Acceso rápido
             </div>
-            <div className="text-lg font-semibold">Torneos</div>
-            <div className="text-sm text-zinc-600">
+            <div className="text-xl font-semibold text-zinc-900">Torneos</div>
+            <div className="text-sm text-zinc-700">
               Crear, organizar y administrar.
             </div>
           </div>
         </Card>
       </Link>
 
-      <Card>
-        <div className="p-5 md:p-6 space-y-4">
-          <div className="flex items-center justify-between">
-            <div className="font-semibold text-lg">Resumen</div>
-            {loading ? (
-              <div className="text-xs text-zinc-500">Actualizando...</div>
-            ) : (
+      <Card className="bg-white/95">
+        <div className="p-6 space-y-5">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="text-lg font-semibold text-zinc-900">Resumen</div>
+            {!loading && (
               <div className="text-xs text-zinc-500">
                 {stats.tournaments} torneos en total
               </div>
@@ -132,13 +141,13 @@ export default function DashboardPage() {
             </div>
           )}
 
-          <div className="grid gap-3 md:grid-cols-3">
+          <div className="grid gap-4 md:grid-cols-3">
             {statItems.map((item) => (
               <div
                 key={item.label}
-                className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-4"
+                className="rounded-2xl border border-zinc-200 bg-zinc-50/80 px-4 py-4 shadow-sm"
               >
-                <div className="text-xs uppercase tracking-[0.18em] text-zinc-500">
+                <div className="text-xs uppercase tracking-[0.2em] text-zinc-500">
                   {item.label}
                 </div>
                 <div className="mt-2 text-2xl font-semibold text-zinc-900">

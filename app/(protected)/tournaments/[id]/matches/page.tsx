@@ -346,10 +346,13 @@ export default function TournamentMatchesPage() {
         : "No hay partidos jugados.";
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold">Partidos</h1>
+    <div className="space-y-8">
+      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+        <div className="space-y-2">
+          <div className="text-xs uppercase tracking-[0.3em] text-zinc-400">
+            Calendario
+          </div>
+          <h1 className="text-3xl font-semibold">Partidos</h1>
           <p className="text-sm text-zinc-300">Resultados y estado por fase.</p>
         </div>
 
@@ -359,8 +362,8 @@ export default function TournamentMatchesPage() {
       </div>
 
       {loading ? (
-        <Card>
-          <div className="p-5 text-sm text-zinc-600">Cargando...</div>
+        <Card className="bg-white/95">
+          <div className="p-6 text-sm text-zinc-600">Cargando...</div>
         </Card>
       ) : (
         <>
@@ -370,8 +373,8 @@ export default function TournamentMatchesPage() {
             </div>
           )}
 
-          <Card>
-            <div className="p-5 space-y-3">
+          <Card className="bg-white/95">
+            <div className="p-6 space-y-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="flex flex-wrap items-center gap-2">
                   <Button

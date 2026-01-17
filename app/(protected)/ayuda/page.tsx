@@ -75,10 +75,13 @@ export default function HelpPage() {
   return (
     <main className="min-h-screen bg-zinc-950 text-zinc-100">
       <div className="mx-auto w-full max-w-5xl px-4 py-10 md:px-8">
-        <div className="flex items-start justify-between gap-4">
-          <div>
+        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+          <div className="space-y-2">
+            <div className="text-xs uppercase tracking-[0.3em] text-zinc-400">
+              Soporte
+            </div>
             <h1 className="text-3xl font-semibold">Ayuda</h1>
-            <p className="mt-2 text-sm text-zinc-400">
+            <p className="text-sm text-zinc-400">
               Guía rápida para empezar a organizar torneos.
             </p>
           </div>
@@ -94,7 +97,7 @@ export default function HelpPage() {
           {faqs.map((faq, index) => {
             const isOpen = openIndex === index;
             return (
-              <Card key={faq.question}>
+              <Card key={faq.question} className="bg-white/95">
                 <button
                   type="button"
                   onClick={() => setOpenIndex(isOpen ? null : index)}

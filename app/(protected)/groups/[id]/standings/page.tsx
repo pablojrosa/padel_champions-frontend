@@ -54,10 +54,13 @@ export default function GroupStandingsPage() {
   }, [data]);
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold">Tabla de posiciones</h1>
+    <div className="space-y-8">
+      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+        <div className="space-y-2">
+          <div className="text-xs uppercase tracking-[0.3em] text-zinc-400">
+            Zonas
+          </div>
+          <h1 className="text-3xl font-semibold">Tabla de posiciones</h1>
           <p className="text-sm text-zinc-300">
             {data ? data.group_name : "Grupo"}
           </p>
@@ -69,8 +72,8 @@ export default function GroupStandingsPage() {
       </div>
 
       {loading ? (
-        <Card>
-          <div className="p-5 text-sm text-zinc-600">Cargando...</div>
+        <Card className="bg-white/95">
+          <div className="p-6 text-sm text-zinc-600">Cargando...</div>
         </Card>
       ) : (
         <>
@@ -80,8 +83,8 @@ export default function GroupStandingsPage() {
             </div>
           )}
 
-          <Card>
-            <div className="p-5 overflow-x-auto">
+          <Card className="bg-white/95">
+            <div className="p-6 overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="text-left text-zinc-500">
