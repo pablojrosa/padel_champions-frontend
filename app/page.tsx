@@ -27,14 +27,14 @@ export default function HomePage() {
       <section className="relative z-10 mx-auto grid w-full max-w-6xl gap-10 px-4 pb-16 pt-8 md:grid-cols-[1.1fr_0.9fr] md:items-center md:px-8">
         <div className="space-y-6">
           <span className="inline-flex items-center gap-2 rounded-full border border-zinc-800 bg-zinc-900/70 px-3 py-1 text-xs uppercase tracking-[0.2em] text-zinc-400">
-            Organiza tu torneo sin caos
+            Organizar un torneo dejó de ser un caos
           </span>
           <h1 className="text-4xl font-semibold leading-tight md:text-5xl">
-            Gestiona torneos de padel con zonas, partidos y cronogramas claros.
+            Gestiona tus torneos de padel con grupos, parejas y partidos.
           </h1>
           <p className="text-base text-zinc-300 md:text-lg">
-            Padel Champions te ayuda a crear torneos, cargar resultados, generar grupos y
-            armar un cronograma sugerido por cancha en minutos.
+            Con Padel Champions creas torneos, cargar parejas, generar los grupos y
+            programas partidos en minutos.
           </p>
           <div className="flex flex-wrap items-center gap-3">
             <Link
@@ -61,7 +61,7 @@ export default function HomePage() {
             </div>
             <div>
               <div className="text-lg font-semibold text-white">+1</div>
-              Cronograma por cancha
+              Programacion simple
             </div>
           </div>
         </div>
@@ -86,18 +86,18 @@ export default function HomePage() {
               </div>
             </div>
             <div className="space-y-3 rounded-2xl border border-zinc-800 bg-zinc-900/80 p-4 transition duration-300 hover:-translate-y-1 hover:border-zinc-700 hover:bg-zinc-900/90 hover:shadow-lg hover:shadow-black/30">
-              <div className="text-sm font-semibold text-zinc-100">Cronograma sugerido</div>
+              <div className="text-sm font-semibold text-zinc-100">Programacion de partidos</div>
               <div className="grid gap-2 text-xs text-zinc-400">
                 <div className="rounded-lg border border-zinc-800 bg-zinc-950/70 px-3 py-2">
-                  18:00 · Cancha 2 · Partido 7
+                  17/01 · 18:00 · Cancha 2
                 </div>
                 <div className="rounded-lg border border-zinc-800 bg-zinc-950/70 px-3 py-2">
-                  18:00 · Cancha 3 · Partido 8
+                  17/01 · 19:00 · Cancha 3
                 </div>
               </div>
             </div>
             <div className="rounded-2xl border border-dashed border-zinc-700/70 bg-zinc-950/60 px-4 py-3 text-xs text-zinc-500 transition duration-300 hover:border-emerald-400/40 hover:text-emerald-200">
-              Arrastrá y soltá partidos para ajustar horarios al instante.
+              Programa partidos en segundos con fecha, hora y cancha.
             </div>
           </div>
         </div>
@@ -111,8 +111,8 @@ export default function HomePage() {
               body: "Generá grupos, cargá resultados y seguí la tabla de posiciones en tiempo real.",
             },
             {
-              title: "Cronograma por cancha",
-              body: "Definí horario de inicio, duración y canchas. Te sugerimos la grilla automáticamente.",
+              title: "Parejas en un click",
+              body: "Cargá dos jugadores, guardá la pareja y empezá a organizar el torneo.",
             },
             {
               title: "Vista pública para jugadores",
@@ -134,7 +134,7 @@ export default function HomePage() {
         <div className="rounded-3xl border border-zinc-800 bg-zinc-900/70 p-8 text-center">
           <h2 className="text-2xl font-semibold">Listo para organizar tu proximo torneo?</h2>
           <p className="mt-2 text-sm text-zinc-400">
-            Crea tu cuenta y arma el torneo con cronograma sugerido en minutos.
+            Crea tu cuenta y arma el torneo con parejas, zonas y partidos en minutos.
           </p>
           <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
             <Link
