@@ -1,6 +1,4 @@
-import Navbar from "./Navbar";
-
-export default function AppShell({ children }: { children: React.ReactNode }) {
+export default function ViewerLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="relative min-h-screen overflow-hidden bg-zinc-950 text-zinc-100">
       <div className="pointer-events-none absolute inset-0">
@@ -9,10 +7,12 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         <div className="ambient-blobs blob-3 absolute bottom-0 left-1/3 h-80 w-80 rounded-full bg-sky-500/10 blur-[140px]" />
       </div>
       <div className="relative z-10">
-        <Navbar />
-        <main className="mx-auto w-full max-w-screen-2xl p-4 md:p-6">
-          {children}
-        </main>
+        <header className="mx-auto flex w-full max-w-screen-2xl items-center justify-between px-4 py-5">
+          <div className="text-sm font-semibold tracking-[0.2em] text-zinc-300">
+            Padel Champions
+          </div>
+        </header>
+        {children}
       </div>
     </div>
   );

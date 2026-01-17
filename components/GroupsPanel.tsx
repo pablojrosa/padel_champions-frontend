@@ -253,11 +253,11 @@ export default function GroupsPanel({
   }
 
   return (
-    <Card>
-      <div className="p-5 space-y-3">
+    <Card className="bg-white/95">
+      <div className="p-6 space-y-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <div className="font-medium">Zona de grupos</div>
+            <div className="text-sm font-semibold text-zinc-800">Zona de grupos</div>
             <div className="text-xs text-zinc-600">
               Se generan solo cuando el torneo está en estado <b>Por jugar</b>.
             </div>
@@ -298,11 +298,11 @@ export default function GroupsPanel({
         </div>
 
         {/* Groups */}
-        <div className="grid gap-3 md:grid-cols-2">
+        <div className="grid gap-4 md:grid-cols-2">
           {groups.map((g) => (
             <div
               key={g.id}
-              className="rounded-2xl border border-zinc-200 p-4"
+              className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm"
               onDragOver={(e) => e.preventDefault()}
               onDrop={(e) => handleDrop(e, g.id)}
             >

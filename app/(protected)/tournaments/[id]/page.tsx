@@ -33,6 +33,7 @@ export default function TournamentDetailPage() {
 
   type UiTeam = Team & { pending?: boolean };
   const [teams, setTeams] = useState<UiTeam[]>([]);
+  const [players, setPlayers] = useState<Player[]>([]);
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -70,6 +71,19 @@ export default function TournamentDetailPage() {
   const [editLocation, setEditLocation] = useState("");
   const [savingEdit, setSavingEdit] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
+
+  const [editPairOpen, setEditPairOpen] = useState(false);
+  const [editPairSaving, setEditPairSaving] = useState(false);
+  const [editPairError, setEditPairError] = useState<string | null>(null);
+  const [editTeamId, setEditTeamId] = useState<number | null>(null);
+  const [editP1Id, setEditP1Id] = useState<number | null>(null);
+  const [editP2Id, setEditP2Id] = useState<number | null>(null);
+  const [editP1FirstName, setEditP1FirstName] = useState("");
+  const [editP1LastName, setEditP1LastName] = useState("");
+  const [editP1Category, setEditP1Category] = useState("");
+  const [editP2FirstName, setEditP2FirstName] = useState("");
+  const [editP2LastName, setEditP2LastName] = useState("");
+  const [editP2Category, setEditP2Category] = useState("");
 
   const categories = ["7ma", "6ta", "5ta", "4ta", "3ra", "2da", "1ra"];
 
@@ -123,6 +137,7 @@ async function load() {
     const found = tournaments.find((t) => t.id === tournamentId) ?? null;
     setTournament(found);
     setStatus(statusRes.status);
+    setPlayers(tPlayers || []);
     
     // Hidratamos equipos usando los jugadores recién obtenidos
     const hydratedTeams = hydrateTeams(rawTeams || [], tPlayers || []);
@@ -232,6 +247,89 @@ async function load() {
     setPairOpen(true);
   }
 
+  function openEditPairModal(team: UiTeam) {
+    if (status !== "upcoming") return;
+    const [player1, player2] = team.players ?? [];
+    const p1 = players.find((p) => p.id === player1?.id) ?? null;
+    const p2 = players.find((p) => p.id === player2?.id) ?? null;
+
+    setEditTeamId(team.id);
+    setEditP1Id(p1?.id ?? player1?.id ?? null);
+    setEditP2Id(p2?.id ?? player2?.id ?? null);
+    setEditP1FirstName(p1?.first_name ?? "");
+    setEditP1LastName(p1?.last_name ?? "");
+    setEditP1Category(p1?.category ?? "");
+    setEditP2FirstName(p2?.first_name ?? "");
+    setEditP2LastName(p2?.last_name ?? "");
+    setEditP2Category(p2?.category ?? "");
+    setEditPairError(null);
+    setEditPairOpen(true);
+  }
+
+  async function saveEditPair() {
+    if (!editTeamId || !editP1Id || !editP2Id) return;
+    if (
+      !editP1FirstName.trim() ||
+      !editP1LastName.trim() ||
+      !editP1Category ||
+      !editP2FirstName.trim() ||
+      !editP2LastName.trim() ||
+      !editP2Category
+    ) {
+      setEditPairError("Completá los datos de ambos jugadores.");
+      return;
+    }
+
+    setEditPairSaving(true);
+    setEditPairError(null);
+    try {
+      const updated = await api<{ id: number; players: Player[] }>(
+        `/tournaments/${tournamentId}/teams/${editTeamId}`,
+        {
+          method: "PATCH",
+          body: {
+            players: [
+              {
+                player_id: editP1Id,
+                first_name: editP1FirstName.trim(),
+                last_name: editP1LastName.trim(),
+                category: editP1Category,
+              },
+              {
+                player_id: editP2Id,
+                first_name: editP2FirstName.trim(),
+                last_name: editP2LastName.trim(),
+                category: editP2Category,
+              },
+            ],
+          },
+        }
+      );
+
+      setTeams((prev) =>
+        prev.map((team) => {
+          if (team.id !== updated.id) return team;
+          const mappedPlayers = updated.players.map((p) => ({
+            id: p.id,
+            name: `${p.first_name} ${p.last_name ?? ""}`.trim(),
+          }));
+          return { ...team, players: mappedPlayers };
+        })
+      );
+      setPlayers((prev) =>
+        prev.map((p) => {
+          const replacement = updated.players.find((u) => u.id === p.id);
+          return replacement ? replacement : p;
+        })
+      );
+      setEditPairOpen(false);
+    } catch (err: any) {
+      setEditPairError(err?.message ?? "No se pudo editar la pareja");
+    } finally {
+      setEditPairSaving(false);
+    }
+  }
+
   async function createPair() {
     if (
       !p1FirstName.trim() ||
@@ -288,13 +386,16 @@ async function load() {
             : team
         )
       );
-      const [rawTeams, tGroups] = await Promise.all([
+      const [rawTeams, tGroups, tPlayers] = await Promise.all([
         api<TeamApi[]>(`/tournaments/${tournamentId}/teams`),
         apiMaybe<TournamentGroupOut[]>(`/tournaments/${tournamentId}/groups`) ||
+          Promise.resolve([]),
+        apiMaybe<Player[]>(`/tournaments/${tournamentId}/players`) ||
           Promise.resolve([]),
       ]);
       setTeams(mapTeamsFromApi(rawTeams, tournamentId));
       setGroups(tGroups || []);
+      setPlayers(tPlayers || []);
     } catch (err: any) {
       setTeams((prev) => prev.filter((team) => team.id !== tempId));
       setError(err?.message ?? "Failed to create team");
@@ -411,11 +512,14 @@ async function load() {
       : null;
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold">Mi Torneo</h1>
-          <p className="text-sm text-zinc-300">Detalle, jugadores y equipos.</p>
+    <div className="space-y-8">
+      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+        <div className="space-y-2">
+          <div className="text-xs uppercase tracking-[0.3em] text-zinc-400">
+            Gestion
+          </div>
+          <h1 className="text-3xl font-semibold">Detalle del torneo</h1>
+          <p className="text-sm text-zinc-300">Equipos, zonas y estado general.</p>
         </div>
 
         <div className="flex gap-2">
@@ -496,8 +600,8 @@ async function load() {
       </div>
 
       {loading ? (
-        <Card>
-          <div className="p-5 text-sm text-zinc-600">Cargando...</div>
+        <Card className="bg-white/95">
+          <div className="p-6 text-sm text-zinc-600">Cargando...</div>
         </Card>
       ) : (
         <>
@@ -628,16 +732,97 @@ async function load() {
             </div>
           </Modal>
 
+          <Modal
+            open={editPairOpen}
+            title="Editar pareja"
+            onClose={() => setEditPairOpen(false)}
+          >
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <div className="text-sm font-medium text-zinc-900">Jugador 1</div>
+                <div className="grid gap-2 md:grid-cols-2">
+                  <Input
+                    placeholder="Nombre"
+                    value={editP1FirstName}
+                    onChange={(e) => setEditP1FirstName(e.target.value)}
+                  />
+                  <Input
+                    placeholder="Apellido"
+                    value={editP1LastName}
+                    onChange={(e) => setEditP1LastName(e.target.value)}
+                  />
+                </div>
+                <select
+                  className="w-full rounded-xl border border-zinc-300 bg-zinc-50 px-3 py-2 text-sm text-zinc-900 shadow-sm focus:border-zinc-900 focus:outline-none focus:ring-2 focus:ring-zinc-900/20"
+                  value={editP1Category}
+                  onChange={(e) => setEditP1Category(e.target.value)}
+                >
+                  <option value="">Seleccionar categoría</option>
+                  {categories.map((c) => (
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="space-y-2">
+                <div className="text-sm font-medium text-zinc-900">Jugador 2</div>
+                <div className="grid gap-2 md:grid-cols-2">
+                  <Input
+                    placeholder="Nombre"
+                    value={editP2FirstName}
+                    onChange={(e) => setEditP2FirstName(e.target.value)}
+                  />
+                  <Input
+                    placeholder="Apellido"
+                    value={editP2LastName}
+                    onChange={(e) => setEditP2LastName(e.target.value)}
+                  />
+                </div>
+                <select
+                  className="w-full rounded-xl border border-zinc-300 bg-zinc-50 px-3 py-2 text-sm text-zinc-900 shadow-sm focus:border-zinc-900 focus:outline-none focus:ring-2 focus:ring-zinc-900/20"
+                  value={editP2Category}
+                  onChange={(e) => setEditP2Category(e.target.value)}
+                >
+                  <option value="">Seleccionar categoría</option>
+                  {categories.map((c) => (
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {editPairError && (
+                <div className="rounded-xl border border-red-300 bg-red-100 p-3 text-sm text-red-800">
+                  {editPairError}
+                </div>
+              )}
+
+              <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+                <Button variant="secondary" onClick={() => setEditPairOpen(false)}>
+                  Cancelar
+                </Button>
+                <Button onClick={saveEditPair} disabled={editPairSaving}>
+                  {editPairSaving ? "Guardando..." : "Guardar cambios"}
+                </Button>
+              </div>
+            </div>
+          </Modal>
+
           {error && (
             <div className="rounded-xl border border-red-300 bg-red-100 p-3 text-sm text-red-800">
               {error}
             </div>
           )}
 
-          <Card>
-          <div className="p-5 flex items-start justify-between gap-3">
-            <div className="space-y-1">
-              <div className="text-lg font-semibold">{tournament?.name ?? `Torneo #${tournamentId}`}</div>
+          <Card className="bg-white/95">
+          <div className="p-6 flex items-start justify-between gap-3">
+            <div className="space-y-2">
+              <div className="text-xl font-semibold text-zinc-900">
+                {tournament?.name ?? `Torneo #${tournamentId}`}
+              </div>
               <div className="text-sm text-zinc-600">{tournamentDates}</div>
               {tournament?.location && (
                 <div className="text-sm text-zinc-600">
@@ -685,14 +870,14 @@ async function load() {
           </div>
           </Card>
 
-          <div className="grid gap-3 md:grid-cols-2">
+          <div className="grid gap-4 md:grid-cols-2">
             {/* Create Team */}
             <div className="md:col-span-2">
-              <Card>
-              <div className="p-5 space-y-3">
+              <Card className="bg-white/95">
+              <div className="p-6 space-y-4">
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <div>
-                    <div className="font-medium">Cargar parejas</div>
+                    <div className="text-sm font-semibold text-zinc-800">Cargar parejas</div>
                     <div className="text-xs text-zinc-600">
                       Cargá los datos de ambos jugadores y creá el equipo.
                     </div>
@@ -705,7 +890,7 @@ async function load() {
                   </Button>
                 </div>
 
-                <div className="flex items-center gap-2 font-medium mb-2">
+                <div className="flex items-center gap-2 text-sm font-semibold text-zinc-700">
                   <span>Parejas</span>
                   <span className="rounded-full border border-zinc-200 bg-zinc-100 px-2 py-0.5 text-xs text-zinc-600">
                     {teams.length}
@@ -723,7 +908,7 @@ async function load() {
                         return (
                           <div
                             key={team.id}
-                            className="rounded-xl border border-zinc-200 p-3 flex items-start justify-between gap-3"
+                            className="rounded-2xl border border-zinc-200 bg-white p-3 flex items-start justify-between gap-3"
                           >
                             <div>
                               <div className="text-sm font-medium">
@@ -746,17 +931,65 @@ async function load() {
                               </div>
                             </div>
 
-                            <Button
-                              variant="danger"
-                              disabled={deletingTeamId === team.id || isPending}
-                              onClick={() => deleteTeam(team.id)}
-                            >
-                              {isPending
-                                ? "Creando..."
-                                : deletingTeamId === team.id
-                                  ? "Eliminando..."
-                                  : "Eliminar"}
-                            </Button>
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                disabled={status !== "upcoming" || isPending}
+                                onClick={() => openEditPairModal(team)}
+                                className="inline-flex items-center justify-center rounded-xl border border-zinc-200 p-2 text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-900 disabled:cursor-not-allowed disabled:opacity-50"
+                                aria-label="Editar pareja"
+                                title="Editar pareja"
+                              >
+                                <svg
+                                  width="18"
+                                  height="18"
+                                  viewBox="0 0 24 24"
+                                  fill="none"
+                                  xmlns="http://www.w3.org/2000/svg"
+                                  aria-hidden="true"
+                                >
+                                  <path
+                                    d="M4 20h4l10-10a2.5 2.5 0 0 0-4-4L4 16v4Z"
+                                    stroke="currentColor"
+                                    strokeWidth="1.6"
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                  />
+                                  <path
+                                    d="M13 7l4 4"
+                                    stroke="currentColor"
+                                    strokeWidth="1.6"
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                  />
+                                </svg>
+                              </button>
+                              <button
+                                type="button"
+                                disabled={deletingTeamId === team.id || isPending}
+                                onClick={() => deleteTeam(team.id)}
+                                className="inline-flex items-center justify-center rounded-xl border border-zinc-200 p-2 text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-900 disabled:cursor-not-allowed disabled:opacity-50"
+                                aria-label="Eliminar pareja"
+                                title="Eliminar pareja"
+                              >
+                                <svg
+                                  width="18"
+                                  height="18"
+                                  viewBox="0 0 24 24"
+                                  fill="none"
+                                  xmlns="http://www.w3.org/2000/svg"
+                                  aria-hidden="true"
+                                >
+                                  <path
+                                    d="M9 3h6m-8 4h10m-9 3v8m4-8v8m4-8v8M6 7l1 13a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-13"
+                                    stroke="currentColor"
+                                    strokeWidth="1.6"
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                  />
+                                </svg>
+                              </button>
+                            </div>
                           </div>
                         );
                       })}
