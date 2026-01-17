@@ -872,7 +872,7 @@ export default function TournamentPlayoffsPage() {
                                   "seedB" in item ? item.seedB : "Por definir";
                                 return (
                                   <div
-                                    key={item.key}
+                                    key={`${stage}-placeholder-${idx}`}
                                     className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-3 text-sm text-zinc-400"
                                     style={gridStyle}
                                   >
