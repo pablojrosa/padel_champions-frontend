@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Card from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
 import Input from "@/components/ui/Input";
+import Modal from "@/components/ui/Modal";
 import { api, ApiError, apiMaybe } from "@/lib/api";
 import { clearToken } from "@/lib/auth";
 import type { Player, Team, Tournament } from "@/lib/types";
@@ -30,24 +31,22 @@ export default function TournamentDetailPage() {
   const [tournament, setTournament] = useState<Tournament | null>(null);
   const [deletingTournament, setDeletingTournament] = useState(false);
 
-  const [allPlayers, setAllPlayers] = useState<Player[]>([]);
-  const [registeredPlayers, setRegisteredPlayers] = useState<Player[]>([]);
-  const [teams, setTeams] = useState<Team[]>([]);
+  type UiTeam = Team & { pending?: boolean };
+  const [teams, setTeams] = useState<UiTeam[]>([]);
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Add players (bulk)
-  const [selectedPlayerIds, setSelectedPlayerIds] = useState<number[]>([]);
-  const [addingPlayer, setAddingPlayer] = useState(false);
-
-  // Create team
-  const [p1, setP1] = useState<number | "">("");
-  const [p2, setP2] = useState<number | "">("");
-  const [creatingTeam, setCreatingTeam] = useState(false);
-  
-  // Delete player from tournament
-  const [removingPlayerId, setRemovingPlayerId] = useState<number | null>(null);
+  // Create team with new players
+  const [pairOpen, setPairOpen] = useState(false);
+  const [pairSaving, setPairSaving] = useState(false);
+  const [pairError, setPairError] = useState<string | null>(null);
+  const [p1FirstName, setP1FirstName] = useState("");
+  const [p1LastName, setP1LastName] = useState("");
+  const [p1Category, setP1Category] = useState("");
+  const [p2FirstName, setP2FirstName] = useState("");
+  const [p2LastName, setP2LastName] = useState("");
+  const [p2Category, setP2Category] = useState("");
 
   // Delete team from tournament
   const [deletingTeamId, setDeletingTeamId] = useState<number | null>(null);
@@ -65,30 +64,17 @@ export default function TournamentDetailPage() {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
 
-  const registeredIds = useMemo(() => new Set(registeredPlayers.map((p) => p.id)), [registeredPlayers]);
+  const [editOpen, setEditOpen] = useState(false);
+  const [editName, setEditName] = useState("");
+  const [editDescription, setEditDescription] = useState("");
+  const [editLocation, setEditLocation] = useState("");
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
 
-  const availableToRegister = useMemo(() => {
-    return allPlayers.filter((p) => !registeredIds.has(p.id)).sort((a, b) => a.first_name.localeCompare(b.first_name));
-  }, [allPlayers, registeredIds]);
-
-  const registeredSorted = useMemo(
-    () => [...registeredPlayers].sort((a, b) => a.first_name.localeCompare(b.first_name)),
-    [registeredPlayers]
-  );
-  // 🔹 jugadores que ya están en algún equipo
-const playersInTeams = useMemo(() => {
-  return new Set(
-    teams.flatMap((team) => team.players?.map((p) => p.id) ?? [])
-  );
-}, [teams]);
-const availableForTeams = useMemo(() => {
-  return registeredSorted.filter(
-    (p) => !playersInTeams.has(p.id)
-  );
-}, [registeredSorted, playersInTeams]);
+  const categories = ["7ma", "6ta", "5ta", "4ta", "3ra", "2da", "1ra"];
 
 
-function hydrateTeams(rawTeams: Team[], players: Player[]): Team[] {
+function hydrateTeams(rawTeams: Team[], players: Player[]): UiTeam[] {
   const playersById = new Map(players.map((p) => [p.id, p]));
 
   return rawTeams.map((team) => ({
@@ -103,16 +89,31 @@ function hydrateTeams(rawTeams: Team[], players: Player[]): Team[] {
   }));
 }
 
+type TeamApi = {
+  id: number;
+  players: { id: number; first_name: string; last_name: string | null }[];
+};
+
+function mapTeamsFromApi(rawTeams: TeamApi[], tournamentId: number): UiTeam[] {
+  return rawTeams.map((team) => ({
+    id: team.id,
+    tournament_id: tournamentId,
+    players: team.players.map((p) => ({
+      id: p.id,
+      name: `${p.first_name} ${p.last_name ?? ""}`.trim(),
+    })),
+  }));
+}
+
 async function load() {
   setLoading(true);
   setError(null);
 
   try {
     // Disparamos todas las peticiones en paralelo
-    const [tournaments, statusRes, players, tPlayers, rawTeams, tGroups] = await Promise.all([
+    const [tournaments, statusRes, tPlayers, rawTeams, tGroups] = await Promise.all([
       api<Tournament[]>("/tournaments"),
       api<TournamentStatusResponse>(`/tournaments/${tournamentId}/status`),
-      api<Player[]>("/players"),
       apiMaybe<Player[]>(`/tournaments/${tournamentId}/players`) || Promise.resolve([]),
       apiMaybe<Team[]>(`/tournaments/${tournamentId}/teams`) || Promise.resolve([]),
       apiMaybe<TournamentGroupOut[]>(`/tournaments/${tournamentId}/groups`) || Promise.resolve([])
@@ -122,8 +123,6 @@ async function load() {
     const found = tournaments.find((t) => t.id === tournamentId) ?? null;
     setTournament(found);
     setStatus(statusRes.status);
-    setAllPlayers(players);
-    setRegisteredPlayers(tPlayers || []);
     
     // Hidratamos equipos usando los jugadores recién obtenidos
     const hydratedTeams = hydrateTeams(rawTeams || [], tPlayers || []);
@@ -160,88 +159,6 @@ async function load() {
     return () => document.removeEventListener("mousedown", handleOutsideClick);
   }, []);
 
-  async function addPlayersToTournament() {
-    if (selectedPlayerIds.length === 0) return;
-  
-    setAddingPlayer(true);
-    setError(null);
-  
-    try {
-      await api(
-        `/tournaments/${tournamentId}/players/bulk`,
-        {
-          method: "POST",
-          body: { player_ids: selectedPlayerIds },
-        }
-      );
-
-      const addedPlayers = allPlayers.filter((p) =>
-        selectedPlayerIds.includes(p.id)
-      );
-
-      if (addedPlayers.length > 0) {
-        setRegisteredPlayers((prev) => {
-          const existingIds = new Set(prev.map((p) => p.id));
-          const newOnes = addedPlayers.filter((p) => !existingIds.has(p.id));
-          return [...prev, ...newOnes];
-        });
-      }
-
-      setSelectedPlayerIds([]);
-    } catch (err: any) {
-      setError(err?.message ?? "Failed to add player");
-    } finally {
-      setAddingPlayer(false);
-    }
-  }
-  async function removePlayerFromTournament(playerId: number) {
-    const player = registeredPlayers.find((p) => p.id === playerId);
-  
-    const isInTeam = teams.some((team) =>
-      team.players?.some((p) => p.id === playerId)
-    );
-  
-    const confirmed = window.confirm(
-      isInTeam
-        ? `El jugador "${player?.first_name} ${player?.last_name}" está en un equipo.\n\nSi continuás, el equipo será eliminado.\n\n¿Querés continuar?`
-        : `¿Quitar al jugador "${player?.first_name} ${player?.last_name}" del torneo?`
-    );
-  
-    if (!confirmed) return;
-  
-    setRemovingPlayerId(playerId);
-    setError(null);
-  
-    try {
-      await api(
-        `/tournaments/${tournamentId}/players/${playerId}`,
-        { method: "DELETE" }
-      );
-      if (groups.length > 0) {
-        // Opcional: Limpiar los grupos o avisar que deben regenerarse
-        // setGroups([]); 
-        // O mejor, re-validar con el servidor:
-        const updatedGroups = await apiMaybe<TournamentGroupOut[]>(`/tournaments/${tournamentId}/groups`) ?? [];
-        setGroups(updatedGroups);
-      }
-  
-      // 1️⃣ eliminar jugador del estado local
-      setRegisteredPlayers((prev) =>
-        prev.filter((p) => p.id !== playerId)
-      );
-  
-      // 2️⃣ eliminar equipos donde estaba ese jugador
-      setTeams((prev) =>
-        prev.filter(
-          (team) => !team.players?.some((p) => p.id === playerId)
-        )
-      );
-    } catch (err: any) {
-      setError(err?.message ?? "Failed to remove player");
-    } finally {
-      setRemovingPlayerId(null);
-    }
-  }
 
   async function copyPublicLink() {
     const origin = window.location.origin;
@@ -259,8 +176,18 @@ async function load() {
       setCopyMessage("No se pudo copiar el link.");
     }
   }
+
+  function openEditModal() {
+    if (!tournament) return;
+    setEditName(tournament.name ?? "");
+    setEditDescription(tournament.description ?? "");
+    setEditLocation(tournament.location ?? "");
+    setEditError(null);
+    setEditOpen(true);
+  }
   async function deleteTeam(teamId: number) {
     const team = teams.find((t) => t.id === teamId);
+    if (team?.pending) return;
   
     const confirmed = window.confirm(
       `¿Eliminar el equipo #${teamId}?\n\nLos jugadores seguirán registrados en el torneo.`
@@ -294,49 +221,85 @@ async function load() {
   }
   
 
-  async function createTeam() {
-    if (p1 === "" || p2 === "" || p1 === p2) return;
-  
-    setCreatingTeam(true);
-    setError(null);
-  
+  function openPairModal() {
+    setP1FirstName("");
+    setP1LastName("");
+    setP1Category("");
+    setP2FirstName("");
+    setP2LastName("");
+    setP2Category("");
+    setPairError(null);
+    setPairOpen(true);
+  }
+
+  async function createPair() {
+    if (
+      !p1FirstName.trim() ||
+      !p1LastName.trim() ||
+      !p1Category ||
+      !p2FirstName.trim() ||
+      !p2LastName.trim() ||
+      !p2Category
+    ) {
+      setPairError("Completá los datos de ambos jugadores.");
+      return;
+    }
+
+    const tempId = -Date.now();
+    const optimisticTeam: UiTeam = {
+      id: tempId,
+      tournament_id: tournamentId,
+      pending: true,
+      players: [
+        { id: tempId * 10 - 1, name: `${p1FirstName.trim()} ${p1LastName.trim()}`.trim() },
+        { id: tempId * 10 - 2, name: `${p2FirstName.trim()} ${p2LastName.trim()}`.trim() },
+      ],
+    };
+
+    setPairSaving(true);
+    setPairError(null);
+    setPairOpen(false);
+    setTeams((prev) => [optimisticTeam, ...prev]);
+
     try {
       const res = await api<{ team_id: number; message: string }>(
-        `/tournaments/${tournamentId}/teams`,
+        `/tournaments/${tournamentId}/teams/pair`,
         {
           method: "POST",
-          body: { player1_id: p1, player2_id: p2 },
+          body: {
+            player1: {
+              first_name: p1FirstName.trim(),
+              last_name: p1LastName.trim(),
+              category: p1Category,
+            },
+            player2: {
+              first_name: p2FirstName.trim(),
+              last_name: p2LastName.trim(),
+              category: p2Category,
+            },
+          },
         }
       );
-  
-      const player1 = registeredPlayers.find(p => p.id === p1);
-      const player2 = registeredPlayers.find(p => p.id === p2);
-  
-      if (!player1 || !player2) return;
-  
-      const newTeam = {
-        id: res.team_id,
-        tournament_id: tournamentId,
-        players: [
-          { id: player1.id, name: `${player1.first_name} ${player1.last_name ?? ""}`.trim() },
-          { id: player2.id, name: `${player2.first_name} ${player2.last_name ?? ""}`.trim() },
-        ],
-      };
 
-      setTeams(prev => [newTeam, ...prev]);
-      setP1("");
-      setP2("");
-
-      if (groups.length > 0) {
-        const updatedGroups = await api<TournamentGroupOut[]>(
-          `/tournaments/${tournamentId}/groups`
-        );
-        setGroups(updatedGroups);
-      }
+      setTeams((prev) =>
+        prev.map((team) =>
+          team.id === tempId
+            ? { ...team, id: res.team_id, pending: false }
+            : team
+        )
+      );
+      const [rawTeams, tGroups] = await Promise.all([
+        api<TeamApi[]>(`/tournaments/${tournamentId}/teams`),
+        apiMaybe<TournamentGroupOut[]>(`/tournaments/${tournamentId}/groups`) ||
+          Promise.resolve([]),
+      ]);
+      setTeams(mapTeamsFromApi(rawTeams, tournamentId));
+      setGroups(tGroups || []);
     } catch (err: any) {
+      setTeams((prev) => prev.filter((team) => team.id !== tempId));
       setError(err?.message ?? "Failed to create team");
     } finally {
-      setCreatingTeam(false);
+      setPairSaving(false);
     }
   }
   async function generateGroups() {
@@ -410,6 +373,34 @@ async function load() {
     }
   }
 
+  async function updateTournament() {
+    if (!tournament) return;
+    if (!editName.trim()) {
+      setEditError("El nombre del torneo es obligatorio.");
+      return;
+    }
+
+    setSavingEdit(true);
+    setEditError(null);
+    try {
+      const updated = await api<Tournament>(`/tournaments/${tournamentId}`, {
+        method: "PATCH",
+        body: {
+          name: editName.trim(),
+          description: editDescription.trim() ? editDescription.trim() : null,
+          location: editLocation.trim() ? editLocation.trim() : null,
+        },
+      });
+
+      setTournament(updated);
+      setEditOpen(false);
+    } catch (err: any) {
+      setEditError(err?.message ?? "Failed to update tournament");
+    } finally {
+      setSavingEdit(false);
+    }
+  }
+
   const tournamentDates =
     tournament?.start_date && tournament?.end_date
       ? `${tournament.start_date} - ${tournament.end_date}`
@@ -462,6 +453,16 @@ async function load() {
                   type="button"
                   className="w-full rounded-lg px-3 py-2 text-left text-sm text-zinc-800 hover:bg-zinc-50"
                   onClick={() => {
+                    setMenuOpen(false);
+                    openEditModal();
+                  }}
+                >
+                  Editar torneo
+                </button>
+                <button
+                  type="button"
+                  className="w-full rounded-lg px-3 py-2 text-left text-sm text-zinc-800 hover:bg-zinc-50"
+                  onClick={() => {
                     router.push(`/tournaments/${tournamentId}/matches`);
                     setMenuOpen(false);
                   }}
@@ -477,16 +478,6 @@ async function load() {
                   }}
                 >
                   Playoffs
-                </button>
-                <button
-                  type="button"
-                  className="w-full rounded-lg px-3 py-2 text-left text-sm text-zinc-800 hover:bg-zinc-50"
-                  onClick={() => {
-                    router.push(`/tournaments/${tournamentId}/schedule`);
-                    setMenuOpen(false);
-                  }}
-                >
-                  Cronograma
                 </button>
                 <button
                   type="button"
@@ -510,6 +501,133 @@ async function load() {
         </Card>
       ) : (
         <>
+          <Modal
+            open={editOpen}
+            title="Editar torneo"
+            onClose={() => setEditOpen(false)}
+          >
+            <div className="space-y-3">
+              <Input
+                placeholder="Nombre del torneo"
+                value={editName}
+                onChange={(e) => setEditName(e.target.value)}
+              />
+              <textarea
+                className="w-full rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 outline-none focus:border-zinc-900 focus:ring-2 focus:ring-zinc-900/20"
+                placeholder="Descripcion / reglas del torneo"
+                value={editDescription}
+                onChange={(e) => setEditDescription(e.target.value)}
+                rows={3}
+              />
+              <Input
+                placeholder="Ubicacion o link de Google Maps"
+                value={editLocation}
+                onChange={(e) => setEditLocation(e.target.value)}
+              />
+
+              {editError && (
+                <div className="rounded-xl border border-red-300 bg-red-100 p-3 text-sm text-red-800">
+                  {editError}
+                </div>
+              )}
+
+              <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+                <Button variant="secondary" onClick={() => setEditOpen(false)}>
+                  Cancelar
+                </Button>
+                <Button
+                  onClick={updateTournament}
+                  disabled={savingEdit || !editName.trim()}
+                >
+                  {savingEdit ? "Guardando..." : "Guardar cambios"}
+                </Button>
+              </div>
+            </div>
+          </Modal>
+
+          <Modal
+            open={pairOpen}
+            title="Agregar pareja"
+            onClose={() => setPairOpen(false)}
+          >
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <div className="text-sm font-medium text-zinc-900">
+                  Jugador 1
+                </div>
+                <div className="grid gap-2 md:grid-cols-2">
+                  <Input
+                    placeholder="Nombre"
+                    value={p1FirstName}
+                    onChange={(e) => setP1FirstName(e.target.value)}
+                  />
+                  <Input
+                    placeholder="Apellido"
+                    value={p1LastName}
+                    onChange={(e) => setP1LastName(e.target.value)}
+                  />
+                </div>
+                <select
+                  className="w-full rounded-xl border border-zinc-300 bg-zinc-50 px-3 py-2 text-sm text-zinc-900 shadow-sm focus:border-zinc-900 focus:outline-none focus:ring-2 focus:ring-zinc-900/20"
+                  value={p1Category}
+                  onChange={(e) => setP1Category(e.target.value)}
+                >
+                  <option value="">Seleccionar categoría</option>
+                  {categories.map((c) => (
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="space-y-2">
+                <div className="text-sm font-medium text-zinc-900">
+                  Jugador 2
+                </div>
+                <div className="grid gap-2 md:grid-cols-2">
+                  <Input
+                    placeholder="Nombre"
+                    value={p2FirstName}
+                    onChange={(e) => setP2FirstName(e.target.value)}
+                  />
+                  <Input
+                    placeholder="Apellido"
+                    value={p2LastName}
+                    onChange={(e) => setP2LastName(e.target.value)}
+                  />
+                </div>
+                <select
+                  className="w-full rounded-xl border border-zinc-300 bg-zinc-50 px-3 py-2 text-sm text-zinc-900 shadow-sm focus:border-zinc-900 focus:outline-none focus:ring-2 focus:ring-zinc-900/20"
+                  value={p2Category}
+                  onChange={(e) => setP2Category(e.target.value)}
+                >
+                  <option value="">Seleccionar categoría</option>
+                  {categories.map((c) => (
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {pairError && (
+                <div className="rounded-xl border border-red-300 bg-red-100 p-3 text-sm text-red-800">
+                  {pairError}
+                </div>
+              )}
+
+              <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+                <Button variant="secondary" onClick={() => setPairOpen(false)}>
+                  Cancelar
+                </Button>
+                <Button onClick={createPair} disabled={pairSaving}>
+                  {pairSaving ? "Guardando..." : "Guardar pareja"}
+                </Button>
+              </div>
+            </div>
+          </Modal>
+
           {error && (
             <div className="rounded-xl border border-red-300 bg-red-100 p-3 text-sm text-red-800">
               {error}
@@ -565,159 +683,32 @@ async function load() {
           </div>
           </Card>
 
-          {/* Registered Players */}
           <div className="grid gap-3 md:grid-cols-2">
-            <Card>
-              <div className="p-5 space-y-3">
-                <div>
-                  <div className="font-medium">Registrar jugadores al torneo</div>
-                  <div className="text-xs text-zinc-600">
-                    Registra jugadores al torneo.
-                  </div>
-                </div>
-
-                <div className="flex flex-col gap-2">
-                  <div className="max-h-56 overflow-y-auto rounded-xl border border-zinc-200">
-                    {availableToRegister.length === 0 ? (
-                      <div className="p-3 text-sm text-zinc-600">
-                        No hay jugadores disponibles para agregar.
-                      </div>
-                    ) : (
-                      availableToRegister.map((p) => {
-                        const checked = selectedPlayerIds.includes(p.id);
-                        return (
-                          <label
-                            key={p.id}
-                            className="flex items-center gap-3 border-b border-zinc-100 px-3 py-2 text-sm last:border-b-0"
-                          >
-                            <input
-                              type="checkbox"
-                              checked={checked}
-                              onChange={(e) => {
-                                setSelectedPlayerIds((prev) =>
-                                  e.target.checked
-                                    ? [...prev, p.id]
-                                    : prev.filter((id) => id !== p.id)
-                                );
-                              }}
-                              disabled={status !== "upcoming"}
-                            />
-                            <span>
-                              {p.first_name} {p.last_name}
-                              <span className="ml-2 text-xs text-zinc-500">
-                                ({p.category})
-                              </span>
-                            </span>
-                          </label>
-                        );
-                      })
-                    )}
-                  </div>
-
-                  <Button
-                    onClick={addPlayersToTournament}
-                    disabled={addingPlayer || selectedPlayerIds.length === 0 || status !== "upcoming"}
-                    className="md:w-44"
-                  >
-                    {addingPlayer ? "Agregando..." : "Agregar seleccionados"}
-                  </Button>
-                </div>
-
-                <div className="max-h-90 overflow-y-auto space-y-2 pr-1">
-                  {registeredSorted.length === 0 ? (
-                    <div className="text-sm text-zinc-600">No hay jugadores registrados.</div>
-                  ) : (
-                    registeredSorted.map((p) => {
-                      const isInTeam = teams.some((team) =>
-                        team.players?.some((tp) => tp.id === p.id)
-                      );
-                      return (
-                        <div
-                          key={p.id}
-                          className="flex items-center justify-between rounded-xl border border-zinc-200 p-3"
-                        >
-                          <div>
-                            <div className="text-sm font-medium">{p.first_name} {p.last_name}
-                            <span className="ml-2 text-xs text-zinc-500">
-                              ({p.category})
-                            </span>
-                            </div>
-                            {isInTeam && (
-                              <div className="text-xs text-orange-600">
-                                Asignado a un equipo
-                              </div>
-                            )}
-                          </div>
-                    
-                          <Button
-                            variant="danger"
-                            disabled={removingPlayerId === p.id}
-                            onClick={() => removePlayerFromTournament(p.id)}
-                          >
-                            {removingPlayerId === p.id ? "Quitando..." : "Quitar"}
-                          </Button>
-                        </div>
-                      );
-                    })
-                    
-                  )}
-                </div>
-              </div>
-            </Card>
-
             {/* Create Team */}
-            <Card>
+            <div className="md:col-span-2">
+              <Card>
               <div className="p-5 space-y-3">
-                <div>
-                  <div className="font-medium">Crear equipos</div>
-                  <div className="text-xs text-zinc-600">Seleccioná 2 jugadores registrados en el torneo.</div>
-                </div>
-
-                <div className="grid gap-2">
-                  <select
-                    className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                    value={p1}
-                    onChange={(e) => setP1(e.target.value ? Number(e.target.value) : "")}
-                  >
-                    <option value="">Jugador 1</option>
-                    {availableForTeams.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.first_name} {p.last_name}
-                        </option>
-                      ))}
-                  </select>
-
-                  <select
-                    className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                    value={p2}
-                    onChange={(e) => setP2(e.target.value ? Number(e.target.value) : "")}
-                  >
-                    <option value="">Jugador 2</option>
-                    {availableForTeams
-                    .filter((p) => (p1 === "" ? true : p.id !== p1))
-                    .map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.first_name} {p.last_name}
-                      </option>
-                    ))}
-
-                  </select>
-
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div>
+                    <div className="font-medium">Cargar parejas</div>
+                    <div className="text-xs text-zinc-600">
+                      Cargá los datos de ambos jugadores y creá el equipo.
+                    </div>
+                  </div>
                   <Button
-                    onClick={createTeam}
-                    disabled={
-                      creatingTeam ||
-                      p1 === "" ||
-                      p2 === "" ||
-                      p1 === p2 || 
-                      status !== "upcoming" ||
-                      availableForTeams.length < 2
-                    }
+                    onClick={openPairModal}
+                    disabled={status !== "upcoming"}
                   >
-                    {creatingTeam ? "Creando..." : "Crear equipo"}
+                    Agregar pareja
                   </Button>
                 </div>
-                <div className="font-medium mb-2">Teams</div>
+
+                <div className="flex items-center gap-2 font-medium mb-2">
+                  <span>Parejas</span>
+                  <span className="rounded-full border border-zinc-200 bg-zinc-100 px-2 py-0.5 text-xs text-zinc-600">
+                    {teams.length}
+                  </span>
+                </div>
                 <div className="max-h-64 overflow-y-auto space-y-2 pr-1">
                   
 
@@ -725,36 +716,53 @@ async function load() {
                     <div className="text-sm text-zinc-600">No hay equipos creados.</div>
                   ) : (
                     <div className="space-y-2">
-                      {teams.map((team) => (
-                        <div
-                          key={team.id}
-                          className="rounded-xl border border-zinc-200 p-3 flex items-start justify-between gap-3"
-                        >
-                          <div>
-                            <div className="text-sm font-medium">Team #{team.id}</div>
-                            <div className="text-sm text-zinc-700">
-                              {team.players?.[0]?.name ?? "Jugador"} / {team.players?.[1]?.name ?? "Jugador"}
-                            </div>
-                            <div className="text-xs text-zinc-500">
-                              tournament_id: {team.tournament_id}
-                            </div>
-                          </div>
-
-                          <Button
-                            variant="danger"
-                            disabled={deletingTeamId === team.id}
-                            onClick={() => deleteTeam(team.id)}
+                      {teams.map((team) => {
+                        const isPending = !!team.pending;
+                        return (
+                          <div
+                            key={team.id}
+                            className="rounded-xl border border-zinc-200 p-3 flex items-start justify-between gap-3"
                           >
-                            {deletingTeamId === team.id ? "Eliminando..." : "Eliminar"}
-                          </Button>
-                        </div>
-                      ))}
+                            <div>
+                              <div className="text-sm font-medium">
+                                {team.players?.[0]?.name ?? "Jugador"} / {team.players?.[1]?.name ?? "Jugador"}
+                                {isPending && (
+                                  <span className="ml-2 text-xs text-amber-600">
+                                    Creando...
+                                  </span>
+                                )}
+                              </div>
+                              <div className="text-xs text-zinc-500">
+                                {(() => {
+                                  const group = groups.find((g) =>
+                                    g.teams?.some((t) => t.id === team.id)
+                                  );
+                                  return group ? `Zona: ${group.name}` : "Zona: Sin asignar";
+                                })()}
+                              </div>
+                            </div>
+
+                            <Button
+                              variant="danger"
+                              disabled={deletingTeamId === team.id || isPending}
+                              onClick={() => deleteTeam(team.id)}
+                            >
+                              {isPending
+                                ? "Creando..."
+                                : deletingTeamId === team.id
+                                  ? "Eliminando..."
+                                  : "Eliminar"}
+                            </Button>
+                          </div>
+                        );
+                      })}
 
                     </div>
                   )}
                 </div>
               </div>
-            </Card>
+              </Card>
+            </div>
 
             {/* Zonas / Grupos */}
             <div className="md:col-span-2">
