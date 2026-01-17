@@ -42,6 +42,7 @@ export default function GroupsPanel({
   const [moveTeamId, setMoveTeamId] = useState<number | "">("");
   const [moveSourceGroupId, setMoveSourceGroupId] = useState<number | null>(null);
   const [moveTargetGroupId, setMoveTargetGroupId] = useState<number | "">("");
+  const [moveSwapTeamId, setMoveSwapTeamId] = useState<number | "">("");
   const [moveError, setMoveError] = useState<string | null>(null);
   const [moving, setMoving] = useState(false);
 
@@ -59,6 +60,15 @@ export default function GroupsPanel({
     if (teamsPerGroup) return teamsPerGroup;
     return Math.max(1, ...groups.map((group) => group.teams.length));
   }, [teamsPerGroup, groups]);
+
+  const selectedTargetGroup = useMemo(() => {
+    if (moveTargetGroupId === "") return null;
+    return groups.find((group) => group.id === moveTargetGroupId) ?? null;
+  }, [groups, moveTargetGroupId]);
+
+  const targetIsFull = selectedTargetGroup
+    ? selectedTargetGroup.teams.length >= capacity
+    : false;
 
   function getTeamLabel(team: { id: number; players: { name: string }[] }) {
     return team.players.map((p) => p.name).join(" / ") || `Team #${team.id}`;
@@ -123,6 +133,7 @@ export default function GroupsPanel({
     setMoveTeamId(teamId);
     setMoveSourceGroupId(sourceGroupId);
     setMoveTargetGroupId(targetGroupId ?? "");
+    setMoveSwapTeamId("");
     setMoveError(null);
     setMoveOpen(true);
   }
@@ -135,6 +146,44 @@ export default function GroupsPanel({
     }
     const team = allTeams.find((t) => t.id === teamId);
     setMoveSourceGroupId(team?.group_id ?? null);
+  }
+
+  function applyMoveLocally(
+    teamId: number,
+    sourceGroupId: number,
+    targetGroupId: number,
+    swapTeamId: number | null
+  ) {
+    setGroups((prev) => {
+      const source = prev.find((g) => g.id === sourceGroupId);
+      const target = prev.find((g) => g.id === targetGroupId);
+      if (!source || !target) return prev;
+
+      const teamToMove = source.teams.find((t) => t.id === teamId);
+      if (!teamToMove) return prev;
+
+      const swapTeam = swapTeamId
+        ? target.teams.find((t) => t.id === swapTeamId)
+        : null;
+
+      return prev.map((group) => {
+        if (group.id === sourceGroupId) {
+          const remaining = group.teams.filter((t) => t.id !== teamId);
+          return {
+            ...group,
+            teams: swapTeam ? [swapTeam, ...remaining] : remaining,
+          };
+        }
+        if (group.id === targetGroupId) {
+          const remaining = group.teams.filter((t) => t.id !== swapTeamId);
+          return {
+            ...group,
+            teams: [teamToMove, ...remaining],
+          };
+        }
+        return group;
+      });
+    });
   }
 
   async function submitMove() {
@@ -154,28 +203,36 @@ export default function GroupsPanel({
       return;
     }
 
-    if (targetGroup.teams.length >= capacity) {
-      setMoveError("La zona destino ya esta completa.");
+    const targetIsFull = targetGroup.teams.length >= capacity;
+    if (targetIsFull && moveSwapTeamId === "") {
+      setMoveError("La zona destino esta completa. Selecciona una pareja para intercambiar.");
       return;
     }
 
     setMoving(true);
     setMoveError(null);
+    const swapId = moveSwapTeamId === "" ? null : moveSwapTeamId;
+    const prevGroups = groups;
+    applyMoveLocally(moveTeamId, moveSourceGroupId, moveTargetGroupId, swapId);
+    setMoveOpen(false);
 
     try {
       await api(
         `/tournaments/${tournamentId}/groups/${moveSourceGroupId}/teams/${moveTeamId}/move`,
         {
           method: "POST",
-          body: { target_group_id: moveTargetGroupId },
+          body: {
+            target_group_id: moveTargetGroupId,
+            swap_team_id: swapId,
+          },
         }
       );
       const updatedGroups = await api<TournamentGroupOut[]>(
         `/tournaments/${tournamentId}/groups`
       );
       setGroups(updatedGroups);
-      setMoveOpen(false);
     } catch (err: any) {
+      setGroups(prevGroups);
       setMoveError(err?.message ?? "No se pudo mover el equipo");
     } finally {
       setMoving(false);
@@ -198,12 +255,26 @@ export default function GroupsPanel({
   return (
     <Card>
       <div className="p-5 space-y-3">
-        <div className="flex items-start justify-between gap-3">
+        <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <div className="font-medium">Zonas (Groups)</div>
             <div className="text-xs text-zinc-600">
               Se generan solo cuando el torneo está <b>upcoming</b>.
             </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="secondary"
+              onClick={() => window.location.assign(`/tournaments/${tournamentId}/matches`)}
+            >
+              Ver partidos
+            </Button>
+            <Button
+              onClick={onGenerate}
+              disabled={disabled || generating || groups.length > 0}
+            >
+              {generating ? "Generando..." : "Generar zonas"}
+            </Button>
           </div>
         </div>
 
@@ -224,13 +295,6 @@ export default function GroupsPanel({
           </div>
 
           <div className="flex-1" />
-
-          <Button
-            onClick={onGenerate}
-            disabled={disabled || generating || groups.length > 0}
-          >
-            {generating ? "Generando..." : "Generar zonas"}
-          </Button>
         </div>
 
         {/* Groups */}
@@ -264,7 +328,7 @@ export default function GroupsPanel({
               </div>
 
               <div className="mt-3 space-y-2">
-                {g.teams.map((t) => (
+                {g.teams.map((t, idx) => (
                   <div
                     key={t.id}
                     className="flex items-start justify-between rounded-xl border border-zinc-200 px-3 py-2"
@@ -278,10 +342,13 @@ export default function GroupsPanel({
                   >
                     <div>
                       <div className="text-sm font-medium">
-                        Team #{t.id}
+                        Pareja {idx + 1}
                       </div>
                       <div className="text-sm text-zinc-700">
-                        {t.players.map((p) => p.name).join(" / ")}
+                        {t.players?.[0]?.name ?? "Jugador"}
+                      </div>
+                      <div className="text-sm text-zinc-700">
+                        {t.players?.[1]?.name ?? "Jugador"}
                       </div>
                     </div>
 
@@ -343,19 +410,43 @@ export default function GroupsPanel({
               onChange={(e) => {
                 const value = e.target.value;
                 setMoveTargetGroupId(value === "" ? "" : Number(value));
+                setMoveSwapTeamId("");
               }}
             >
               <option value="">Seleccionar zona</option>
               {groups.map((group) => {
                 const full = group.teams.length >= capacity;
                 return (
-                  <option key={group.id} value={group.id} disabled={full}>
-                    {group.name} ({group.teams.length}/{capacity})
+                  <option key={group.id} value={group.id}>
+                    {group.name} ({group.teams.length}/{capacity}
+                    {full ? ", completa" : ""})
                   </option>
                 );
               })}
             </select>
           </div>
+          {selectedTargetGroup && targetIsFull && (
+            <div className="space-y-2">
+              <label className="text-xs font-semibold text-zinc-500">
+                Intercambiar con
+              </label>
+              <select
+                className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                value={moveSwapTeamId}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  setMoveSwapTeamId(value === "" ? "" : Number(value));
+                }}
+              >
+                <option value="">Seleccionar pareja</option>
+                {selectedTargetGroup.teams.map((team) => (
+                  <option key={team.id} value={team.id}>
+                    {getTeamLabel(team)}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
 
           {moveError && (
             <div className="rounded-xl border border-red-300 bg-red-100 p-3 text-sm text-red-800">

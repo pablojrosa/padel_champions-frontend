@@ -44,7 +44,14 @@ export default function TournamentMatchesPage() {
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<"pending" | "played">("pending");
+  const [activeTab, setActiveTab] = useState<"unscheduled" | "scheduled" | "played">("unscheduled");
+
+  const [scheduleMatch, setScheduleMatch] = useState<Match | null>(null);
+  const [scheduleDate, setScheduleDate] = useState("");
+  const [scheduleTime, setScheduleTime] = useState("");
+  const [scheduleCourt, setScheduleCourt] = useState("1");
+  const [scheduleError, setScheduleError] = useState<string | null>(null);
+  const [scheduling, setScheduling] = useState(false);
 
   const teamsById = useMemo(() => {
     const map = new Map<number, Team>();
@@ -136,6 +143,24 @@ export default function TournamentMatchesPage() {
     setSuccessMessage(null);
   }
 
+  function normalizeTime(value?: string | null) {
+    if (!value) return "";
+    return value.slice(0, 5);
+  }
+
+  function openScheduleModal(match: Match) {
+    setScheduleMatch(match);
+    setScheduleDate(match.scheduled_date ?? "");
+    setScheduleTime(normalizeTime(match.scheduled_time));
+    setScheduleCourt(match.court_number ? String(match.court_number) : "1");
+    setScheduleError(null);
+  }
+
+  function closeScheduleModal() {
+    setScheduleMatch(null);
+    setScheduleError(null);
+  }
+
   function updateSet(idx: number, key: "a" | "b", value: string) {
     setSetsInput((prev) =>
       prev.map((setScore, i) =>
@@ -216,20 +241,77 @@ export default function TournamentMatchesPage() {
     }
   }
 
-  const canEdit = tournamentStatus === "ongoing" || tournamentStatus === "groups_finished";
-  const pendingMatches = useMemo(
-    () => matches.filter((match) => match.status !== "played"),
+  async function saveSchedule() {
+    if (!scheduleMatch) return;
+
+    if (!scheduleDate || !scheduleTime) {
+      setScheduleError("Selecciona fecha y horario.");
+      return;
+    }
+
+    const courtNumber = Number(scheduleCourt);
+    if (!Number.isFinite(courtNumber) || courtNumber <= 0) {
+      setScheduleError("La cancha debe ser un numero valido.");
+      return;
+    }
+
+    setScheduling(true);
+    setScheduleError(null);
+
+    try {
+      const res = await api<{ updated: Match; swapped: Match | null }>(
+        `/matches/${scheduleMatch.id}/schedule`,
+        {
+          method: "POST",
+          body: {
+            scheduled_date: scheduleDate,
+            scheduled_time: scheduleTime,
+            court_number: courtNumber,
+          },
+        }
+      );
+
+      setMatches((prev) =>
+        prev.map((match) => {
+          if (match.id === res.updated.id) return res.updated;
+          if (res.swapped && match.id === res.swapped.id) return res.swapped;
+          return match;
+        })
+      );
+      closeScheduleModal();
+    } catch (err: any) {
+      setScheduleError(err?.message ?? "No se pudo programar el partido");
+    } finally {
+      setScheduling(false);
+    }
+  }
+
+  const canSchedule = tournamentStatus !== "finished";
+  const canResult = tournamentStatus === "ongoing" || tournamentStatus === "groups_finished";
+  const unscheduledMatches = useMemo(
+    () => matches.filter((match) => match.status !== "played" && !match.scheduled_time),
+    [matches]
+  );
+  const scheduledMatches = useMemo(
+    () => matches.filter((match) => match.status !== "played" && !!match.scheduled_time),
     [matches]
   );
   const playedMatches = useMemo(
     () => matches.filter((match) => match.status === "played"),
     [matches]
   );
-  const matchesForTab = activeTab === "pending" ? pendingMatches : playedMatches;
+  const matchesForTab =
+    activeTab === "unscheduled"
+      ? unscheduledMatches
+      : activeTab === "scheduled"
+        ? scheduledMatches
+        : playedMatches;
   const emptyLabel =
-    activeTab === "pending"
-      ? "No hay partidos pendientes."
-      : "No hay partidos jugados.";
+    activeTab === "unscheduled"
+      ? "No hay partidos para programar."
+      : activeTab === "scheduled"
+        ? "No hay partidos programados."
+        : "No hay partidos jugados.";
 
   return (
     <div className="space-y-4">
@@ -260,10 +342,16 @@ export default function TournamentMatchesPage() {
             <div className="p-5 space-y-3">
               <div className="flex flex-wrap items-center gap-2">
                 <Button
-                  variant={activeTab === "pending" ? "primary" : "secondary"}
-                  onClick={() => setActiveTab("pending")}
+                  variant={activeTab === "unscheduled" ? "primary" : "secondary"}
+                  onClick={() => setActiveTab("unscheduled")}
                 >
-                  Por jugar ({pendingMatches.length})
+                  Faltan programar ({unscheduledMatches.length})
+                </Button>
+                <Button
+                  variant={activeTab === "scheduled" ? "primary" : "secondary"}
+                  onClick={() => setActiveTab("scheduled")}
+                >
+                  Programados ({scheduledMatches.length})
                 </Button>
                 <Button
                   variant={activeTab === "played" ? "primary" : "secondary"}
@@ -290,21 +378,30 @@ export default function TournamentMatchesPage() {
                           {getTeamLabel(match.team_a_id)} vs {getTeamLabel(match.team_b_id)}
                         </div>
                         <div className="text-xs text-zinc-500">
-                          Estado: {match.status === "played" ? "Finalizado" : match.status === "ongoing" ? "Jugando" : "Por jugar"}
+                          Estado: {match.status === "played" ? "Jugado" : match.scheduled_time ? "Programado" : "Falta programar"}
                         </div>
+                        {match.scheduled_time && (
+                          <div className="text-xs text-zinc-500">
+                            {match.scheduled_date ? `Fecha: ${match.scheduled_date} · ` : ""}
+                            Hora: {normalizeTime(match.scheduled_time)} · Cancha: {match.court_number ?? "—"}
+                          </div>
+                        )}
                       </div>
 
                       <div className="flex items-center gap-2">
-                        <Button
-                          onClick={() => openResultModal(match)}
-                          disabled={!canEdit || match.status === "pending"}
-                        >
-                          {match.status === "played"
-                            ? "Editar resultado"
-                            : match.status === "ongoing"
-                            ? "Cargar resultado"
-                            : "Esperando inicio"}
-                        </Button>
+                        {match.status === "played" ? (
+                          <Button onClick={() => openResultModal(match)} disabled={!canResult}>
+                            Editar resultado
+                          </Button>
+                        ) : match.scheduled_time ? (
+                          <Button onClick={() => openResultModal(match)} disabled={!canResult}>
+                            Cargar resultado
+                          </Button>
+                        ) : (
+                          <Button onClick={() => openScheduleModal(match)} disabled={!canSchedule}>
+                            Programar partido
+                          </Button>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -314,6 +411,56 @@ export default function TournamentMatchesPage() {
           </Card>
         </>
       )}
+
+      <Modal
+        open={!!scheduleMatch}
+        title="Programar partido"
+        onClose={closeScheduleModal}
+      >
+        <div className="space-y-4">
+          <div className="text-sm text-zinc-600">
+            {scheduleMatch
+              ? `${getTeamLabel(scheduleMatch.team_a_id)} vs ${getTeamLabel(scheduleMatch.team_b_id)}`
+              : null}
+          </div>
+
+          <div className="grid gap-2 md:grid-cols-2">
+            <Input
+              type="date"
+              value={scheduleDate}
+              onChange={(e) => setScheduleDate(e.target.value)}
+            />
+            <Input
+              type="time"
+              value={scheduleTime}
+              onChange={(e) => setScheduleTime(e.target.value)}
+            />
+          </div>
+
+          <Input
+            type="number"
+            min={1}
+            placeholder="Cancha"
+            value={scheduleCourt}
+            onChange={(e) => setScheduleCourt(e.target.value)}
+          />
+
+          {scheduleError && (
+            <div className="rounded-xl border border-red-300 bg-red-100 p-3 text-sm text-red-800">
+              {scheduleError}
+            </div>
+          )}
+
+          <div className="flex justify-end gap-2">
+            <Button variant="secondary" onClick={closeScheduleModal}>
+              Cancelar
+            </Button>
+            <Button onClick={saveSchedule} disabled={scheduling}>
+              {scheduling ? "Guardando..." : "Guardar"}
+            </Button>
+          </div>
+        </div>
+      </Modal>
 
       <Modal
         open={!!selectedMatch}
@@ -337,7 +484,7 @@ export default function TournamentMatchesPage() {
                   placeholder="A"
                   value={setScore.a}
                   onChange={(e) => updateSet(idx, "a", e.target.value)}
-                  disabled={!canEdit}
+                  disabled={!canResult}
                 />
                 <Input
                   type="number"
@@ -345,7 +492,7 @@ export default function TournamentMatchesPage() {
                   placeholder="B"
                   value={setScore.b}
                   onChange={(e) => updateSet(idx, "b", e.target.value)}
-                  disabled={!canEdit}
+                  disabled={!canResult}
                 />
               </div>
             ))}
@@ -363,7 +510,7 @@ export default function TournamentMatchesPage() {
             </div>
           )}
 
-          {!canEdit && (
+          {!canResult && (
             <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
               Los resultados solo se pueden editar mientras el torneo esta en curso.
             </div>
@@ -373,7 +520,7 @@ export default function TournamentMatchesPage() {
             <Button variant="secondary" onClick={closeResultModal}>
               Cancelar
             </Button>
-            <Button onClick={saveResult} disabled={!canEdit || saving}>
+            <Button onClick={saveResult} disabled={!canResult || saving}>
               {saving ? "Guardando..." : "Guardar resultado"}
             </Button>
           </div>

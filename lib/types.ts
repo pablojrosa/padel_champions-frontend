@@ -116,6 +116,7 @@ export type Match = {
   played_at: string | null;
   status: MatchStatus;
   scheduled_time?: string | null;
+  scheduled_date?: string | null;
   court_number?: number | null;
 };
 
