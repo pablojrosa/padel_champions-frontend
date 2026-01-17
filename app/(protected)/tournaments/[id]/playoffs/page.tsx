@@ -865,7 +865,7 @@ export default function TournamentPlayoffsPage() {
                                 gridRow: `${rowStart} / span ${cardSpan}`,
                               } as const;
 
-                              if (item.type === "placeholder") {
+                              if (!("match" in item)) {
                                 const seedA =
                                   "seedA" in item ? item.seedA : "Por definir";
                                 const seedB =
@@ -888,10 +888,6 @@ export default function TournamentPlayoffsPage() {
                                     </div>
                                   </div>
                                 );
-                              }
-
-                              if (item.type === "placeholder") {
-                                return null;
                               }
 
                               const match = item.match;
