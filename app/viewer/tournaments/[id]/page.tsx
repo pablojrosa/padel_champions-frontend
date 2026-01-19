@@ -268,21 +268,21 @@ export default function PublicTournamentPage() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-screen-2xl space-y-8 px-4 py-8">
+    <div className="mx-auto w-full max-w-screen-2xl space-y-6 px-4 py-6 sm:space-y-8 sm:py-8">
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3 sm:gap-4">
           {tournament?.club_logo_url ? (
             <img
               src={tournament.club_logo_url}
               alt={tournament.club_name ?? "Logo del club"}
-              className="h-14 w-14 rounded-2xl border border-zinc-800 object-cover"
+              className="h-12 w-12 rounded-2xl border border-zinc-800 object-cover sm:h-14 sm:w-14"
             />
           ) : null}
           <div>
-            <h1 className="text-3xl font-semibold">
+            <h1 className="text-2xl font-semibold sm:text-3xl">
               {tournament ? tournament.name : "Torneo"}
             </h1>
-            <p className="mt-1 text-sm text-zinc-400">
+            <p className="mt-1 text-xs text-zinc-400 sm:text-sm">
               {tournament?.club_name ? tournament.club_name : "Club"}
               {tournament?.location ? ` · ${tournament.location}` : " · Sede a confirmar"}
             </p>
@@ -292,7 +292,7 @@ export default function PublicTournamentPage() {
       </div>
 
       <Card className="bg-white/95">
-        <div className="grid gap-4 p-5 md:grid-cols-3">
+        <div className="grid gap-4 p-4 sm:p-5 md:grid-cols-3">
           <div>
             <div className="text-xs uppercase text-zinc-800">Categoria</div>
             <div className="text-sm font-semibold text-zinc-600">
@@ -315,7 +315,7 @@ export default function PublicTournamentPage() {
       </Card>
 
       <Card className="bg-white/95">
-        <div className="p-5">
+        <div className="p-4 sm:p-5">
           <div className="text-sm font-medium text-zinc-700">Buscar jugador o pareja</div>
           <Input
             value={query}
@@ -339,7 +339,7 @@ export default function PublicTournamentPage() {
 
           {finalWinner && (
             <Card className="bg-white/95">
-              <div className="p-5">
+              <div className="p-4 sm:p-5">
                 <div className="text-xs uppercase tracking-[0.18em] text-zinc-500">
                   🏆 Pareja ganadora
                 </div>
@@ -352,7 +352,7 @@ export default function PublicTournamentPage() {
 
           {hasPlayoffs && initialStage && (
             <Card className="bg-white/95">
-              <div className="p-5 space-y-4">
+              <div className="space-y-4 p-4 sm:p-5">
                 <div className="text-sm font-semibold text-zinc-800">
                   Llaves de playoffs
                 </div>
@@ -408,8 +408,8 @@ export default function PublicTournamentPage() {
                             );
 
                       return (
-                        <div key={stage} className="min-w-[260px] space-y-3">
-                          <div className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                        <div key={stage} className="min-w-[220px] space-y-3 sm:min-w-[260px]">
+                          <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500 sm:text-xs">
                             {stageLabel(stage)}
                           </div>
                           <div
@@ -432,17 +432,17 @@ export default function PublicTournamentPage() {
                                 return (
                                   <div
                                     key={`${stage}-placeholder-${idx}`}
-                                    className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-3 text-sm text-zinc-400"
+                                    className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-3 text-xs text-zinc-400 sm:text-sm"
                                     style={gridStyle}
                                   >
                                     <div className="text-xs uppercase tracking-[0.12em]">
                                       Por definir
                                     </div>
-                                    <div className="mt-2 text-sm text-zinc-600">
+                                    <div className="mt-2 text-xs text-zinc-600 sm:text-sm">
                                       {seedA}
                                     </div>
                                     <div className="text-xs text-zinc-400">vs</div>
-                                    <div className="text-sm text-zinc-600">
+                                    <div className="text-xs text-zinc-600 sm:text-sm">
                                       {seedB}
                                     </div>
                                   </div>
@@ -465,7 +465,7 @@ export default function PublicTournamentPage() {
                               return (
                                 <div
                                   key={match.id}
-                                  className={`rounded-2xl border px-3 py-2 text-sm shadow-sm ${
+                                  className={`rounded-2xl border px-3 py-2 text-xs shadow-sm sm:text-sm ${
                                     played
                                       ? "border-emerald-300 bg-emerald-100/70"
                                       : "border-zinc-200 bg-white"
@@ -473,7 +473,7 @@ export default function PublicTournamentPage() {
                                   style={gridStyle}
                                 >
                                   <div className="text-xs text-zinc-500">Partido</div>
-                                  <div className="mt-1 grid grid-cols-[1fr_auto] gap-x-4 gap-y-1">
+                                  <div className="mt-1 grid grid-cols-[1fr_auto] gap-x-3 gap-y-1 sm:gap-x-4">
                                     <div
                                       className={`font-medium text-zinc-900 ${
                                         match.winner_team_id === match.team_a_id
@@ -485,7 +485,7 @@ export default function PublicTournamentPage() {
                                     </div>
                                     {played && (
                                       <div
-                                        className={`text-sm text-right ${
+                                        className={`text-xs text-right sm:text-sm ${
                                           aWinner
                                             ? "font-semibold text-zinc-900"
                                             : "font-normal text-zinc-400"
@@ -505,7 +505,7 @@ export default function PublicTournamentPage() {
                                     </div>
                                     {played && (
                                       <div
-                                        className={`text-sm text-right ${
+                                        className={`text-xs text-right sm:text-sm ${
                                           bWinner
                                             ? "font-semibold text-zinc-900"
                                             : "font-normal text-zinc-400"
@@ -542,7 +542,7 @@ export default function PublicTournamentPage() {
 
           <div className="space-y-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <h2 className="text-xl font-semibold">Zonas y posiciones</h2>
+              <h2 className="text-lg font-semibold sm:text-xl">Zonas y posiciones</h2>
               {hasPlayoffs && (
                 <button
                   type="button"
@@ -565,15 +565,18 @@ export default function PublicTournamentPage() {
                   const standings = standingsByGroup[group.id]?.standings ?? [];
                   return (
                     <Card key={group.id}>
-                      <div className="space-y-4 p-5">
+                      <div className="space-y-4 p-4 sm:p-5">
                         <div className="text-sm font-semibold text-zinc-800">{group.name}</div>
-                        <div className="space-y-2 text-sm text-zinc-800">
+                        <div className="space-y-2 text-xs text-zinc-800 sm:text-sm">
                           {group.teams.map((team) => {
                             const label =
                               team.players.map((player) => player.name).join(" / ") ||
                               `Team #${team.id}`;
                             return (
-                              <div key={team.id} className="rounded-lg border border-zinc-800 px-3 py-2">
+                              <div
+                                key={team.id}
+                                className="rounded-lg border border-zinc-800 px-3 py-2"
+                              >
                                 {label}
                               </div>
                             );
@@ -581,16 +584,16 @@ export default function PublicTournamentPage() {
                         </div>
 
                         <div className="overflow-x-auto">
-                          <table className="min-w-full text-sm">
+                          <table className="min-w-[520px] text-xs sm:min-w-full sm:text-sm">
                             <thead>
                               <tr className="text-left text-zinc-500">
-                                <th className="py-2">Equipo</th>
-                                <th className="py-2">PJ</th>
-                                <th className="py-2">PG</th>
-                                <th className="py-2">PP</th>
-                                <th className="py-2">Sets</th>
-                                <th className="py-2">Games</th>
-                                <th className="py-2">Pts</th>
+                                <th className="py-1.5 sm:py-2">Equipo</th>
+                                <th className="py-1.5 sm:py-2">PJ</th>
+                                <th className="py-1.5 sm:py-2">PG</th>
+                                <th className="py-1.5 sm:py-2">PP</th>
+                                <th className="py-1.5 sm:py-2">Sets</th>
+                                <th className="py-1.5 sm:py-2">Games</th>
+                                <th className="py-1.5 sm:py-2">Pts</th>
                               </tr>
                             </thead>
                             <tbody>
@@ -600,17 +603,17 @@ export default function PublicTournamentPage() {
                                   `Team #${row.team.id}`;
                                 return (
                                   <tr key={row.team.id} className="border-t border-zinc-800">
-                                    <td className="py-2 font-medium">{teamLabel}</td>
-                                    <td className="py-2">{row.played}</td>
-                                    <td className="py-2">{row.won}</td>
-                                    <td className="py-2">{row.lost}</td>
-                                    <td className="py-2">
+                                    <td className="py-1.5 font-medium sm:py-2">{teamLabel}</td>
+                                    <td className="py-1.5 sm:py-2">{row.played}</td>
+                                    <td className="py-1.5 sm:py-2">{row.won}</td>
+                                    <td className="py-1.5 sm:py-2">{row.lost}</td>
+                                    <td className="py-1.5 sm:py-2">
                                       {row.sets_for}-{row.sets_against}
                                     </td>
-                                    <td className="py-2">
+                                    <td className="py-1.5 sm:py-2">
                                       {row.games_for}-{row.games_against}
                                     </td>
-                                    <td className="py-2 font-semibold">{row.points}</td>
+                                    <td className="py-1.5 font-semibold sm:py-2">{row.points}</td>
                                   </tr>
                                 );
                               })}
@@ -633,10 +636,10 @@ export default function PublicTournamentPage() {
 
           {!hasPlayoffs && (
             <div className="space-y-4">
-              <h2 className="text-xl font-semibold">Partidos</h2>
+              <h2 className="text-lg font-semibold sm:text-xl">Partidos</h2>
               <div className="grid gap-4 lg:grid-cols-2">
                 <Card>
-                  <div className="space-y-3 p-5">
+                  <div className="space-y-3 p-4 sm:p-5">
                     <div className="text-sm font-semibold text-zinc-800">Proximos</div>
                     {pendingMatches.length === 0 ? (
                       <div className="text-sm text-zinc-400">No hay partidos pendientes.</div>
@@ -648,7 +651,7 @@ export default function PublicTournamentPage() {
                   </div>
                 </Card>
                 <Card>
-                  <div className="space-y-3 p-5">
+                  <div className="space-y-3 p-4 sm:p-5">
                     <div className="text-sm font-semibold text-zinc-800">Resultados</div>
                     {playedMatches.length === 0 ? (
                       <div className="text-sm text-zinc-400">No hay resultados cargados.</div>
