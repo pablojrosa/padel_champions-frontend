@@ -1,6 +1,11 @@
 import type { TournamentStatus } from "@/lib/types";
 
-export default function StatusBadge({ status }: { status: TournamentStatus }) {
+type StatusBadgeProps = {
+  status: TournamentStatus;
+  className?: string;
+};
+
+export default function StatusBadge({ status, className = "" }: StatusBadgeProps) {
   const label =
     status === "upcoming"
       ? "Por jugar"
@@ -20,7 +25,9 @@ export default function StatusBadge({ status }: { status: TournamentStatus }) {
       : "bg-zinc-200 text-zinc-800 border-zinc-300";
 
   return (
-    <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium ${cls}`}>
+    <span
+      className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium ${cls} ${className}`}
+    >
       {label}
     </span>
   );

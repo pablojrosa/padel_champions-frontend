@@ -784,7 +784,7 @@ export default function TournamentPlayoffsPage() {
                 <div className="text-sm font-semibold text-zinc-800">Campeones</div>
                 <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-emerald-900">
                   <div className="text-xs uppercase tracking-wide text-emerald-700">
-                    Pareja ganadora
+                   🏆 Pareja ganadora
                   </div>
                   <div className="text-lg font-semibold">{finalWinner.name}</div>
                 </div>
