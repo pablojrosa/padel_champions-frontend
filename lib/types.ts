@@ -36,12 +36,39 @@ export type LoginResponse = {
   token_type: "bearer";
 };
 
+export type PlanType = "free" | "plus" | "pro_plus";
+
 export type UserProfile = {
   id: number;
   email: string;
   club_name: string | null;
   club_location: string | null;
   club_logo_url: string | null;
+  is_superadmin: boolean;
+  is_active: boolean;
+  plan_type: PlanType;
+  last_payment_at: string | null;
+  subscription_ends_at: string | null;
+};
+
+export type AdminClient = {
+  id: number;
+  email: string;
+  club_name: string | null;
+  club_location: string | null;
+  is_active: boolean;
+  is_superadmin: boolean;
+  plan_type: PlanType;
+  created_at: string | null;
+  last_payment_at: string | null;
+  subscription_ends_at: string | null;
+};
+
+export type PaymentRecord = {
+  id: number;
+  user_id: number;
+  paid_at: string;
+  created_at: string;
 };
 
 export type TournamentStatus = "upcoming" | "ongoing" | "groups_finished" | "finished";
