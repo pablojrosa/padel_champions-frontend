@@ -3,6 +3,7 @@ export type Player = {
   first_name: string;
   last_name: string;
   category: string;
+  gender?: string | null;
 };
 
 export type Tournament = {
@@ -28,6 +29,8 @@ export type Team = {
   players: {
     id: number;
     name: string;
+    category?: string | null;
+    gender?: string | null;
   }[];
   schedule_constraints?: string | null;
 };
@@ -89,7 +92,7 @@ export type StartTournamentResponse = {
 
 export type GroupTeamOut = {
   id: number;
-  players: { name: string }[];
+  players: { name: string; category?: string | null; gender?: string | null }[];
 };
 
 export type TournamentGroupOut = {

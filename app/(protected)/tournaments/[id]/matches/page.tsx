@@ -57,11 +57,32 @@ export default function TournamentMatchesPage() {
   const [scheduling, setScheduling] = useState(false);
   const [gridOpen, setGridOpen] = useState(false);
   const [gridMatch, setGridMatch] = useState<Match | null>(null);
+  const [categoryFilter, setCategoryFilter] = useState<string | "all">("all");
+  const [genderFilter, setGenderFilter] = useState<string | "all">("all");
+  const [nameQuery, setNameQuery] = useState("");
 
   const teamsById = useMemo(() => {
     const map = new Map<number, Team>();
     teams.forEach((team) => map.set(team.id, team));
     return map;
+  }, [teams]);
+  const categories = useMemo(() => {
+    const values = new Set<string>();
+    teams.forEach((team) => {
+      team.players?.forEach((player) => {
+        if (player.category) values.add(player.category);
+      });
+    });
+    return Array.from(values).sort();
+  }, [teams]);
+  const genders = useMemo(() => {
+    const values = new Set<string>();
+    teams.forEach((team) => {
+      team.players?.forEach((player) => {
+        if (player.gender) values.add(player.gender);
+      });
+    });
+    return Array.from(values).sort();
   }, [teams]);
 
   const groupsById = useMemo(() => {
@@ -111,6 +132,20 @@ export default function TournamentMatchesPage() {
     const names = team.players?.map((player) => player.name).filter(Boolean) ?? [];
     if (names.length === 0) return `Team #${teamId}`;
     return names.join(" / ");
+  }
+  function getTeamCategory(teamId: number) {
+    const team = teamsById.get(teamId);
+    return team?.players?.[0]?.category ?? null;
+  }
+  function getTeamGender(teamId: number) {
+    const team = teamsById.get(teamId);
+    return team?.players?.[0]?.gender ?? null;
+  }
+  function getTeamSearchLabel(teamId: number) {
+    const team = teamsById.get(teamId);
+    const names = team?.players?.map((player) => player.name).filter(Boolean) ?? [];
+    if (names.length === 0) return "";
+    return names.join(" ").toLowerCase();
   }
 
   function getStageLabel(match: Match) {
@@ -310,17 +345,31 @@ export default function TournamentMatchesPage() {
 
   const canSchedule = tournamentStatus !== "finished";
   const canResult = tournamentStatus === "ongoing" || tournamentStatus === "groups_finished";
+  const categoryFilteredMatches = useMemo(() => {
+    const normalizedQuery = nameQuery.trim().toLowerCase();
+    return matches.filter((match) => {
+      const category = getTeamCategory(match.team_a_id);
+      const gender = getTeamGender(match.team_a_id);
+      const categoryMatch = categoryFilter === "all" || category === categoryFilter;
+      const genderMatch = genderFilter === "all" || gender === genderFilter;
+      if (!categoryMatch || !genderMatch) return false;
+      if (!normalizedQuery) return true;
+      const aLabel = getTeamSearchLabel(match.team_a_id);
+      const bLabel = getTeamSearchLabel(match.team_b_id);
+      return aLabel.includes(normalizedQuery) || bLabel.includes(normalizedQuery);
+    });
+  }, [matches, categoryFilter, genderFilter, nameQuery, teamsById]);
   const unscheduledMatches = useMemo(
-    () => matches.filter((match) => match.status !== "played" && !match.scheduled_time),
-    [matches]
+    () => categoryFilteredMatches.filter((match) => match.status !== "played" && !match.scheduled_time),
+    [categoryFilteredMatches]
   );
   const scheduledMatches = useMemo(
-    () => matches.filter((match) => match.status !== "played" && !!match.scheduled_time),
-    [matches]
+    () => categoryFilteredMatches.filter((match) => match.status !== "played" && !!match.scheduled_time),
+    [categoryFilteredMatches]
   );
   const playedMatches = useMemo(
-    () => matches.filter((match) => match.status === "played"),
-    [matches]
+    () => categoryFilteredMatches.filter((match) => match.status === "played"),
+    [categoryFilteredMatches]
   );
   const groupStageComplete = useMemo(() => {
     if (groups.length === 0) return false;
@@ -444,6 +493,48 @@ export default function TournamentMatchesPage() {
                   </Button>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
+                  <Input
+                    value={nameQuery}
+                    onChange={(e) => setNameQuery(e.target.value)}
+                    placeholder="Buscar pareja"
+                    className="w-48"
+                  />
+                  {categories.length > 0 && (
+                    <select
+                      className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                      value={categoryFilter}
+                      onChange={(e) =>
+                        setCategoryFilter(
+                          e.target.value === "all" ? "all" : e.target.value
+                        )
+                      }
+                    >
+                      <option value="all">Todas (categorias)</option>
+                      {categories.map((category) => (
+                        <option key={category} value={category}>
+                          {category}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                  {genders.length > 0 && (
+                    <select
+                      className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                      value={genderFilter}
+                      onChange={(e) =>
+                        setGenderFilter(
+                          e.target.value === "all" ? "all" : e.target.value
+                        )
+                      }
+                    >
+                      <option value="all">Todos (genero)</option>
+                      {genders.map((gender) => (
+                        <option key={gender} value={gender}>
+                          {gender === "damas" ? "Damas" : "Masculino"}
+                        </option>
+                      ))}
+                    </select>
+                  )}
                   <Button variant="secondary" onClick={() => setGridOpen(true)}>
                     Grilla de partidos
                   </Button>

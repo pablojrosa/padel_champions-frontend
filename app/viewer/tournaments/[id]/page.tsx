@@ -72,6 +72,7 @@ export default function PublicTournamentPage() {
     "groups"
   );
   const [collapsedStages, setCollapsedStages] = useState<Record<string, boolean>>({});
+  const [divisionFilter, setDivisionFilter] = useState<string | "all">("all");
 
   useEffect(() => {
     if (!Number.isFinite(tournamentId)) return;
@@ -141,6 +142,25 @@ export default function PublicTournamentPage() {
     return names.join(" / ");
   }
 
+  function getTeamDivision(teamId: number) {
+    const team = teamsById.get(teamId);
+    const category = team?.players?.[0]?.category ?? null;
+    const gender = team?.players?.[0]?.gender ?? null;
+    if (!category || !gender) return null;
+    return `${category} - ${gender === "damas" ? "Damas" : "Masculino"}`;
+  }
+
+  const divisions = useMemo(() => {
+    const values = new Set<string>();
+    teams.forEach((team) => {
+      const category = team.players?.[0]?.category ?? null;
+      const gender = team.players?.[0]?.gender ?? null;
+      if (!category || !gender) return;
+      values.add(`${category} - ${gender === "damas" ? "Damas" : "Masculino"}`);
+    });
+    return Array.from(values).sort();
+  }, [teams]);
+
   function isMatchVisible(match: Match, normalized: string) {
     if (!normalized) return true;
     const aLabel = getTeamLabel(match.team_a_id).toLowerCase();
@@ -150,18 +170,32 @@ export default function PublicTournamentPage() {
 
   const filteredGroups = useMemo(() => {
     const normalized = query.trim().toLowerCase();
-    if (!normalized) return groups;
-    return groups.filter((group) =>
-      group.teams.some((team) =>
+    return groups.filter((group) => {
+      const matchesDivision =
+        divisionFilter === "all" ||
+        group.teams.some((team) => {
+          const category = team.players?.[0]?.category ?? null;
+          const gender = team.players?.[0]?.gender ?? null;
+          if (!category || !gender) return false;
+          const label = `${category} - ${gender === "damas" ? "Damas" : "Masculino"}`;
+          return label === divisionFilter;
+        });
+      if (!matchesDivision) return false;
+      if (!normalized) return true;
+      return group.teams.some((team) =>
         team.players.some((player) => player.name.toLowerCase().includes(normalized))
-      )
-    );
-  }, [groups, query]);
+      );
+    });
+  }, [groups, query, divisionFilter]);
 
   const filteredMatches = useMemo(() => {
     const normalized = query.trim().toLowerCase();
-    return matches.filter((match) => isMatchVisible(match, normalized));
-  }, [matches, query, teamsById]);
+    return matches.filter((match) => {
+      if (!isMatchVisible(match, normalized)) return false;
+      if (divisionFilter === "all") return true;
+      return getTeamDivision(match.team_a_id) === divisionFilter;
+    });
+  }, [matches, query, teamsById, divisionFilter]);
 
   const playoffMatches = useMemo(
     () => matches.filter((match) => match.stage !== "group"),
@@ -385,12 +419,28 @@ export default function PublicTournamentPage() {
         <Card className="bg-transparent text-zinc-100 shadow-none ring-0 border-none">
           <div className="p-4 sm:p-5">
             <div className="text-sm font-medium text-zinc-700">Buscar jugador o pareja</div>
-            <div className="mt-2 flex items-center gap-2">
+            <div className="mt-2 flex flex-wrap items-center gap-2">
               <Input
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="Ej: Juan / Pedro"
               />
+              {divisions.length > 0 && (
+                <select
+                  className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-600"
+                  value={divisionFilter}
+                  onChange={(e) =>
+                    setDivisionFilter(e.target.value === "all" ? "all" : e.target.value)
+                  }
+                >
+                  <option value="all">Todas las categorias</option>
+                  {divisions.map((division) => (
+                    <option key={division} value={division}>
+                      {division}
+                    </option>
+                  ))}
+                </select>
+              )}
               {query ? (
                 <button
                   type="button"

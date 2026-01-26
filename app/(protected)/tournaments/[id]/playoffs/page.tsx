@@ -64,6 +64,8 @@ export default function TournamentPlayoffsPage() {
   const [teams, setTeams] = useState<Team[]>([]);
   const [groups, setGroups] = useState<TournamentGroupOut[]>([]);
   const [status, setStatus] = useState<TournamentStatus>("upcoming");
+  const [categoryFilter, setCategoryFilter] = useState<string | "all">("all");
+  const [genderFilter, setGenderFilter] = useState<string | "all">("all");
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -97,24 +99,60 @@ export default function TournamentPlayoffsPage() {
     teams.forEach((team) => map.set(team.id, team));
     return map;
   }, [teams]);
+  const categories = useMemo(() => {
+    const values = new Set<string>();
+    teams.forEach((team) => {
+      team.players?.forEach((player) => {
+        if (player.category) values.add(player.category);
+      });
+    });
+    return Array.from(values).sort();
+  }, [teams]);
+  const genders = useMemo(() => {
+    const values = new Set<string>();
+    teams.forEach((team) => {
+      team.players?.forEach((player) => {
+        if (player.gender) values.add(player.gender);
+      });
+    });
+    return Array.from(values).sort();
+  }, [teams]);
 
   const sortedTeams = useMemo(() => {
     const labelFor = (team: Team) => {
       const names = team.players?.map((player) => player.name).filter(Boolean) ?? [];
       return names.length > 0 ? names.join(" / ") : `Team #${team.id}`;
     };
-    return [...teams].sort((a, b) => labelFor(a).localeCompare(labelFor(b)));
-  }, [teams]);
+    const filtered =
+      categoryFilter === "all" && genderFilter === "all"
+        ? teams
+        : teams.filter((team) => {
+            const category = team.players?.[0]?.category ?? null;
+            const gender = team.players?.[0]?.gender ?? null;
+            const categoryMatch = categoryFilter === "all" || category === categoryFilter;
+            const genderMatch = genderFilter === "all" || gender === genderFilter;
+            return categoryMatch && genderMatch;
+          });
+    return [...filtered].sort((a, b) => labelFor(a).localeCompare(labelFor(b)));
+  }, [teams, categoryFilter, genderFilter]);
 
   const matchesByStage = useMemo(() => {
     const map = new Map<PlayoffStage, Match[]>();
     PLAYOFF_STAGES.forEach((stage) => map.set(stage, []));
     matches.forEach((match) => {
       if (match.stage === "group") return;
+      if (categoryFilter !== "all") {
+        const category = teamsById.get(match.team_a_id)?.players?.[0]?.category ?? null;
+        if (category !== categoryFilter) return;
+      }
+      if (genderFilter !== "all") {
+        const gender = teamsById.get(match.team_a_id)?.players?.[0]?.gender ?? null;
+        if (gender !== genderFilter) return;
+      }
       map.get(match.stage)?.push(match);
     });
     return map;
-  }, [matches]);
+  }, [matches, categoryFilter, genderFilter, teamsById]);
 
   const hasPlayoffs = useMemo(() => {
     return Array.from(matchesByStage.values()).some((items) => items.length > 0);
@@ -612,12 +650,48 @@ export default function TournamentPlayoffsPage() {
           <p className="text-sm text-zinc-300">Generacion y cruces por instancia.</p>
         </div>
 
-        <Button
-          variant="secondary"
-          onClick={() => router.push(`/tournaments/${tournamentId}`)}
-        >
-          Volver
-        </Button>
+          <div className="flex items-center gap-2">
+            {categories.length > 0 && (
+              <select
+                className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                value={categoryFilter}
+              onChange={(e) =>
+                setCategoryFilter(
+                  e.target.value === "all" ? "all" : e.target.value
+                )
+              }
+            >
+              <option value="all">Todas</option>
+              {categories.map((category) => (
+                <option key={category} value={category}>
+                  {category}
+                </option>
+                ))}
+              </select>
+            )}
+            {genders.length > 0 && (
+              <select
+                className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                value={genderFilter}
+                onChange={(e) =>
+                  setGenderFilter(e.target.value === "all" ? "all" : e.target.value)
+                }
+              >
+                <option value="all">Todos</option>
+                {genders.map((gender) => (
+                  <option key={gender} value={gender}>
+                    {gender === "damas" ? "Damas" : "Masculino"}
+                  </option>
+                ))}
+              </select>
+            )}
+            <Button
+              variant="secondary"
+              onClick={() => router.push(`/tournaments/${tournamentId}`)}
+            >
+            Volver
+          </Button>
+        </div>
       </div>
 
       {loading ? (

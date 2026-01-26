@@ -74,6 +74,47 @@ export default function GroupsPanel({
   );
   const [generateCourtsCount, setGenerateCourtsCount] = useState(defaultCourtsCount);
   const [generateError, setGenerateError] = useState<string | null>(null);
+  const [categoryFilter, setCategoryFilter] = useState<string | "all">("all");
+  const [genderFilter, setGenderFilter] = useState<string | "all">("all");
+
+  const categories = useMemo(() => {
+    const values = new Set<string>();
+    groups.forEach((group) => {
+      group.teams.forEach((team) => {
+        team.players.forEach((player) => {
+          if (player.category) values.add(player.category);
+        });
+      });
+    });
+    return Array.from(values).sort();
+  }, [groups]);
+  const genders = useMemo(() => {
+    const values = new Set<string>();
+    groups.forEach((group) => {
+      group.teams.forEach((team) => {
+        team.players.forEach((player) => {
+          if (player.gender) values.add(player.gender);
+        });
+      });
+    });
+    return Array.from(values).sort();
+  }, [groups]);
+
+  const filteredGroups = useMemo(() => {
+    return groups.filter((group) => {
+      const categoryMatch =
+        categoryFilter === "all" ||
+        group.teams.some((team) =>
+          team.players.some((player) => player.category === categoryFilter)
+        );
+      const genderMatch =
+        genderFilter === "all" ||
+        group.teams.some((team) =>
+          team.players.some((player) => player.gender === genderFilter)
+        );
+      return categoryMatch && genderMatch;
+    });
+  }, [groups, categoryFilter, genderFilter]);
 
   useEffect(() => {
     if (!generateOpen) return;
@@ -373,7 +414,7 @@ export default function GroupsPanel({
           <div>
             <div className="text-sm font-semibold text-zinc-800">Zona de grupos</div>
             <div className="text-xs text-zinc-600">
-              Se generan solo cuando el torneo está en estado <b>Por jugar</b>.
+              Zonas generadas automaticamente utilizando IA
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -412,8 +453,54 @@ export default function GroupsPanel({
         </div>
 
         {/* Groups */}
+        {(categories.length > 0 || genders.length > 0) && (
+          <div className="flex flex-wrap items-center gap-3">
+            {categories.length > 0 && (
+              <div className="flex items-center gap-2">
+                <label className="text-sm text-zinc-700">Categoria</label>
+                <select
+                  className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                  value={categoryFilter}
+                  onChange={(e) =>
+                    setCategoryFilter(
+                      e.target.value === "all" ? "all" : e.target.value
+                    )
+                  }
+                >
+                  <option value="all">Todas</option>
+                  {categories.map((category) => (
+                    <option key={category} value={category}>
+                      {category}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+            {genders.length > 0 && (
+              <div className="flex items-center gap-2">
+                <label className="text-sm text-zinc-700">Genero</label>
+                <select
+                  className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                  value={genderFilter}
+                  onChange={(e) =>
+                    setGenderFilter(
+                      e.target.value === "all" ? "all" : e.target.value
+                    )
+                  }
+                >
+                  <option value="all">Todos</option>
+                  {genders.map((gender) => (
+                    <option key={gender} value={gender}>
+                      {gender === "damas" ? "Damas" : "Masculino"}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+          </div>
+        )}
         <div className="grid gap-4 md:grid-cols-2">
-          {groups.map((g) => (
+          {filteredGroups.map((g) => (
             <div
               key={g.id}
               className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm"
