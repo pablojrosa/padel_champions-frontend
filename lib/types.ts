@@ -29,6 +29,7 @@ export type Team = {
     id: number;
     name: string;
   }[];
+  schedule_constraints?: string | null;
 };
 
 export type LoginResponse = {
@@ -56,6 +57,13 @@ export type TournamentStatusUpdate = {
 
 export type GroupGenerateRequest = {
   teams_per_group: number;
+  schedule_windows: {
+    date: string;
+    start_time: string;
+    end_time: string;
+  }[];
+  match_duration_minutes: number;
+  courts_count: number;
 };
 
 export type GroupTeamRef = {
@@ -87,6 +95,7 @@ export type GroupTeamOut = {
 export type TournamentGroupOut = {
   id: number;
   name: string;
+  is_incompatible?: boolean;
   teams: GroupTeamOut[];
 };
 

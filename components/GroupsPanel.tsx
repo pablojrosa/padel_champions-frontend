@@ -1,10 +1,11 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import Link from "next/link";
 import Card from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
 import Modal from "@/components/ui/Modal";
+import Input from "@/components/ui/Input";
 import { api } from "@/lib/api";
 import type {
   TournamentGroupOut,
@@ -19,7 +20,21 @@ type Props = {
   teamsPerGroup: number;
   setTeamsPerGroup: (n: number) => void;
   generating: boolean;
-  onGenerate: () => Promise<void>;
+  onGenerate: (payload: {
+    teams_per_group: number;
+    schedule_windows: {
+      date: string;
+      start_time: string;
+      end_time: string;
+    }[];
+    match_duration_minutes: number;
+    courts_count: number;
+  }) => Promise<void>;
+  defaultStartDate: string;
+  defaultStartTime: string;
+  defaultEndTime: string;
+  defaultMatchDurationMinutes: number;
+  defaultCourtsCount: number;
 };
 
 export default function GroupsPanel({
@@ -31,6 +46,11 @@ export default function GroupsPanel({
   setTeamsPerGroup,
   generating,
   onGenerate,
+  defaultStartDate,
+  defaultStartTime,
+  defaultEndTime,
+  defaultMatchDurationMinutes,
+  defaultCourtsCount,
 }: Props) {
   const disabled = status !== "upcoming";
 
@@ -45,6 +65,64 @@ export default function GroupsPanel({
   const [moveSwapTeamId, setMoveSwapTeamId] = useState<number | "">("");
   const [moveError, setMoveError] = useState<string | null>(null);
   const [moving, setMoving] = useState(false);
+  const [generateOpen, setGenerateOpen] = useState(false);
+  const [generateScheduleWindows, setGenerateScheduleWindows] = useState<
+    { date: string; start_time: string; end_time: string }[]
+  >([{ date: defaultStartDate, start_time: defaultStartTime, end_time: defaultEndTime }]);
+  const [generateMatchDuration, setGenerateMatchDuration] = useState(
+    defaultMatchDurationMinutes
+  );
+  const [generateCourtsCount, setGenerateCourtsCount] = useState(defaultCourtsCount);
+  const [generateError, setGenerateError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!generateOpen) return;
+    setGenerateScheduleWindows([
+      { date: defaultStartDate, start_time: defaultStartTime, end_time: defaultEndTime },
+    ]);
+    setGenerateMatchDuration(defaultMatchDurationMinutes);
+    setGenerateCourtsCount(defaultCourtsCount);
+    setGenerateError(null);
+  }, [
+    generateOpen,
+    defaultStartDate,
+    defaultStartTime,
+    defaultEndTime,
+    defaultMatchDurationMinutes,
+    defaultCourtsCount,
+  ]);
+
+  function updateScheduleWindow(
+    index: number,
+    key: "date" | "start_time" | "end_time",
+    value: string
+  ) {
+    setGenerateScheduleWindows((prev) =>
+      prev.map((window, idx) =>
+        idx === index ? { ...window, [key]: value } : window
+      )
+    );
+  }
+
+  function addScheduleWindow() {
+    setGenerateScheduleWindows((prev) => {
+      const last = prev[prev.length - 1];
+      if (!last?.date) {
+        return [...prev, { date: "", start_time: defaultStartTime, end_time: defaultEndTime }];
+      }
+      const base = new Date(`${last.date}T00:00:00`);
+      base.setDate(base.getDate() + 1);
+      const nextDate = base.toISOString().slice(0, 10);
+      return [
+        ...prev,
+        { date: nextDate, start_time: defaultStartTime, end_time: defaultEndTime },
+      ];
+    });
+  }
+
+  function removeScheduleWindow(index: number) {
+    setGenerateScheduleWindows((prev) => prev.filter((_, idx) => idx !== index));
+  }
 
   const allTeams = useMemo(() => {
     return groups.flatMap((group) =>
@@ -239,6 +317,42 @@ export default function GroupsPanel({
     }
   }
 
+  async function submitGenerate() {
+    if (generateScheduleWindows.length === 0) {
+      setGenerateError("Agrega al menos un dia.");
+      return;
+    }
+    const dateSet = new Set<string>();
+    for (const window of generateScheduleWindows) {
+      if (!window.date || !window.start_time || !window.end_time) {
+        setGenerateError("Completa fecha y horarios.");
+        return;
+      }
+      if (dateSet.has(window.date)) {
+        setGenerateError("No repitas fechas.");
+        return;
+      }
+      dateSet.add(window.date);
+    }
+    if (generateMatchDuration <= 0 || generateCourtsCount <= 0) {
+      setGenerateError("Duracion y canchas deben ser mayores a 0.");
+      return;
+    }
+
+    setGenerateError(null);
+    try {
+      await onGenerate({
+        teams_per_group: teamsPerGroup,
+        schedule_windows: generateScheduleWindows,
+        match_duration_minutes: generateMatchDuration,
+        courts_count: generateCourtsCount,
+      });
+      setGenerateOpen(false);
+    } catch (err: any) {
+      setGenerateError(err?.message ?? "No se pudo generar zonas");
+    }
+  }
+
   function handleDrop(e: React.DragEvent<HTMLDivElement>, targetGroupId: number) {
     e.preventDefault();
     const payload = e.dataTransfer.getData("application/json");
@@ -270,8 +384,8 @@ export default function GroupsPanel({
               Ver partidos
             </Button>
             <Button
-              onClick={onGenerate}
-              disabled={disabled || generating || groups.length > 0}
+              onClick={() => setGenerateOpen(true)}
+              disabled={disabled || generating}
             >
               {generating ? "Generando..." : "Generar zonas"}
             </Button>
@@ -286,7 +400,7 @@ export default function GroupsPanel({
               className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
               value={teamsPerGroup}
               onChange={(e) => setTeamsPerGroup(Number(e.target.value))}
-              disabled={disabled || generating || groups.length > 0}
+              disabled={disabled || generating}
             >
               {[2, 3, 4, 5, 6].map((n) => (
                 <option key={n} value={n}>{n}</option>
@@ -307,7 +421,14 @@ export default function GroupsPanel({
               onDrop={(e) => handleDrop(e, g.id)}
             >
               <div className="flex justify-between">
-                <div className="font-medium">{g.name.replace(/^Group\s+/i, "Grupo ")}</div>
+                <div className="flex flex-wrap items-center gap-2 font-medium">
+                  <span>{g.name.replace(/^Group\s+/i, "Grupo ")}</span>
+                  {g.is_incompatible && (
+                    <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs text-amber-700">
+                      Incompatible
+                    </span>
+                  )}
+                </div>
                 <div className="flex items-center gap-2">
                   {status === "upcoming" && g.teams.length === 0 && (
                     <button
@@ -373,6 +494,112 @@ export default function GroupsPanel({
           ))}
         </div>
       </div>
+
+      <Modal
+        open={generateOpen}
+        title="Generar zonas"
+        onClose={() => setGenerateOpen(false)}
+      >
+        <div className="space-y-4">
+          <div className="text-sm text-zinc-600">
+            Definí la ventana horaria para programar los partidos de grupos.
+          </div>
+
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="text-xs font-semibold text-zinc-500">
+                Ventanas horarias
+              </div>
+              <Button variant="secondary" onClick={addScheduleWindow}>
+                Agregar dia
+              </Button>
+            </div>
+
+            <div className="space-y-3">
+              {generateScheduleWindows.map((window, index) => (
+                <div
+                  key={`${window.date}-${index}`}
+                  className="rounded-xl border border-zinc-200 bg-zinc-50 p-3"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="grid flex-1 gap-2 md:grid-cols-3">
+                      <Input
+                        type="date"
+                        value={window.date}
+                        onChange={(e) =>
+                          updateScheduleWindow(index, "date", e.target.value)
+                        }
+                      />
+                      <Input
+                        type="time"
+                        value={window.start_time}
+                        onChange={(e) =>
+                          updateScheduleWindow(index, "start_time", e.target.value)
+                        }
+                      />
+                      <Input
+                        type="time"
+                        value={window.end_time}
+                        onChange={(e) =>
+                          updateScheduleWindow(index, "end_time", e.target.value)
+                        }
+                      />
+                    </div>
+                    {generateScheduleWindows.length > 1 && (
+                      <Button
+                        variant="secondary"
+                        onClick={() => removeScheduleWindow(index)}
+                      >
+                        Quitar
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="grid gap-2 md:grid-cols-2">
+            <div className="space-y-2">
+              <label className="text-xs font-semibold text-zinc-500">
+                Duracion del partido (min)
+              </label>
+              <Input
+                type="number"
+                min={1}
+                value={generateMatchDuration}
+                onChange={(e) => setGenerateMatchDuration(Number(e.target.value))}
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-xs font-semibold text-zinc-500">
+                Canchas simultaneas
+              </label>
+              <Input
+                type="number"
+                min={1}
+                value={generateCourtsCount}
+                onChange={(e) => setGenerateCourtsCount(Number(e.target.value))}
+              />
+            </div>
+          </div>
+
+          {generateError && (
+            <div className="rounded-xl border border-red-300 bg-red-100 p-3 text-sm text-red-800">
+              {generateError}
+            </div>
+          )}
+
+          <div className="flex justify-end gap-2">
+            <Button variant="secondary" onClick={() => setGenerateOpen(false)}>
+              Cancelar
+            </Button>
+            <Button onClick={submitGenerate} disabled={generating}>
+              {generating ? "Generando..." : "Generar zonas"}
+            </Button>
+          </div>
+        </div>
+      </Modal>
 
       <Modal
         open={moveOpen}

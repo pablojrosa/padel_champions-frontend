@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Card from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
@@ -48,6 +48,7 @@ export default function TournamentDetailPage() {
   const [p2FirstName, setP2FirstName] = useState("");
   const [p2LastName, setP2LastName] = useState("");
   const [p2Category, setP2Category] = useState("");
+  const [pairScheduleConstraints, setPairScheduleConstraints] = useState("");
 
   // Delete team from tournament
   const [deletingTeamId, setDeletingTeamId] = useState<number | null>(null);
@@ -59,6 +60,7 @@ export default function TournamentDetailPage() {
   const [groups, setGroups] = useState<TournamentGroupOut[]>([]);
   const [teamsPerGroup, setTeamsPerGroup] = useState<number>(2);
   const [generatingGroups, setGeneratingGroups] = useState(false);
+  const [teamsGroupFilter, setTeamsGroupFilter] = useState<number | "all">("all");
 
   const [startingTournament, setStartingTournament] = useState(false);
   const [copyMessage, setCopyMessage] = useState<string | null>(null);
@@ -84,6 +86,7 @@ export default function TournamentDetailPage() {
   const [editP2FirstName, setEditP2FirstName] = useState("");
   const [editP2LastName, setEditP2LastName] = useState("");
   const [editP2Category, setEditP2Category] = useState("");
+  const [editScheduleConstraints, setEditScheduleConstraints] = useState("");
 
   const categories = ["7ma", "6ta", "5ta", "4ta", "3ra", "2da", "1ra"];
 
@@ -93,6 +96,7 @@ function hydrateTeams(rawTeams: Team[], players: Player[]): UiTeam[] {
 
   return rawTeams.map((team) => ({
     ...team,
+    schedule_constraints: team.schedule_constraints ?? null,
     players: (team.players || [])
       .map((p) => playersById.get(p.id))
       .filter((p): p is Player => !!p)
@@ -106,12 +110,14 @@ function hydrateTeams(rawTeams: Team[], players: Player[]): UiTeam[] {
 type TeamApi = {
   id: number;
   players: { id: number; first_name: string; last_name: string | null }[];
+  schedule_constraints?: string | null;
 };
 
 function mapTeamsFromApi(rawTeams: TeamApi[], tournamentId: number): UiTeam[] {
   return rawTeams.map((team) => ({
     id: team.id,
     tournament_id: tournamentId,
+    schedule_constraints: team.schedule_constraints ?? null,
     players: team.players.map((p) => ({
       id: p.id,
       name: `${p.first_name} ${p.last_name ?? ""}`.trim(),
@@ -243,6 +249,7 @@ async function load() {
     setP2FirstName("");
     setP2LastName("");
     setP2Category("");
+    setPairScheduleConstraints("");
     setPairError(null);
     setPairOpen(true);
   }
@@ -262,6 +269,7 @@ async function load() {
     setEditP2FirstName(p2?.first_name ?? "");
     setEditP2LastName(p2?.last_name ?? "");
     setEditP2Category(p2?.category ?? "");
+    setEditScheduleConstraints(team.schedule_constraints ?? "");
     setEditPairError(null);
     setEditPairOpen(true);
   }
@@ -283,7 +291,11 @@ async function load() {
     setEditPairSaving(true);
     setEditPairError(null);
     try {
-      const updated = await api<{ id: number; players: Player[] }>(
+      const updated = await api<{
+        id: number;
+        players: Player[];
+        schedule_constraints?: string | null;
+      }>(
         `/tournaments/${tournamentId}/teams/${editTeamId}`,
         {
           method: "PATCH",
@@ -302,6 +314,9 @@ async function load() {
                 category: editP2Category,
               },
             ],
+            schedule_constraints: editScheduleConstraints.trim()
+              ? editScheduleConstraints.trim()
+              : null,
           },
         }
       );
@@ -313,7 +328,11 @@ async function load() {
             id: p.id,
             name: `${p.first_name} ${p.last_name ?? ""}`.trim(),
           }));
-          return { ...team, players: mappedPlayers };
+          return {
+            ...team,
+            players: mappedPlayers,
+            schedule_constraints: updated.schedule_constraints ?? null,
+          };
         })
       );
       setPlayers((prev) =>
@@ -348,6 +367,9 @@ async function load() {
       id: tempId,
       tournament_id: tournamentId,
       pending: true,
+      schedule_constraints: pairScheduleConstraints.trim()
+        ? pairScheduleConstraints.trim()
+        : null,
       players: [
         { id: tempId * 10 - 1, name: `${p1FirstName.trim()} ${p1LastName.trim()}`.trim() },
         { id: tempId * 10 - 2, name: `${p2FirstName.trim()} ${p2LastName.trim()}`.trim() },
@@ -375,6 +397,9 @@ async function load() {
               last_name: p2LastName.trim(),
               category: p2Category,
             },
+            schedule_constraints: pairScheduleConstraints.trim()
+              ? pairScheduleConstraints.trim()
+              : null,
           },
         }
       );
@@ -403,7 +428,16 @@ async function load() {
       setPairSaving(false);
     }
   }
-  async function generateGroups() {
+  async function generateGroups(payload: {
+    teams_per_group: number;
+    schedule_windows: {
+      date: string;
+      start_time: string;
+      end_time: string;
+    }[];
+    match_duration_minutes: number;
+    courts_count: number;
+  }) {
     setGeneratingGroups(true);
     setError(null);
   
@@ -412,7 +446,7 @@ async function load() {
         `/tournaments/${tournamentId}/groups/generate`,
         {
           method: "POST",
-          body: { teams_per_group: teamsPerGroup },
+          body: payload,
         }
       );
       const tGroups = await api<TournamentGroupOut[]>(
@@ -421,6 +455,7 @@ async function load() {
       setGroups(tGroups);
     } catch (err: any) {
       setError(err?.message ?? "Failed to generate groups");
+      throw err;
     } finally {
       setGeneratingGroups(false);
     }
@@ -510,6 +545,20 @@ async function load() {
     tournament?.location && tournament.location.startsWith("http")
       ? tournament.location
       : null;
+  const getTeamGroup = (teamId: number) =>
+    groups.find((g) => g.teams?.some((t) => t.id === teamId)) ?? null;
+  const filteredTeams = useMemo(() => {
+    if (teamsGroupFilter === "all") return teams;
+    return teams.filter((team) => getTeamGroup(team.id)?.id === teamsGroupFilter);
+  }, [teams, teamsGroupFilter, groups]);
+  const normalizeTime = (value: string | null | undefined, fallback: string) =>
+    value ? value.slice(0, 5) : fallback;
+  const defaultStartDate =
+    tournament?.start_date ?? new Date().toISOString().slice(0, 10);
+  const defaultStartTime = normalizeTime(tournament?.start_time, "18:00");
+  const defaultEndTime = normalizeTime(tournament?.end_time, "23:00");
+  const defaultMatchDurationMinutes = tournament?.match_duration_minutes ?? 90;
+  const defaultCourtsCount = tournament?.courts_count ?? 1;
 
   return (
     <div className="space-y-8">
@@ -715,6 +764,19 @@ async function load() {
                 </select>
               </div>
 
+              <div className="space-y-2">
+                <div className="text-sm font-medium text-zinc-900">
+                  Limitantes de horarios
+                </div>
+                <textarea
+                  className="w-full rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 outline-none focus:border-zinc-900 focus:ring-2 focus:ring-zinc-900/20"
+                  placeholder="Ej: solo lunes y miercoles despues de las 20hs"
+                  value={pairScheduleConstraints}
+                  onChange={(e) => setPairScheduleConstraints(e.target.value)}
+                  rows={3}
+                />
+              </div>
+
               {pairError && (
                 <div className="rounded-xl border border-red-300 bg-red-100 p-3 text-sm text-red-800">
                   {pairError}
@@ -792,6 +854,19 @@ async function load() {
                     </option>
                   ))}
                 </select>
+              </div>
+
+              <div className="space-y-2">
+                <div className="text-sm font-medium text-zinc-900">
+                  Limitantes de horarios
+                </div>
+                <textarea
+                  className="w-full rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 outline-none focus:border-zinc-900 focus:ring-2 focus:ring-zinc-900/20"
+                  placeholder="Ej: solo lunes y miercoles despues de las 20hs"
+                  value={editScheduleConstraints}
+                  onChange={(e) => setEditScheduleConstraints(e.target.value)}
+                  rows={3}
+                />
               </div>
 
               {editPairError && (
@@ -893,17 +968,43 @@ async function load() {
                 <div className="flex items-center gap-2 text-sm font-semibold text-zinc-700">
                   <span>Parejas</span>
                   <span className="rounded-full border border-zinc-200 bg-zinc-100 px-2 py-0.5 text-xs text-zinc-600">
-                    {teams.length}
+                    {filteredTeams.length}
                   </span>
                 </div>
+                {groups.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <label className="text-xs font-semibold text-zinc-500">
+                      Filtrar por zona
+                    </label>
+                    <select
+                      className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                      value={teamsGroupFilter}
+                      onChange={(e) => {
+                        const value = e.target.value;
+                        setTeamsGroupFilter(value === "all" ? "all" : Number(value));
+                      }}
+                    >
+                      <option value="all">Todas</option>
+                      {groups.map((group) => (
+                        <option key={group.id} value={group.id}>
+                          {group.name.replace(/^Group\s+/i, "Grupo ")}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
                 <div className="max-h-64 overflow-y-auto space-y-2 pr-1">
                   
 
-                  {teams.length === 0 ? (
-                    <div className="text-sm text-zinc-600">No hay equipos creados.</div>
+                  {filteredTeams.length === 0 ? (
+                    <div className="text-sm text-zinc-600">
+                      {teams.length === 0
+                        ? "No hay equipos creados."
+                        : "No hay equipos para el filtro seleccionado."}
+                    </div>
                   ) : (
                     <div className="space-y-2">
-                      {teams.map((team) => {
+                      {filteredTeams.map((team) => {
                         const isPending = !!team.pending;
                         return (
                           <div
@@ -921,14 +1022,17 @@ async function load() {
                               </div>
                               <div className="text-xs text-zinc-500">
                                 {(() => {
-                                  const group = groups.find((g) =>
-                                    g.teams?.some((t) => t.id === team.id)
-                                  );
+                                  const group = getTeamGroup(team.id);
                                   if (!group) return "Grupo: Sin asignar";
                                   const label = group.name.replace(/^Group\s+/i, "");
                                   return `Grupo ${label}`;
                                 })()}
                               </div>
+                              {team.schedule_constraints && (
+                                <div className="text-xs text-zinc-500">
+                                  Limitantes: {team.schedule_constraints}
+                                </div>
+                              )}
                             </div>
 
                             <div className="flex items-center gap-2">
@@ -1012,6 +1116,11 @@ async function load() {
               setTeamsPerGroup={setTeamsPerGroup}
               generating={generatingGroups}
               onGenerate={generateGroups}
+              defaultStartDate={defaultStartDate}
+              defaultStartTime={defaultStartTime}
+              defaultEndTime={defaultEndTime}
+              defaultMatchDurationMinutes={defaultMatchDurationMinutes}
+              defaultCourtsCount={defaultCourtsCount}
             />
 
             </div>
