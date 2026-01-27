@@ -72,6 +72,7 @@ export default function PublicTournamentPage() {
     "groups"
   );
   const [collapsedStages, setCollapsedStages] = useState<Record<string, boolean>>({});
+  const [collapsedDivisions, setCollapsedDivisions] = useState<Record<string, boolean>>({});
   const [divisionFilter, setDivisionFilter] = useState<string | "all">("all");
 
   useEffect(() => {
@@ -141,6 +142,9 @@ export default function PublicTournamentPage() {
     if (names.length === 0) return `Team #${teamId}`;
     return names.join(" / ");
   }
+  function getMatchCode(match: Match) {
+    return match.match_code ?? String(match.id);
+  }
 
   function getTeamDivision(teamId: number) {
     const team = teamsById.get(teamId);
@@ -148,6 +152,15 @@ export default function PublicTournamentPage() {
     const gender = team?.players?.[0]?.gender ?? null;
     if (!category || !gender) return null;
     return `${category} - ${gender === "damas" ? "Damas" : "Masculino"}`;
+  }
+  function getGroupDivision(group: TournamentGroupOut) {
+    for (const team of group.teams) {
+      const category = team.players?.[0]?.category ?? null;
+      const gender = team.players?.[0]?.gender ?? null;
+      if (!category || !gender) continue;
+      return `${category} - ${gender === "damas" ? "Damas" : "Masculino"}`;
+    }
+    return null;
   }
 
   const divisions = useMemo(() => {
@@ -196,6 +209,42 @@ export default function PublicTournamentPage() {
       return getTeamDivision(match.team_a_id) === divisionFilter;
     });
   }, [matches, query, teamsById, divisionFilter]);
+
+  const groupedDivisions = useMemo(() => {
+    const allowedDivisions =
+      divisionFilter === "all" ? divisions : divisions.filter((division) => division === divisionFilter);
+    const map = new Map<
+      string,
+      { label: string; groups: TournamentGroupOut[]; matches: Match[] }
+    >();
+    allowedDivisions.forEach((label) => {
+      map.set(label, { label, groups: [], matches: [] });
+    });
+
+    filteredGroups.forEach((group) => {
+      const label = getGroupDivision(group);
+      if (!label) return;
+      if (divisionFilter !== "all" && label !== divisionFilter) return;
+      const entry = map.get(label) ?? { label, groups: [], matches: [] };
+      entry.groups.push(group);
+      map.set(label, entry);
+    });
+
+    filteredMatches
+      .filter((match) => match.stage === "group")
+      .forEach((match) => {
+        const label = getTeamDivision(match.team_a_id);
+        if (!label) return;
+        if (divisionFilter !== "all" && label !== divisionFilter) return;
+        const entry = map.get(label) ?? { label, groups: [], matches: [] };
+        entry.matches.push(match);
+        map.set(label, entry);
+      });
+
+    return Array.from(map.values()).filter(
+      (entry) => entry.groups.length > 0 || entry.matches.length > 0
+    );
+  }, [divisions, divisionFilter, filteredGroups, filteredMatches, teamsById]);
 
   const playoffMatches = useMemo(
     () => matches.filter((match) => match.stage !== "group"),
@@ -252,6 +301,18 @@ export default function PublicTournamentPage() {
     if (!value) return "";
     return value.slice(0, 5);
   }
+  function formatShortDate(value?: string | null) {
+    if (!value) return "";
+    const [year, month, day] = value.split("-");
+    if (!year || !month || !day) return value;
+    return `${day}/${month}/${year.slice(-2)}`;
+  }
+  function formatSchedule(date?: string | null, time?: string | null) {
+    const dateLabel = formatShortDate(date);
+    const timeLabel = normalizeTime(time);
+    if (dateLabel && timeLabel) return `${dateLabel} - ${timeLabel}`;
+    return dateLabel || timeLabel || "";
+  }
 
   const matchesByStage = useMemo(() => {
     const map = new Map<Match["stage"], Match[]>();
@@ -298,6 +359,17 @@ export default function PublicTournamentPage() {
   }, [activeStages]);
 
   useEffect(() => {
+    if (groupedDivisions.length === 0) return;
+    setCollapsedDivisions((prev) => {
+      const next: Record<string, boolean> = {};
+      groupedDivisions.forEach((division) => {
+        next[division.label] = prev[division.label] ?? false;
+      });
+      return next;
+    });
+  }, [groupedDivisions]);
+
+  useEffect(() => {
     const normalized = query.trim();
     if (!normalized || activeStages.length === 0) return;
     setCollapsedStages((prev) => {
@@ -331,9 +403,7 @@ export default function PublicTournamentPage() {
     const teamALabel = getTeamLabel(match.team_a_id);
     const teamBLabel = getTeamLabel(match.team_b_id);
     const winnerId = match.winner_team_id;
-    const schedule = match.scheduled_date
-      ? `${match.scheduled_date} · ${normalizeTime(match.scheduled_time)}`
-      : normalizeTime(match.scheduled_time);
+    const schedule = formatSchedule(match.scheduled_date, match.scheduled_time);
     const scheduleLabel = schedule || "Horario a confirmar";
 
     return (
@@ -344,7 +414,9 @@ export default function PublicTournamentPage() {
         }`}
       >
         <div className="flex items-center justify-between gap-3">
-          <div className="text-xs font-semibold text-zinc-700">{stage}</div>
+          <div className="text-xs font-semibold text-zinc-700">
+            {stage} · {getMatchCode(match)}
+          </div>
           <div className="rounded-full border border-emerald-600/80 bg-emerald-100/80 px-2 py-0.5 text-[10px] font-semibold text-emerald-900">
             {scheduleLabel}
           </div>
@@ -382,8 +454,27 @@ export default function PublicTournamentPage() {
               {tournament ? tournament.name : "Torneo"}
             </h1>
             <p className="mt-1 text-xs text-zinc-400 sm:text-sm">
+              {tournament?.start_date
+                ? `Fecha de inicio: ${formatShortDate(tournament.start_date)}`
+                : "Fecha por definir"}
+            </p>
+            <p className="mt-1 text-xs text-zinc-400 sm:text-sm">
               {tournament?.club_name ? tournament.club_name : "Club"}
-              {tournament?.location ? ` · ${tournament.location}` : " · Sede a confirmar"}
+              {tournament?.location ? (
+                <>
+                  {" · "}
+                  <a
+                    href={tournament.location}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="font-medium text-emerald-200 hover:text-emerald-100"
+                  >
+                    Ver ubicacion
+                  </a>
+                </>
+              ) : (
+                " · Sede a confirmar"
+              )}
             </p>
           </div>
         </div>
@@ -391,29 +482,6 @@ export default function PublicTournamentPage() {
           <StatusBadge status={status} className="text-[10px] sm:text-xs" />
         </div>
       </div>
-
-      <Card className="bg-white/95">
-        <div className="grid gap-4 p-4 sm:p-5 md:grid-cols-3">
-          <div>
-            <div className="text-xs uppercase text-zinc-800">Categoria</div>
-            <div className="text-sm font-semibold text-zinc-600">
-              {tournament?.category ?? "Libre"}
-            </div>
-          </div>
-          <div>
-            <div className="text-xs uppercase text-zinc-800">Fecha</div>
-            <div className="text-sm font-semibold text-zinc-600">
-              {tournament?.start_date ?? "Por definir"} - {tournament?.end_date ?? "Por definir"}
-            </div>
-          </div>
-          <div>
-            <div className="text-xs uppercase text-zinc-800">Partidos</div>
-            <div className="text-sm font-semibold text-zinc-600">
-              {playedMatches.length} jugados / {matches.length} totales
-            </div>
-          </div>
-        </div>
-      </Card>
 
       <div className="sticky top-0 z-20 -mx-4 bg-transparent px-4 pb-3 pt-2 backdrop-blur sm:static sm:mx-0 sm:px-0 sm:pb-0 sm:pt-0 sm:backdrop-blur-0">
         <Card className="bg-transparent text-zinc-100 shadow-none ring-0 border-none">
@@ -427,7 +495,7 @@ export default function PublicTournamentPage() {
               />
               {divisions.length > 0 && (
                 <select
-                  className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-600"
+                  className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-600 sm:w-auto"
                   value={divisionFilter}
                   onChange={(e) =>
                     setDivisionFilter(e.target.value === "all" ? "all" : e.target.value)
@@ -691,9 +759,10 @@ export default function PublicTournamentPage() {
 
                                     const match = item.match;
                                     const played = match.status === "played";
-                                    const schedule = match.scheduled_date
-                                      ? `${match.scheduled_date} · ${normalizeTime(match.scheduled_time)}`
-                                      : normalizeTime(match.scheduled_time);
+                                    const schedule = formatSchedule(
+                                      match.scheduled_date,
+                                      match.scheduled_time
+                                    );
                                     const scoreA = played ? formatSetLine(match.sets, "a") : "";
                                     const scoreB = played ? formatSetLine(match.sets, "b") : "";
                                     const aWinner = match.winner_team_id === match.team_a_id;
@@ -708,7 +777,9 @@ export default function PublicTournamentPage() {
                                         }`}
                                         style={gridStyle}
                                       >
-                                        <div className="text-xs text-zinc-500">Partido</div>
+                                        <div className="text-xs text-zinc-500">
+                                          Partido {getMatchCode(match)}
+                                        </div>
                                         <div className="mt-1 grid grid-cols-[1fr_auto] gap-x-3 gap-y-1 sm:gap-x-4">
                                           <div
                                             className={`font-medium text-zinc-900 ${

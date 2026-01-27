@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
+import * as XLSX from "xlsx";
 import Card from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
 import Input from "@/components/ui/Input";
@@ -22,6 +23,46 @@ import type {
 
 
 type IdParam = { id: string };
+
+const IMPORT_TEMPLATE_HEADERS = [
+  "Jugador 1 Nombre",
+  "Jugador 1 Apellido",
+  "Jugador 2 Nombre",
+  "Jugador 2 Apellido",
+  "Categoria",
+  "Genero",
+  "Restricciones",
+];
+const IMPORT_TEMPLATE_SAMPLE = [
+  "Ana",
+  "Perez",
+  "Carla",
+  "Gomez",
+  "6",
+  "Damas",
+  "No puede viernes",
+];
+
+const HEADER_FIELD_MAP: Record<string, string> = {
+  jugador1nombre: "p1_first_name",
+  jugador1apellido: "p1_last_name",
+  jugador2nombre: "p2_first_name",
+  jugador2apellido: "p2_last_name",
+  categoria: "category",
+  genero: "gender",
+  restricciones: "constraints",
+  restriccioneshorarias: "constraints",
+  disponibilidad: "constraints",
+};
+const FIELD_LABELS: Record<string, string> = {
+  p1_first_name: "Jugador 1 Nombre",
+  p1_last_name: "Jugador 1 Apellido",
+  p2_first_name: "Jugador 2 Nombre",
+  p2_last_name: "Jugador 2 Apellido",
+  category: "Categoria",
+  gender: "Genero",
+  constraints: "Restricciones",
+};
 
 export default function TournamentDetailPage() {
   const router = useRouter();
@@ -50,6 +91,14 @@ export default function TournamentDetailPage() {
   const [p2Category, setP2Category] = useState("");
   const [pairGender, setPairGender] = useState("");
   const [pairScheduleConstraints, setPairScheduleConstraints] = useState("");
+  const [importingPairs, setImportingPairs] = useState(false);
+  const [importError, setImportError] = useState<string | null>(null);
+  const [importSummary, setImportSummary] = useState<{
+    total: number;
+    created: number;
+    failed: number;
+  } | null>(null);
+  const importInputRef = useRef<HTMLInputElement | null>(null);
 
   // Delete team from tournament
   const [deletingTeamId, setDeletingTeamId] = useState<number | null>(null);
@@ -465,6 +514,189 @@ async function load() {
       setError(err?.message ?? "Failed to create team");
     } finally {
       setPairSaving(false);
+    }
+  }
+
+  function normalizeHeader(value: string) {
+    return value
+      .trim()
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-z0-9]/g, "");
+  }
+
+  function normalizeGender(value: string) {
+    const normalized = value.trim().toLowerCase();
+    if (["damas", "femenino", "mujer", "f"].includes(normalized)) return "damas";
+    if (["masculino", "caballeros", "hombre", "m"].includes(normalized)) {
+      return "masculino";
+    }
+    return normalized;
+  }
+  function normalizeCategory(value: string) {
+    const normalized = value.trim().toLowerCase();
+    if (!normalized) return "";
+    const digitMatch = normalized.match(/\d+/);
+    if (!digitMatch) return normalized;
+    const categoryMap: Record<string, string> = {
+      "1": "1ra",
+      "2": "2da",
+      "3": "3ra",
+      "4": "4ta",
+      "5": "5ta",
+      "6": "6ta",
+      "7": "7ma",
+    };
+    if (normalized === digitMatch[0]) {
+      return categoryMap[digitMatch[0]] ?? normalized;
+    }
+    return categoryMap[digitMatch[0]] ?? normalized;
+  }
+
+  function downloadImportTemplate() {
+    const rows = [
+      IMPORT_TEMPLATE_HEADERS.join(","),
+      IMPORT_TEMPLATE_SAMPLE.join(","),
+    ].join("\n");
+    const blob = new Blob([rows], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "padel_champions_template_parejas.csv";
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
+  async function handleImportFile(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    if (status !== "upcoming") {
+      setImportError("Solo podes importar parejas antes de iniciar el torneo.");
+      return;
+    }
+
+    setImportingPairs(true);
+    setImportError(null);
+    setImportSummary(null);
+
+    try {
+      const buffer = await file.arrayBuffer();
+      const workbook = XLSX.read(buffer, { type: "array" });
+      const sheetName = workbook.SheetNames[0];
+      if (!sheetName) {
+        throw new Error("El archivo no tiene hojas para importar.");
+      }
+      const worksheet = workbook.Sheets[sheetName];
+      const rows = XLSX.utils.sheet_to_json(worksheet, {
+        header: 1,
+        raw: false,
+        defval: "",
+      }) as Array<Array<string | number>>;
+
+      if (rows.length < 2) {
+        throw new Error("El archivo no contiene filas para importar.");
+      }
+
+      const headerRow = rows[0].map((cell) => String(cell ?? ""));
+      const headerKeys = headerRow.map(normalizeHeader);
+      const fieldIndexes: Record<string, number> = {};
+
+      headerKeys.forEach((key, idx) => {
+        const mapped = HEADER_FIELD_MAP[key];
+        if (mapped) fieldIndexes[mapped] = idx;
+      });
+
+      const requiredFields = ["p1_first_name", "p2_first_name", "category", "gender"];
+      const missing = requiredFields.filter((field) => fieldIndexes[field] === undefined);
+      if (missing.length > 0) {
+        throw new Error(
+          `Faltan columnas requeridas: ${missing
+            .map((field) => FIELD_LABELS[field] ?? field)
+            .join(", ")}.`
+        );
+      }
+
+      const parseCell = (row: Array<string | number>, key: string) => {
+        const idx = fieldIndexes[key];
+        if (idx === undefined) return "";
+        return String(row[idx] ?? "").trim();
+      };
+
+      const pairs: {
+        player1: { first_name: string; last_name: string; category: string; gender: string };
+        player2: { first_name: string; last_name: string; category: string; gender: string };
+        schedule_constraints?: string | null;
+      }[] = [];
+      const rowErrors: string[] = [];
+
+      rows.slice(1).forEach((row, index) => {
+        const rowIndex = index + 2;
+        const hasContent = row.some((cell) => String(cell ?? "").trim() !== "");
+        if (!hasContent) return;
+
+        const category = normalizeCategory(parseCell(row, "category"));
+        const genderRaw = parseCell(row, "gender");
+        const gender = normalizeGender(genderRaw);
+        const p1FirstName = parseCell(row, "p1_first_name");
+        const p1LastName = parseCell(row, "p1_last_name");
+        const p2FirstName = parseCell(row, "p2_first_name");
+        const p2LastName = parseCell(row, "p2_last_name");
+        const constraints = parseCell(row, "constraints");
+
+        if (!p1FirstName || !p2FirstName || !category || !gender) {
+          rowErrors.push(`Fila ${rowIndex}: faltan datos obligatorios.`);
+          return;
+        }
+
+        pairs.push({
+          player1: {
+            first_name: p1FirstName,
+            last_name: p1LastName || "",
+            category,
+            gender,
+          },
+          player2: {
+            first_name: p2FirstName,
+            last_name: p2LastName || "",
+            category,
+            gender,
+          },
+          schedule_constraints: constraints ? constraints : null,
+        });
+      });
+
+      if (pairs.length === 0) {
+        throw new Error("No se encontraron parejas validas para importar.");
+      }
+
+      let created = 0;
+      let failed = 0;
+      for (const pair of pairs) {
+        try {
+          await api(`/tournaments/${tournamentId}/teams/pair`, {
+            method: "POST",
+            body: pair,
+          });
+          created += 1;
+        } catch (err: any) {
+          failed += 1;
+          if (rowErrors.length < 5) {
+            rowErrors.push(err?.message ?? "Error al importar una fila.");
+          }
+        }
+      }
+
+      setImportSummary({ total: pairs.length, created, failed });
+      if (rowErrors.length > 0) {
+        setImportError(rowErrors.slice(0, 5).join(" "));
+      }
+      await load();
+    } catch (err: any) {
+      setImportError(err?.message ?? "No se pudo importar el archivo.");
+    } finally {
+      setImportingPairs(false);
     }
   }
   async function generateGroups(payload: {
@@ -1081,13 +1313,47 @@ async function load() {
                       Cargá los datos de ambos jugadores y creá el equipo.
                     </div>
                   </div>
-                  <Button
-                    onClick={openPairModal}
-                    disabled={status !== "upcoming"}
-                  >
-                    Agregar pareja
-                  </Button>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button
+                      onClick={openPairModal}
+                      disabled={status !== "upcoming"}
+                    >
+                      Agregar pareja
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      onClick={() => importInputRef.current?.click()}
+                      disabled={status !== "upcoming" || importingPairs}
+                    >
+                      {importingPairs ? "Importando..." : "Importar parejas"}
+                    </Button>
+                    <button
+                      type="button"
+                      onClick={downloadImportTemplate}
+                      className="text-xs font-semibold text-zinc-500 underline decoration-dotted hover:text-zinc-700"
+                    >
+                      Descargar template
+                    </button>
+                  </div>
                 </div>
+                <input
+                  ref={importInputRef}
+                  type="file"
+                  accept=".csv,.xls,.xlsx"
+                  className="hidden"
+                  onChange={handleImportFile}
+                />
+                {importSummary && (
+                  <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-900">
+                    Importadas {importSummary.created} de {importSummary.total}. Fallidas:{" "}
+                    {importSummary.failed}.
+                  </div>
+                )}
+                {importError && (
+                  <div className="rounded-xl border border-red-300 bg-red-100 p-3 text-xs text-red-800">
+                    {importError}
+                  </div>
+                )}
 
                 <div className="flex items-center gap-2 text-sm font-semibold text-zinc-700">
                   <span>Parejas</span>

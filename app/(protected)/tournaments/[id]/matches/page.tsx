@@ -27,6 +27,29 @@ const DEFAULT_SETS: EditableSet[] = [
   { a: "", b: "" },
 ];
 const HOURS = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, "0"));
+const COURT_BADGES = [
+  "bg-emerald-100 text-emerald-700",
+  "bg-blue-100 text-blue-700",
+  "bg-purple-100 text-purple-700",
+  "bg-orange-100 text-orange-700",
+  "bg-yellow-100 text-yellow-700",
+  "bg-green-100 text-green-700",
+  "bg-blue-100 text-blue-700",
+  "bg-red-100 text-red-700",
+  "bg-gray-100 text-gray-700",
+  "bg-black-100 text-black-700",
+  "bg-white-100 text-white-700",
+  "bg-brown-100 text-brown-700",
+  "bg-cyan-100 text-cyan-700",
+  "bg-teal-100 text-teal-700",
+  "bg-violet-100 text-violet-700",
+  "bg-sky-100 text-sky-700",
+  "bg-amber-100 text-amber-700",
+  "bg-indigo-100 text-indigo-700",
+  "bg-lime-100 text-lime-700",
+  "bg-fuchsia-100 text-fuchsia-700",
+  
+];
 
 export default function TournamentMatchesPage() {
   const router = useRouter();
@@ -146,6 +169,15 @@ export default function TournamentMatchesPage() {
     const names = team?.players?.map((player) => player.name).filter(Boolean) ?? [];
     if (names.length === 0) return "";
     return names.join(" ").toLowerCase();
+  }
+  function getMatchCode(match: Match) {
+    return match.match_code ?? String(match.id);
+  }
+  function getCourtBadgeClass(courtNumber?: number | null) {
+    if (!courtNumber || courtNumber <= 0) {
+      return "bg-zinc-100 text-zinc-600";
+    }
+    return COURT_BADGES[(courtNumber - 1) % COURT_BADGES.length];
   }
 
   function getStageLabel(match: Match) {
@@ -561,7 +593,9 @@ export default function TournamentMatchesPage() {
                   >
                     <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
                       <div>
-                        <div className="text-xs text-zinc-500">{getStageLabel(match)}</div>
+                        <div className="text-xs text-zinc-500">
+                          {getStageLabel(match)} · Partido {getMatchCode(match)}
+                        </div>
                         <div className="text-sm font-medium">
                           {getTeamLabel(match.team_a_id)} vs {getTeamLabel(match.team_b_id)}
                         </div>
@@ -615,7 +649,9 @@ export default function TournamentMatchesPage() {
         >
           <div className="text-sm text-zinc-600">
             {scheduleMatch
-              ? `${getTeamLabel(scheduleMatch.team_a_id)} vs ${getTeamLabel(scheduleMatch.team_b_id)}`
+              ? `Partido ${getMatchCode(scheduleMatch)} · ${getTeamLabel(
+                  scheduleMatch.team_a_id
+                )} vs ${getTeamLabel(scheduleMatch.team_b_id)}`
               : null}
           </div>
 
@@ -693,7 +729,9 @@ export default function TournamentMatchesPage() {
         >
           <div className="text-sm text-zinc-600">
             {selectedMatch
-              ? `${getTeamLabel(selectedMatch.team_a_id)} vs ${getTeamLabel(selectedMatch.team_b_id)}`
+              ? `Partido ${getMatchCode(selectedMatch)} · ${getTeamLabel(
+                  selectedMatch.team_a_id
+                )} vs ${getTeamLabel(selectedMatch.team_b_id)}`
               : null}
           </div>
 
@@ -755,6 +793,7 @@ export default function TournamentMatchesPage() {
         title="Grilla de partidos"
         onClose={() => setGridOpen(false)}
         className="max-w-[95vw]"
+        closeOnEscape={!gridMatch}
       >
         <div className="space-y-4">
           {gridData.dates.length === 0 ? (
@@ -813,11 +852,15 @@ export default function TournamentMatchesPage() {
                                     className="group rounded-xl border border-zinc-200 bg-white p-2 text-left text-xs text-zinc-700 shadow-sm transition hover:-translate-y-0.5 hover:border-zinc-300 hover:shadow"
                                   >
                                     <div className="flex items-center justify-between text-[11px] text-zinc-500">
-                                      <span className="rounded-full bg-zinc-100 px-2 py-0.5 font-semibold text-zinc-600">
+                                      <span
+                                        className={`rounded-full px-2 py-0.5 font-semibold ${getCourtBadgeClass(
+                                          match.court_number
+                                        )}`}
+                                      >
                                         Cancha {match.court_number ?? "—"}
                                       </span>
                                       <span className="text-[10px] uppercase tracking-wide text-zinc-400">
-                                        {getStageLabel(match)}
+                                        {getStageLabel(match)} · {getMatchCode(match)}
                                       </span>
                                     </div>
                                     <div className="mt-2 text-sm font-medium text-zinc-900">
@@ -847,7 +890,9 @@ export default function TournamentMatchesPage() {
         <div className="space-y-3">
           {gridMatch && (
             <>
-              <div className="text-sm text-zinc-500">{getStageLabel(gridMatch)}</div>
+              <div className="text-sm text-zinc-500">
+                {getStageLabel(gridMatch)} · Partido {getMatchCode(gridMatch)}
+              </div>
               <div className="text-base font-semibold text-zinc-900">
                 {getTeamLabel(gridMatch.team_a_id)} vs {getTeamLabel(gridMatch.team_b_id)}
               </div>

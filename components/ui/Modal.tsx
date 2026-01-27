@@ -8,11 +8,19 @@ type Props = {
   onClose: () => void;
   children: React.ReactNode;
   className?: string;
+  closeOnEscape?: boolean;
 };
 
-export default function Modal({ open, title, onClose, children, className }: Props) {
+export default function Modal({
+  open,
+  title,
+  onClose,
+  children,
+  className,
+  closeOnEscape = true,
+}: Props) {
   useEffect(() => {
-    if (!open) return;
+    if (!open || !closeOnEscape) return;
 
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") {
@@ -22,7 +30,7 @@ export default function Modal({ open, title, onClose, children, className }: Pro
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [open, onClose]);
+  }, [open, closeOnEscape, onClose]);
 
   if (!open) return null;
 

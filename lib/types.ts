@@ -118,6 +118,7 @@ export type MatchSet = {
 
 export type Match = {
   id: number;
+  match_code?: string | null;
   tournament_id: number;
   group_id: number | null;
   stage: MatchStage;
@@ -137,6 +138,8 @@ export type PlayoffStage = Exclude<MatchStage, "group">;
 export type PlayoffGenerateRequest = {
   stage: PlayoffStage;
   manual_pairs?: { team_a_id: number; team_b_id: number }[];
+  category?: string;
+  gender?: string;
 };
 
 export type GroupStandingRow = {
