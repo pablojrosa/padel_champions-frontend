@@ -584,11 +584,6 @@ export default function TournamentPlayoffsPage() {
     if (!sets || sets.length === 0) return "";
     return sets.map((set) => String(set[side] ?? "")).join("  ");
   }
-  function formatShortDate(value: string) {
-    const [year, month, day] = value.split("-");
-    if (!year || !month || !day) return value;
-    return `${day}/${month}`;
-  }
 
   function openScheduleModal(match: Match) {
     setScheduleMatch(match);
