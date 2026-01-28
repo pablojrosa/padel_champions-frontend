@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { blogPostSummaries } from "@/lib/blogPosts";
 
 export default function HomePage() {
   return (
@@ -126,6 +127,54 @@ export default function HomePage() {
               <div className="text-base font-semibold text-zinc-100">{card.title}</div>
               <p className="mt-2 text-sm text-zinc-400">{card.body}</p>
             </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="relative z-10 mx-auto w-full max-w-6xl px-4 pb-16 md:px-8">
+        <div className="flex flex-wrap items-end justify-between gap-4">
+          <div className="space-y-2">
+            <span className="text-xs uppercase tracking-[0.3em] text-emerald-300/70">
+              Blog
+            </span>
+            <h2 className="text-2xl font-semibold md:text-3xl">
+              Ideas y tips para jugadores de padel
+            </h2>
+            <p className="text-sm text-zinc-400 md:text-base">
+              Articulos, tacticas y guias para elevar el nivel del torneo.
+            </p>
+          </div>
+        </div>
+
+        <div className="mt-8 grid gap-6 md:grid-cols-3">
+          {blogPostSummaries.map((post) => (
+            <article
+              key={post.slug}
+              className="flex h-full flex-col justify-between rounded-2xl border border-zinc-800 bg-zinc-900/60 p-5 transition duration-300 hover:-translate-y-1 hover:border-emerald-400/40 hover:bg-zinc-900/80 hover:shadow-lg hover:shadow-black/30"
+            >
+              <div className="space-y-3">
+                <div className="flex items-center gap-3 text-xs uppercase tracking-[0.2em] text-zinc-500">
+                  <span>{post.tag}</span>
+                  <span className="text-zinc-700">•</span>
+                  <span>{post.date}</span>
+                </div>
+                <h3 className="text-lg font-semibold text-zinc-100">{post.title}</h3>
+                <p className="text-sm text-zinc-400">{post.excerpt}</p>
+              </div>
+              <div className="mt-6 flex items-center justify-between text-xs text-zinc-500">
+                <span>{post.readTime} lectura</span>
+                {post.isPublished ? (
+                  <Link
+                    className="text-emerald-300 hover:text-emerald-200"
+                    href={`/blog/${post.slug}`}
+                  >
+                    Ver articulo
+                  </Link>
+                ) : (
+                  <span className="text-zinc-500">En preparacion</span>
+                )}
+              </div>
+            </article>
           ))}
         </div>
       </section>

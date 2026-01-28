@@ -3,6 +3,7 @@ export type Player = {
   first_name: string;
   last_name: string;
   category: string;
+  gender?: string | null;
 };
 
 export type Tournament = {
@@ -28,7 +29,10 @@ export type Team = {
   players: {
     id: number;
     name: string;
+    category?: string | null;
+    gender?: string | null;
   }[];
+  schedule_constraints?: string | null;
 };
 
 export type LoginResponse = {
@@ -56,6 +60,13 @@ export type TournamentStatusUpdate = {
 
 export type GroupGenerateRequest = {
   teams_per_group: number;
+  schedule_windows: {
+    date: string;
+    start_time: string;
+    end_time: string;
+  }[];
+  match_duration_minutes: number;
+  courts_count: number;
 };
 
 export type GroupTeamRef = {
@@ -81,12 +92,13 @@ export type StartTournamentResponse = {
 
 export type GroupTeamOut = {
   id: number;
-  players: { name: string }[];
+  players: { name: string; category?: string | null; gender?: string | null }[];
 };
 
 export type TournamentGroupOut = {
   id: number;
   name: string;
+  is_incompatible?: boolean;
   teams: GroupTeamOut[];
 };
 
@@ -106,6 +118,7 @@ export type MatchSet = {
 
 export type Match = {
   id: number;
+  match_code?: string | null;
   tournament_id: number;
   group_id: number | null;
   stage: MatchStage;
@@ -125,6 +138,8 @@ export type PlayoffStage = Exclude<MatchStage, "group">;
 export type PlayoffGenerateRequest = {
   stage: PlayoffStage;
   manual_pairs?: { team_a_id: number; team_b_id: number }[];
+  category?: string;
+  gender?: string;
 };
 
 export type GroupStandingRow = {

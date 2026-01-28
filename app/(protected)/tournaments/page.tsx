@@ -16,8 +16,18 @@ export default function TournamentsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const defaultDescription =
+    "Reglas del torneo:\n" +
+    "- Partidos al mejor de 3 sets (gana quien llega a 2).\n" +
+    "- Puntos en fase de grupos:\n" +
+    "  - 2-0: 3 pts\n" +
+    "  - 2-1: 2 pts\n" +
+    "  - 1-2: 1 pt\n" +
+    "  - 0-2: 0 pts\n" +
+    "- Criterios de clasificacion: puntos, diferencia de sets, diferencia de games.";
+
   const [name, setName] = useState("");
-  const [description, setDescription] = useState("");
+  const [description, setDescription] = useState(defaultDescription);
   const [location, setLocation] = useState("");
   const [creating, setCreating] = useState(false);
 
@@ -59,7 +69,7 @@ export default function TournamentsPage() {
       });
       setItems((prev) => [created, ...prev]);
       setName("");
-      setDescription("");
+      setDescription(defaultDescription);
       setLocation("");
     } catch (err: any) {
       setError(err?.message ?? "Failed to create tournament");
@@ -107,7 +117,7 @@ export default function TournamentsPage() {
               placeholder="Descripcion / reglas del torneo"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              rows={3}
+              rows={6}
             />
           </div>
           <div className="flex flex-wrap items-center gap-3">
@@ -119,7 +129,7 @@ export default function TournamentsPage() {
               {creating ? "Creando..." : "Crear"}
             </Button>
             <span className="text-xs text-zinc-500">
-              Completá los datos básicos y empezá a gestionar.
+              Completá los datos básicos y empezá.
             </span>
           </div>
 

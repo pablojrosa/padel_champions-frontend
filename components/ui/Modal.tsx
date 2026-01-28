@@ -7,11 +7,20 @@ type Props = {
   title?: string;
   onClose: () => void;
   children: React.ReactNode;
+  className?: string;
+  closeOnEscape?: boolean;
 };
 
-export default function Modal({ open, title, onClose, children }: Props) {
+export default function Modal({
+  open,
+  title,
+  onClose,
+  children,
+  className,
+  closeOnEscape = true,
+}: Props) {
   useEffect(() => {
-    if (!open) return;
+    if (!open || !closeOnEscape) return;
 
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") {
@@ -21,13 +30,15 @@ export default function Modal({ open, title, onClose, children }: Props) {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [open, onClose]);
+  }, [open, closeOnEscape, onClose]);
 
   if (!open) return null;
 
+  const wrapperClass = className ?? "max-w-lg";
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4">
-      <div className="w-full max-w-lg rounded-2xl bg-white shadow-xl">
+      <div className={`w-full rounded-2xl bg-white shadow-xl ${wrapperClass}`}>
         <div className="flex items-center justify-between border-b border-zinc-200 px-4 py-3">
           <div className="text-sm font-medium text-zinc-900">{title}</div>
           <button

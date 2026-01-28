@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
+import * as XLSX from "xlsx";
 import Card from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
 import Input from "@/components/ui/Input";
@@ -22,6 +23,46 @@ import type {
 
 
 type IdParam = { id: string };
+
+const IMPORT_TEMPLATE_HEADERS = [
+  "Jugador 1 Nombre",
+  "Jugador 1 Apellido",
+  "Jugador 2 Nombre",
+  "Jugador 2 Apellido",
+  "Categoria",
+  "Genero",
+  "Restricciones",
+];
+const IMPORT_TEMPLATE_SAMPLE = [
+  "Ana",
+  "Perez",
+  "Carla",
+  "Gomez",
+  "6",
+  "Damas",
+  "No puede viernes",
+];
+
+const HEADER_FIELD_MAP: Record<string, string> = {
+  jugador1nombre: "p1_first_name",
+  jugador1apellido: "p1_last_name",
+  jugador2nombre: "p2_first_name",
+  jugador2apellido: "p2_last_name",
+  categoria: "category",
+  genero: "gender",
+  restricciones: "constraints",
+  restriccioneshorarias: "constraints",
+  disponibilidad: "constraints",
+};
+const FIELD_LABELS: Record<string, string> = {
+  p1_first_name: "Jugador 1 Nombre",
+  p1_last_name: "Jugador 1 Apellido",
+  p2_first_name: "Jugador 2 Nombre",
+  p2_last_name: "Jugador 2 Apellido",
+  category: "Categoria",
+  gender: "Genero",
+  constraints: "Restricciones",
+};
 
 export default function TournamentDetailPage() {
   const router = useRouter();
@@ -48,6 +89,16 @@ export default function TournamentDetailPage() {
   const [p2FirstName, setP2FirstName] = useState("");
   const [p2LastName, setP2LastName] = useState("");
   const [p2Category, setP2Category] = useState("");
+  const [pairGender, setPairGender] = useState("");
+  const [pairScheduleConstraints, setPairScheduleConstraints] = useState("");
+  const [importingPairs, setImportingPairs] = useState(false);
+  const [importError, setImportError] = useState<string | null>(null);
+  const [importSummary, setImportSummary] = useState<{
+    total: number;
+    created: number;
+    failed: number;
+  } | null>(null);
+  const importInputRef = useRef<HTMLInputElement | null>(null);
 
   // Delete team from tournament
   const [deletingTeamId, setDeletingTeamId] = useState<number | null>(null);
@@ -59,6 +110,10 @@ export default function TournamentDetailPage() {
   const [groups, setGroups] = useState<TournamentGroupOut[]>([]);
   const [teamsPerGroup, setTeamsPerGroup] = useState<number>(2);
   const [generatingGroups, setGeneratingGroups] = useState(false);
+  const [teamsGroupFilter, setTeamsGroupFilter] = useState<number | "all">("all");
+  const [teamsCategoryFilter, setTeamsCategoryFilter] = useState<string | "all">("all");
+  const [teamsGenderFilter, setTeamsGenderFilter] = useState<string | "all">("all");
+  const [teamsNameQuery, setTeamsNameQuery] = useState("");
 
   const [startingTournament, setStartingTournament] = useState(false);
   const [copyMessage, setCopyMessage] = useState<string | null>(null);
@@ -84,8 +139,14 @@ export default function TournamentDetailPage() {
   const [editP2FirstName, setEditP2FirstName] = useState("");
   const [editP2LastName, setEditP2LastName] = useState("");
   const [editP2Category, setEditP2Category] = useState("");
+  const [editPairGender, setEditPairGender] = useState("");
+  const [editScheduleConstraints, setEditScheduleConstraints] = useState("");
 
   const categories = ["7ma", "6ta", "5ta", "4ta", "3ra", "2da", "1ra"];
+  const genders = [
+    { value: "masculino", label: "Masculino" },
+    { value: "damas", label: "Damas" },
+  ];
 
 
 function hydrateTeams(rawTeams: Team[], players: Player[]): UiTeam[] {
@@ -93,28 +154,41 @@ function hydrateTeams(rawTeams: Team[], players: Player[]): UiTeam[] {
 
   return rawTeams.map((team) => ({
     ...team,
+    schedule_constraints: team.schedule_constraints ?? null,
     players: (team.players || [])
       .map((p) => playersById.get(p.id))
       .filter((p): p is Player => !!p)
       .map((p) => ({
         id: p.id,
         name: `${p.first_name} ${p.last_name ?? ""}`.trim(),
+        category: p.category ?? null,
+        gender: p.gender ?? null,
       })),
   }));
 }
 
 type TeamApi = {
   id: number;
-  players: { id: number; first_name: string; last_name: string | null }[];
+  players: {
+    id: number;
+    first_name: string;
+    last_name: string | null;
+    category?: string | null;
+    gender?: string | null;
+  }[];
+  schedule_constraints?: string | null;
 };
 
 function mapTeamsFromApi(rawTeams: TeamApi[], tournamentId: number): UiTeam[] {
   return rawTeams.map((team) => ({
     id: team.id,
     tournament_id: tournamentId,
+    schedule_constraints: team.schedule_constraints ?? null,
     players: team.players.map((p) => ({
       id: p.id,
       name: `${p.first_name} ${p.last_name ?? ""}`.trim(),
+      category: p.category ?? null,
+      gender: p.gender ?? null,
     })),
   }));
 }
@@ -243,6 +317,8 @@ async function load() {
     setP2FirstName("");
     setP2LastName("");
     setP2Category("");
+    setPairGender("");
+    setPairScheduleConstraints("");
     setPairError(null);
     setPairOpen(true);
   }
@@ -262,6 +338,8 @@ async function load() {
     setEditP2FirstName(p2?.first_name ?? "");
     setEditP2LastName(p2?.last_name ?? "");
     setEditP2Category(p2?.category ?? "");
+    setEditPairGender(p1?.gender ?? p2?.gender ?? "");
+    setEditScheduleConstraints(team.schedule_constraints ?? "");
     setEditPairError(null);
     setEditPairOpen(true);
   }
@@ -274,7 +352,8 @@ async function load() {
       !editP1Category ||
       !editP2FirstName.trim() ||
       !editP2LastName.trim() ||
-      !editP2Category
+      !editP2Category ||
+      !editPairGender
     ) {
       setEditPairError("Completá los datos de ambos jugadores.");
       return;
@@ -283,7 +362,11 @@ async function load() {
     setEditPairSaving(true);
     setEditPairError(null);
     try {
-      const updated = await api<{ id: number; players: Player[] }>(
+      const updated = await api<{
+        id: number;
+        players: Player[];
+        schedule_constraints?: string | null;
+      }>(
         `/tournaments/${tournamentId}/teams/${editTeamId}`,
         {
           method: "PATCH",
@@ -294,14 +377,19 @@ async function load() {
                 first_name: editP1FirstName.trim(),
                 last_name: editP1LastName.trim(),
                 category: editP1Category,
+                gender: editPairGender,
               },
               {
                 player_id: editP2Id,
                 first_name: editP2FirstName.trim(),
                 last_name: editP2LastName.trim(),
                 category: editP2Category,
+                gender: editPairGender,
               },
             ],
+            schedule_constraints: editScheduleConstraints.trim()
+              ? editScheduleConstraints.trim()
+              : null,
           },
         }
       );
@@ -312,8 +400,14 @@ async function load() {
           const mappedPlayers = updated.players.map((p) => ({
             id: p.id,
             name: `${p.first_name} ${p.last_name ?? ""}`.trim(),
+            category: p.category ?? null,
+            gender: p.gender ?? null,
           }));
-          return { ...team, players: mappedPlayers };
+          return {
+            ...team,
+            players: mappedPlayers,
+            schedule_constraints: updated.schedule_constraints ?? null,
+          };
         })
       );
       setPlayers((prev) =>
@@ -337,7 +431,8 @@ async function load() {
       !p1Category ||
       !p2FirstName.trim() ||
       !p2LastName.trim() ||
-      !p2Category
+      !p2Category ||
+      !pairGender
     ) {
       setPairError("Completá los datos de ambos jugadores.");
       return;
@@ -348,9 +443,22 @@ async function load() {
       id: tempId,
       tournament_id: tournamentId,
       pending: true,
+      schedule_constraints: pairScheduleConstraints.trim()
+        ? pairScheduleConstraints.trim()
+        : null,
       players: [
-        { id: tempId * 10 - 1, name: `${p1FirstName.trim()} ${p1LastName.trim()}`.trim() },
-        { id: tempId * 10 - 2, name: `${p2FirstName.trim()} ${p2LastName.trim()}`.trim() },
+        {
+          id: tempId * 10 - 1,
+          name: `${p1FirstName.trim()} ${p1LastName.trim()}`.trim(),
+          category: p1Category,
+          gender: pairGender,
+        },
+        {
+          id: tempId * 10 - 2,
+          name: `${p2FirstName.trim()} ${p2LastName.trim()}`.trim(),
+          category: p2Category,
+          gender: pairGender,
+        },
       ],
     };
 
@@ -369,12 +477,17 @@ async function load() {
               first_name: p1FirstName.trim(),
               last_name: p1LastName.trim(),
               category: p1Category,
+              gender: pairGender,
             },
             player2: {
               first_name: p2FirstName.trim(),
               last_name: p2LastName.trim(),
               category: p2Category,
+              gender: pairGender,
             },
+            schedule_constraints: pairScheduleConstraints.trim()
+              ? pairScheduleConstraints.trim()
+              : null,
           },
         }
       );
@@ -403,7 +516,199 @@ async function load() {
       setPairSaving(false);
     }
   }
-  async function generateGroups() {
+
+  function normalizeHeader(value: string) {
+    return value
+      .trim()
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-z0-9]/g, "");
+  }
+
+  function normalizeGender(value: string) {
+    const normalized = value.trim().toLowerCase();
+    if (["damas", "femenino", "mujer", "f"].includes(normalized)) return "damas";
+    if (["masculino", "caballeros", "hombre", "m"].includes(normalized)) {
+      return "masculino";
+    }
+    return normalized;
+  }
+  function normalizeCategory(value: string) {
+    const normalized = value.trim().toLowerCase();
+    if (!normalized) return "";
+    const digitMatch = normalized.match(/\d+/);
+    if (!digitMatch) return normalized;
+    const categoryMap: Record<string, string> = {
+      "1": "1ra",
+      "2": "2da",
+      "3": "3ra",
+      "4": "4ta",
+      "5": "5ta",
+      "6": "6ta",
+      "7": "7ma",
+    };
+    if (normalized === digitMatch[0]) {
+      return categoryMap[digitMatch[0]] ?? normalized;
+    }
+    return categoryMap[digitMatch[0]] ?? normalized;
+  }
+
+  function downloadImportTemplate() {
+    const rows = [
+      IMPORT_TEMPLATE_HEADERS.join(","),
+      IMPORT_TEMPLATE_SAMPLE.join(","),
+    ].join("\n");
+    const blob = new Blob([rows], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "padel_champions_template_parejas.csv";
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
+  async function handleImportFile(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    if (status !== "upcoming") {
+      setImportError("Solo podes importar parejas antes de iniciar el torneo.");
+      return;
+    }
+
+    setImportingPairs(true);
+    setImportError(null);
+    setImportSummary(null);
+
+    try {
+      const buffer = await file.arrayBuffer();
+      const workbook = XLSX.read(buffer, { type: "array" });
+      const sheetName = workbook.SheetNames[0];
+      if (!sheetName) {
+        throw new Error("El archivo no tiene hojas para importar.");
+      }
+      const worksheet = workbook.Sheets[sheetName];
+      const rows = XLSX.utils.sheet_to_json(worksheet, {
+        header: 1,
+        raw: false,
+        defval: "",
+      }) as Array<Array<string | number>>;
+
+      if (rows.length < 2) {
+        throw new Error("El archivo no contiene filas para importar.");
+      }
+
+      const headerRow = rows[0].map((cell) => String(cell ?? ""));
+      const headerKeys = headerRow.map(normalizeHeader);
+      const fieldIndexes: Record<string, number> = {};
+
+      headerKeys.forEach((key, idx) => {
+        const mapped = HEADER_FIELD_MAP[key];
+        if (mapped) fieldIndexes[mapped] = idx;
+      });
+
+      const requiredFields = ["p1_first_name", "p2_first_name", "category", "gender"];
+      const missing = requiredFields.filter((field) => fieldIndexes[field] === undefined);
+      if (missing.length > 0) {
+        throw new Error(
+          `Faltan columnas requeridas: ${missing
+            .map((field) => FIELD_LABELS[field] ?? field)
+            .join(", ")}.`
+        );
+      }
+
+      const parseCell = (row: Array<string | number>, key: string) => {
+        const idx = fieldIndexes[key];
+        if (idx === undefined) return "";
+        return String(row[idx] ?? "").trim();
+      };
+
+      const pairs: {
+        player1: { first_name: string; last_name: string; category: string; gender: string };
+        player2: { first_name: string; last_name: string; category: string; gender: string };
+        schedule_constraints?: string | null;
+      }[] = [];
+      const rowErrors: string[] = [];
+
+      rows.slice(1).forEach((row, index) => {
+        const rowIndex = index + 2;
+        const hasContent = row.some((cell) => String(cell ?? "").trim() !== "");
+        if (!hasContent) return;
+
+        const category = normalizeCategory(parseCell(row, "category"));
+        const genderRaw = parseCell(row, "gender");
+        const gender = normalizeGender(genderRaw);
+        const p1FirstName = parseCell(row, "p1_first_name");
+        const p1LastName = parseCell(row, "p1_last_name");
+        const p2FirstName = parseCell(row, "p2_first_name");
+        const p2LastName = parseCell(row, "p2_last_name");
+        const constraints = parseCell(row, "constraints");
+
+        if (!p1FirstName || !p2FirstName || !category || !gender) {
+          rowErrors.push(`Fila ${rowIndex}: faltan datos obligatorios.`);
+          return;
+        }
+
+        pairs.push({
+          player1: {
+            first_name: p1FirstName,
+            last_name: p1LastName || "",
+            category,
+            gender,
+          },
+          player2: {
+            first_name: p2FirstName,
+            last_name: p2LastName || "",
+            category,
+            gender,
+          },
+          schedule_constraints: constraints ? constraints : null,
+        });
+      });
+
+      if (pairs.length === 0) {
+        throw new Error("No se encontraron parejas validas para importar.");
+      }
+
+      let created = 0;
+      let failed = 0;
+      for (const pair of pairs) {
+        try {
+          await api(`/tournaments/${tournamentId}/teams/pair`, {
+            method: "POST",
+            body: pair,
+          });
+          created += 1;
+        } catch (err: any) {
+          failed += 1;
+          if (rowErrors.length < 5) {
+            rowErrors.push(err?.message ?? "Error al importar una fila.");
+          }
+        }
+      }
+
+      setImportSummary({ total: pairs.length, created, failed });
+      if (rowErrors.length > 0) {
+        setImportError(rowErrors.slice(0, 5).join(" "));
+      }
+      await load();
+    } catch (err: any) {
+      setImportError(err?.message ?? "No se pudo importar el archivo.");
+    } finally {
+      setImportingPairs(false);
+    }
+  }
+  async function generateGroups(payload: {
+    teams_per_group: number;
+    schedule_windows: {
+      date: string;
+      start_time: string;
+      end_time: string;
+    }[];
+    match_duration_minutes: number;
+    courts_count: number;
+  }) {
     setGeneratingGroups(true);
     setError(null);
   
@@ -412,7 +717,7 @@ async function load() {
         `/tournaments/${tournamentId}/groups/generate`,
         {
           method: "POST",
-          body: { teams_per_group: teamsPerGroup },
+          body: payload,
         }
       );
       const tGroups = await api<TournamentGroupOut[]>(
@@ -421,6 +726,7 @@ async function load() {
       setGroups(tGroups);
     } catch (err: any) {
       setError(err?.message ?? "Failed to generate groups");
+      throw err;
     } finally {
       setGeneratingGroups(false);
     }
@@ -510,6 +816,73 @@ async function load() {
     tournament?.location && tournament.location.startsWith("http")
       ? tournament.location
       : null;
+  const getTeamGroup = (teamId: number) =>
+    groups.find((g) => g.teams?.some((t) => t.id === teamId)) ?? null;
+  const teamCategories = useMemo(() => {
+    const values = new Set<string>();
+    teams.forEach((team) => {
+      team.players?.forEach((player) => {
+        if (player.category) values.add(player.category);
+      });
+    });
+    return Array.from(values).sort();
+  }, [teams]);
+  const teamGenders = useMemo(() => {
+    const values = new Set<string>();
+    teams.forEach((team) => {
+      team.players?.forEach((player) => {
+        if (player.gender) values.add(player.gender);
+      });
+    });
+    return Array.from(values).sort();
+  }, [teams]);
+  const categoryCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    teams.forEach((team) => {
+      const category = team.players?.[0]?.category;
+      if (!category) return;
+      counts.set(category, (counts.get(category) ?? 0) + 1);
+    });
+    return counts;
+  }, [teams]);
+  const genderCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    teams.forEach((team) => {
+      const gender = team.players?.[0]?.gender;
+      if (!gender) return;
+      counts.set(gender, (counts.get(gender) ?? 0) + 1);
+    });
+    return counts;
+  }, [teams]);
+  const filteredTeams = useMemo(() => {
+    return teams.filter((team) => {
+      const groupMatch =
+        teamsGroupFilter === "all" ||
+        getTeamGroup(team.id)?.id === teamsGroupFilter;
+      const category = team.players?.[0]?.category ?? null;
+      const categoryMatch =
+        teamsCategoryFilter === "all" || category === teamsCategoryFilter;
+      const gender = team.players?.[0]?.gender ?? null;
+      const genderMatch =
+        teamsGenderFilter === "all" || gender === teamsGenderFilter;
+      if (!groupMatch || !categoryMatch || !genderMatch) return false;
+      const query = teamsNameQuery.trim().toLowerCase();
+      if (!query) return true;
+      const names =
+        team.players
+          ?.map((player) => player.name.toLowerCase())
+          .join(" ") ?? "";
+      return names.includes(query);
+    });
+  }, [teams, teamsGroupFilter, teamsCategoryFilter, teamsGenderFilter, teamsNameQuery, groups]);
+  const normalizeTime = (value: string | null | undefined, fallback: string) =>
+    value ? value.slice(0, 5) : fallback;
+  const defaultStartDate =
+    tournament?.start_date ?? new Date().toISOString().slice(0, 10);
+  const defaultStartTime = normalizeTime(tournament?.start_time, "18:00");
+  const defaultEndTime = normalizeTime(tournament?.end_time, "23:00");
+  const defaultMatchDurationMinutes = tournament?.match_duration_minutes ?? 90;
+  const defaultCourtsCount = tournament?.courts_count ?? 1;
 
   return (
     <div className="space-y-8">
@@ -715,6 +1088,35 @@ async function load() {
                 </select>
               </div>
 
+              <div className="space-y-2">
+                <div className="text-sm font-medium text-zinc-900">Genero</div>
+                <select
+                  className="w-full rounded-xl border border-zinc-300 bg-zinc-50 px-3 py-2 text-sm text-zinc-900 shadow-sm focus:border-zinc-900 focus:outline-none focus:ring-2 focus:ring-zinc-900/20"
+                  value={pairGender}
+                  onChange={(e) => setPairGender(e.target.value)}
+                >
+                  <option value="">Seleccionar genero</option>
+                  {genders.map((g) => (
+                    <option key={g.value} value={g.value}>
+                      {g.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="space-y-2">
+                <div className="text-sm font-medium text-zinc-900">
+                  Limitantes de horarios
+                </div>
+                <textarea
+                  className="w-full rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 outline-none focus:border-zinc-900 focus:ring-2 focus:ring-zinc-900/20"
+                  placeholder="Ej: solo lunes y miercoles despues de las 20hs"
+                  value={pairScheduleConstraints}
+                  onChange={(e) => setPairScheduleConstraints(e.target.value)}
+                  rows={3}
+                />
+              </div>
+
               {pairError && (
                 <div className="rounded-xl border border-red-300 bg-red-100 p-3 text-sm text-red-800">
                   {pairError}
@@ -792,6 +1194,35 @@ async function load() {
                     </option>
                   ))}
                 </select>
+              </div>
+
+              <div className="space-y-2">
+                <div className="text-sm font-medium text-zinc-900">Genero</div>
+                <select
+                  className="w-full rounded-xl border border-zinc-300 bg-zinc-50 px-3 py-2 text-sm text-zinc-900 shadow-sm focus:border-zinc-900 focus:outline-none focus:ring-2 focus:ring-zinc-900/20"
+                  value={editPairGender}
+                  onChange={(e) => setEditPairGender(e.target.value)}
+                >
+                  <option value="">Seleccionar genero</option>
+                  {genders.map((g) => (
+                    <option key={g.value} value={g.value}>
+                      {g.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="space-y-2">
+                <div className="text-sm font-medium text-zinc-900">
+                  Limitantes de horarios
+                </div>
+                <textarea
+                  className="w-full rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 outline-none focus:border-zinc-900 focus:ring-2 focus:ring-zinc-900/20"
+                  placeholder="Ej: solo lunes y miercoles despues de las 20hs"
+                  value={editScheduleConstraints}
+                  onChange={(e) => setEditScheduleConstraints(e.target.value)}
+                  rows={3}
+                />
               </div>
 
               {editPairError && (
@@ -882,28 +1313,146 @@ async function load() {
                       Cargá los datos de ambos jugadores y creá el equipo.
                     </div>
                   </div>
-                  <Button
-                    onClick={openPairModal}
-                    disabled={status !== "upcoming"}
-                  >
-                    Agregar pareja
-                  </Button>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button
+                      onClick={openPairModal}
+                      disabled={status !== "upcoming"}
+                    >
+                      Agregar pareja
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      onClick={() => importInputRef.current?.click()}
+                      disabled={status !== "upcoming" || importingPairs}
+                    >
+                      {importingPairs ? "Importando..." : "Importar parejas"}
+                    </Button>
+                    <button
+                      type="button"
+                      onClick={downloadImportTemplate}
+                      className="text-xs font-semibold text-zinc-500 underline decoration-dotted hover:text-zinc-700"
+                    >
+                      Descargar template
+                    </button>
+                  </div>
                 </div>
+                <input
+                  ref={importInputRef}
+                  type="file"
+                  accept=".csv,.xls,.xlsx"
+                  className="hidden"
+                  onChange={handleImportFile}
+                />
+                {importSummary && (
+                  <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-900">
+                    Importadas {importSummary.created} de {importSummary.total}. Fallidas:{" "}
+                    {importSummary.failed}.
+                  </div>
+                )}
+                {importError && (
+                  <div className="rounded-xl border border-red-300 bg-red-100 p-3 text-xs text-red-800">
+                    {importError}
+                  </div>
+                )}
 
                 <div className="flex items-center gap-2 text-sm font-semibold text-zinc-700">
                   <span>Parejas</span>
                   <span className="rounded-full border border-zinc-200 bg-zinc-100 px-2 py-0.5 text-xs text-zinc-600">
-                    {teams.length}
+                    {filteredTeams.length}
                   </span>
+                </div>
+                <div className="flex flex-wrap items-center gap-3">
+                  {groups.length > 0 && (
+                    <div className="flex items-center gap-2">
+                      <label className="text-xs font-semibold text-zinc-500">
+                        Filtrar por zona
+                      </label>
+                      <select
+                        className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                        value={teamsGroupFilter}
+                        onChange={(e) => {
+                          const value = e.target.value;
+                          setTeamsGroupFilter(value === "all" ? "all" : Number(value));
+                        }}
+                      >
+                        <option value="all">Todas</option>
+                        {groups.map((group) => (
+                          <option key={group.id} value={group.id}>
+                            {group.name.replace(/^Group\s+/i, "Grupo ")}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                  {teamCategories.length > 0 && (
+                    <div className="flex items-center gap-2">
+                      <label className="text-xs font-semibold text-zinc-500">
+                        Categoria
+                      </label>
+                      <select
+                        className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                        value={teamsCategoryFilter}
+                        onChange={(e) =>
+                          setTeamsCategoryFilter(
+                            e.target.value === "all" ? "all" : e.target.value
+                          )
+                        }
+                      >
+                        <option value="all">Todas</option>
+                        {teamCategories.map((category) => (
+                          <option key={category} value={category}>
+                            {category} ({categoryCounts.get(category) ?? 0})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                  {teamGenders.length > 0 && (
+                    <div className="flex items-center gap-2">
+                      <label className="text-xs font-semibold text-zinc-500">
+                        Genero
+                      </label>
+                      <select
+                        className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                        value={teamsGenderFilter}
+                        onChange={(e) =>
+                          setTeamsGenderFilter(
+                            e.target.value === "all" ? "all" : e.target.value
+                          )
+                        }
+                      >
+                        <option value="all">Todos</option>
+                        {teamGenders.map((gender) => {
+                          const label =
+                            genders.find((g) => g.value === gender)?.label ?? gender;
+                          return (
+                            <option key={gender} value={gender}>
+                              {label} ({genderCounts.get(gender) ?? 0})
+                            </option>
+                          );
+                        })}
+                      </select>
+                    </div>
+                  )}
+                  <Input
+                    value={teamsNameQuery}
+                    onChange={(e) => setTeamsNameQuery(e.target.value)}
+                    placeholder="Buscar jugador"
+                    className="w-48"
+                  />
                 </div>
                 <div className="max-h-64 overflow-y-auto space-y-2 pr-1">
                   
 
-                  {teams.length === 0 ? (
-                    <div className="text-sm text-zinc-600">No hay equipos creados.</div>
+                  {filteredTeams.length === 0 ? (
+                    <div className="text-sm text-zinc-600">
+                      {teams.length === 0
+                        ? "No hay equipos creados."
+                        : "No hay equipos para el filtro seleccionado."}
+                    </div>
                   ) : (
                     <div className="space-y-2">
-                      {teams.map((team) => {
+                      {filteredTeams.map((team) => {
                         const isPending = !!team.pending;
                         return (
                           <div
@@ -921,14 +1470,28 @@ async function load() {
                               </div>
                               <div className="text-xs text-zinc-500">
                                 {(() => {
-                                  const group = groups.find((g) =>
-                                    g.teams?.some((t) => t.id === team.id)
-                                  );
+                                  const group = getTeamGroup(team.id);
                                   if (!group) return "Grupo: Sin asignar";
                                   const label = group.name.replace(/^Group\s+/i, "");
                                   return `Grupo ${label}`;
                                 })()}
                               </div>
+                              <div className="text-xs text-zinc-500">
+                                {(() => {
+                                  const category = team.players?.[0]?.category ?? "—";
+                                  const genderValue = team.players?.[0]?.gender ?? null;
+                                  const genderLabel =
+                                    genders.find((g) => g.value === genderValue)?.label ??
+                                    genderValue ??
+                                    "—";
+                                  return `Categoria: ${category} · ${genderLabel}`;
+                                })()}
+                              </div>
+                              {team.schedule_constraints && (
+                                <div className="text-xs text-zinc-500">
+                                  Limitantes: {team.schedule_constraints}
+                                </div>
+                              )}
                             </div>
 
                             <div className="flex items-center gap-2">
@@ -1012,6 +1575,11 @@ async function load() {
               setTeamsPerGroup={setTeamsPerGroup}
               generating={generatingGroups}
               onGenerate={generateGroups}
+              defaultStartDate={defaultStartDate}
+              defaultStartTime={defaultStartTime}
+              defaultEndTime={defaultEndTime}
+              defaultMatchDurationMinutes={defaultMatchDurationMinutes}
+              defaultCourtsCount={defaultCourtsCount}
             />
 
             </div>

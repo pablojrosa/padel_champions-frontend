@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Card from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
@@ -30,6 +30,28 @@ const DEFAULT_SETS: EditableSet[] = [
   { a: "", b: "" },
 ];
 const HOURS = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, "0"));
+const COURT_BADGES = [
+  "bg-emerald-100 text-emerald-700",
+  "bg-blue-100 text-blue-700",
+  "bg-purple-100 text-purple-700",
+  "bg-orange-100 text-orange-700",
+  "bg-yellow-100 text-yellow-700",
+  "bg-green-100 text-green-700",
+  "bg-blue-100 text-blue-700",
+  "bg-red-100 text-red-700",
+  "bg-gray-100 text-gray-700",
+  "bg-black-100 text-black-700",
+  "bg-white-100 text-white-700",
+  "bg-brown-100 text-brown-700",
+  "bg-cyan-100 text-cyan-700",
+  "bg-teal-100 text-teal-700",
+  "bg-violet-100 text-violet-700",
+  "bg-sky-100 text-sky-700",
+  "bg-amber-100 text-amber-700",
+  "bg-indigo-100 text-indigo-700",
+  "bg-lime-100 text-lime-700",
+  "bg-fuchsia-100 text-fuchsia-700",
+];
 
 const PLAYOFF_STAGES: PlayoffStage[] = [
   "round_of_32",
@@ -64,6 +86,8 @@ export default function TournamentPlayoffsPage() {
   const [teams, setTeams] = useState<Team[]>([]);
   const [groups, setGroups] = useState<TournamentGroupOut[]>([]);
   const [status, setStatus] = useState<TournamentStatus>("upcoming");
+  const [categoryFilter, setCategoryFilter] = useState<string | "all">("all");
+  const [genderFilter, setGenderFilter] = useState<string | "all">("all");
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -85,40 +109,147 @@ export default function TournamentPlayoffsPage() {
   const [scheduleCourt, setScheduleCourt] = useState("1");
   const [scheduleError, setScheduleError] = useState<string | null>(null);
   const [scheduling, setScheduling] = useState(false);
+  const [gridOpen, setGridOpen] = useState(false);
+  const [gridMatch, setGridMatch] = useState<Match | null>(null);
 
   const [manualStage, setManualStage] = useState<PlayoffStage | null>(null);
   const [manualPairs, setManualPairs] = useState<ManualPairDraft[]>([]);
   const [manualError, setManualError] = useState<string | null>(null);
   const [manualStageOpen, setManualStageOpen] = useState(false);
   const [manualStageCandidate, setManualStageCandidate] = useState<PlayoffStage | "">("");
+  const hasDefaultedFilters = useRef(false);
 
   const teamsById = useMemo(() => {
     const map = new Map<number, Team>();
     teams.forEach((team) => map.set(team.id, team));
     return map;
   }, [teams]);
+  const groupsById = useMemo(() => {
+    const map = new Map<number, TournamentGroupOut>();
+    groups.forEach((group) => map.set(group.id, group));
+    return map;
+  }, [groups]);
+  const categories = useMemo(() => {
+    const values = new Set<string>();
+    teams.forEach((team) => {
+      team.players?.forEach((player) => {
+        if (player.category) values.add(player.category);
+      });
+    });
+    return Array.from(values).sort();
+  }, [teams]);
+  const genders = useMemo(() => {
+    const values = new Set<string>();
+    teams.forEach((team) => {
+      team.players?.forEach((player) => {
+        if (player.gender) values.add(player.gender);
+      });
+    });
+    return Array.from(values).sort();
+  }, [teams]);
+  const filteredGroups = useMemo(() => {
+    if (categoryFilter === "all" || genderFilter === "all") return groups;
+    return groups.filter((group) =>
+      group.teams.some((team) => {
+        const category = team.players?.[0]?.category ?? null;
+        const gender = team.players?.[0]?.gender ?? null;
+        return category === categoryFilter && gender === genderFilter;
+      })
+    );
+  }, [groups, categoryFilter, genderFilter]);
 
   const sortedTeams = useMemo(() => {
     const labelFor = (team: Team) => {
       const names = team.players?.map((player) => player.name).filter(Boolean) ?? [];
       return names.length > 0 ? names.join(" / ") : `Team #${team.id}`;
     };
-    return [...teams].sort((a, b) => labelFor(a).localeCompare(labelFor(b)));
-  }, [teams]);
+    const filtered =
+      categoryFilter === "all" && genderFilter === "all"
+        ? teams
+        : teams.filter((team) => {
+            const category = team.players?.[0]?.category ?? null;
+            const gender = team.players?.[0]?.gender ?? null;
+            const categoryMatch = categoryFilter === "all" || category === categoryFilter;
+            const genderMatch = genderFilter === "all" || gender === genderFilter;
+            return categoryMatch && genderMatch;
+          });
+    return [...filtered].sort((a, b) => labelFor(a).localeCompare(labelFor(b)));
+  }, [teams, categoryFilter, genderFilter]);
 
   const matchesByStage = useMemo(() => {
     const map = new Map<PlayoffStage, Match[]>();
     PLAYOFF_STAGES.forEach((stage) => map.set(stage, []));
     matches.forEach((match) => {
       if (match.stage === "group") return;
+      if (categoryFilter !== "all") {
+        const category = teamsById.get(match.team_a_id)?.players?.[0]?.category ?? null;
+        if (category !== categoryFilter) return;
+      }
+      if (genderFilter !== "all") {
+        const gender = teamsById.get(match.team_a_id)?.players?.[0]?.gender ?? null;
+        if (gender !== genderFilter) return;
+      }
       map.get(match.stage)?.push(match);
     });
     return map;
-  }, [matches]);
+  }, [matches, categoryFilter, genderFilter, teamsById]);
 
   const hasPlayoffs = useMemo(() => {
     return Array.from(matchesByStage.values()).some((items) => items.length > 0);
   }, [matchesByStage]);
+  const categoryFilteredMatches = useMemo(() => {
+    return matches.filter((match) => {
+      const category = getTeamCategory(match.team_a_id);
+      const gender = getTeamGender(match.team_a_id);
+      const categoryMatch = categoryFilter === "all" || category === categoryFilter;
+      const genderMatch = genderFilter === "all" || gender === genderFilter;
+      return categoryMatch && genderMatch;
+    });
+  }, [matches, categoryFilter, genderFilter, teamsById]);
+  const scheduledMatches = useMemo(
+    () =>
+      categoryFilteredMatches.filter(
+        (match) => !!match.scheduled_time && !!match.scheduled_date
+      ),
+    [categoryFilteredMatches]
+  );
+  const gridData = useMemo(() => {
+    const dates = Array.from(
+      new Set(scheduledMatches.map((match) => match.scheduled_date as string))
+    ).sort();
+    const times = Array.from(
+      new Set(
+        scheduledMatches
+          .map((match) => normalizeTime(match.scheduled_time))
+          .filter(Boolean)
+      )
+    ).sort();
+    const map = new Map<string, Map<string, Match[]>>();
+
+    scheduledMatches.forEach((match) => {
+      const dateKey = match.scheduled_date as string;
+      const timeKey = normalizeTime(match.scheduled_time);
+      if (!timeKey) return;
+      if (!map.has(dateKey)) {
+        map.set(dateKey, new Map());
+      }
+      const timeMap = map.get(dateKey)!;
+      if (!timeMap.has(timeKey)) {
+        timeMap.set(timeKey, []);
+      }
+      timeMap.get(timeKey)!.push(match);
+    });
+
+    map.forEach((timeMap) => {
+      timeMap.forEach((matchesInCell) => {
+        matchesInCell.sort(
+          (a, b) => (a.court_number ?? 0) - (b.court_number ?? 0)
+        );
+      });
+    });
+
+    return { dates, times, map };
+  }, [scheduledMatches]);
 
   const finalWinner = useMemo(() => {
     const finals = matchesByStage.get("final") ?? [];
@@ -136,9 +267,10 @@ export default function TournamentPlayoffsPage() {
   }, [matchesByStage, teamsById]);
 
   const groupStageComplete = useMemo(() => {
-    if (groups.length === 0) return false;
+    if (categoryFilter === "all" || genderFilter === "all") return false;
+    if (filteredGroups.length === 0) return false;
 
-    for (const group of groups) {
+    for (const group of filteredGroups) {
       const groupMatches = matches.filter(
         (match) => match.stage === "group" && match.group_id === group.id
       );
@@ -151,7 +283,7 @@ export default function TournamentPlayoffsPage() {
     }
 
     return true;
-  }, [groups, matches]);
+  }, [filteredGroups, matches, categoryFilter, genderFilter]);
 
   const latestStage = useMemo(() => {
     let latest: PlayoffStage | null = null;
@@ -199,6 +331,7 @@ export default function TournamentPlayoffsPage() {
   }, [latestStage, nextStage, matchesByStage]);
 
   const availableStages = useMemo(() => {
+    if (categoryFilter === "all" || genderFilter === "all") return [];
     if (matchesByStage.size === 0) return [];
     if (latestStage) {
       if (!nextStage || !canGenerateNextStage) return [];
@@ -207,13 +340,13 @@ export default function TournamentPlayoffsPage() {
 
     if (!groupStageComplete) return [];
 
-    if (groups.length === 0) return [];
+    if (filteredGroups.length === 0) return [];
 
-    const baseQualified = groups.reduce(
+    const baseQualified = filteredGroups.reduce(
       (sum, group) => sum + Math.min(2, group.teams.length),
       0
     );
-    const thirdsAvailable = groups.reduce(
+    const thirdsAvailable = filteredGroups.reduce(
       (sum, group) => sum + (group.teams.length >= 3 ? 1 : 0),
       0
     );
@@ -228,22 +361,25 @@ export default function TournamentPlayoffsPage() {
     nextStage,
     canGenerateNextStage,
     groupStageComplete,
-    groups,
+    filteredGroups,
+    categoryFilter,
+    genderFilter,
   ]);
 
   const manualStageOptions = useMemo(() => {
     if (latestStage) return [];
+    if (categoryFilter === "all" || genderFilter === "all") return [];
     if (!groupStageComplete) return [];
     return PLAYOFF_STAGES.filter(
-      (stage) => teams.length >= STAGE_TEAM_COUNTS[stage]
+      (stage) => sortedTeams.length >= STAGE_TEAM_COUNTS[stage]
     );
-  }, [latestStage, groupStageComplete, teams.length]);
+  }, [latestStage, groupStageComplete, sortedTeams.length, categoryFilter, genderFilter]);
 
   const manualSelectedIds = useMemo(() => {
     return manualPairs.flatMap((pair) => [pair.team_a_id, pair.team_b_id]);
   }, [manualPairs]);
 
-  const autoGeneratedRef = useRef(false);
+  const autoGeneratedRef = useRef<Set<string>>(new Set());
   const autoAdvanceRef = useRef<Set<string>>(new Set());
 
   const loadPlayoffs = useCallback(async () => {
@@ -299,25 +435,65 @@ export default function TournamentPlayoffsPage() {
   }, [loadPlayoffs]);
 
   useEffect(() => {
-    if (loading || generating) return;
-    if (autoGeneratedRef.current) return;
-    if (!groupStageComplete || hasPlayoffs) return;
-    if (availableStages.length === 0) return;
+    if (hasDefaultedFilters.current) return;
+    if (categories.length === 0 && genders.length === 0) return;
 
-    autoGeneratedRef.current = true;
-    handleGenerate(availableStages[0]);
-  }, [availableStages, generating, groupStageComplete, hasPlayoffs, loading]);
+    if (categoryFilter === "all" && categories.length > 0) {
+      setCategoryFilter(categories[0]);
+    }
+    if (genderFilter === "all" && genders.length > 0) {
+      setGenderFilter(genders[0]);
+    }
+
+    if (
+      (categoryFilter === "all" && categories.length > 0)
+      || (genderFilter === "all" && genders.length > 0)
+    ) {
+      hasDefaultedFilters.current = true;
+    }
+  }, [categories, genders, categoryFilter, genderFilter]);
 
   useEffect(() => {
     if (loading || generating) return;
+    if (categoryFilter === "all" || genderFilter === "all") return;
+    if (!groupStageComplete || hasPlayoffs) return;
+    if (availableStages.length === 0) return;
+
+    const key = `${tournamentId}:${categoryFilter}:${genderFilter}`;
+    if (autoGeneratedRef.current.has(key)) return;
+    autoGeneratedRef.current.add(key);
+    handleGenerate(availableStages[0]);
+  }, [
+    availableStages,
+    generating,
+    groupStageComplete,
+    hasPlayoffs,
+    loading,
+    categoryFilter,
+    genderFilter,
+    tournamentId,
+  ]);
+
+  useEffect(() => {
+    if (loading || generating) return;
+    if (categoryFilter === "all" || genderFilter === "all") return;
     if (!latestStage || !nextStage) return;
     if (!canGenerateNextStage) return;
 
-    const key = `${tournamentId}:${nextStage}`;
+    const key = `${tournamentId}:${categoryFilter}:${genderFilter}:${nextStage}`;
     if (autoAdvanceRef.current.has(key)) return;
     autoAdvanceRef.current.add(key);
     handleGenerate(nextStage);
-  }, [canGenerateNextStage, generating, latestStage, loading, nextStage, tournamentId]);
+  }, [
+    canGenerateNextStage,
+    generating,
+    latestStage,
+    loading,
+    nextStage,
+    tournamentId,
+    categoryFilter,
+    genderFilter,
+  ]);
 
   function getTeamLabel(teamId: number) {
     const team = teamsById.get(teamId);
@@ -326,6 +502,36 @@ export default function TournamentPlayoffsPage() {
     const names = team.players?.map((player) => player.name).filter(Boolean) ?? [];
     if (names.length === 0) return `Team #${teamId}`;
     return names.join(" / ");
+  }
+  function getTeamCategory(teamId: number) {
+    const team = teamsById.get(teamId);
+    return team?.players?.[0]?.category ?? null;
+  }
+  function getTeamGender(teamId: number) {
+    const team = teamsById.get(teamId);
+    return team?.players?.[0]?.gender ?? null;
+  }
+  function getMatchCode(match: Match) {
+    return match.match_code ?? String(match.id);
+  }
+  function getCourtBadgeClass(courtNumber?: number | null) {
+    if (!courtNumber || courtNumber <= 0) {
+      return "bg-zinc-100 text-zinc-600";
+    }
+    return COURT_BADGES[(courtNumber - 1) % COURT_BADGES.length];
+  }
+  function getStageLabel(match: Match) {
+    if (match.stage === "group") {
+      const group = match.group_id ? groupsById.get(match.group_id) : null;
+      if (!group) return "Zona";
+      return group.name.replace(/^group\s*/i, "Grupo ");
+    }
+
+    if (match.stage === "quarter") return "Cuartos";
+    if (match.stage === "semi") return "Semis";
+    if (match.stage === "round_of_16") return "Octavos";
+    if (match.stage === "round_of_32") return "16vos";
+    return "Final";
   }
 
   function openResultModal(match: Match) {
@@ -361,6 +567,22 @@ export default function TournamentPlayoffsPage() {
   function normalizeTime(value?: string | null) {
     if (!value) return "";
     return value.slice(0, 5);
+  }
+  function formatShortDate(value?: string | null) {
+    if (!value) return "";
+    const [year, month, day] = value.split("-");
+    if (!year || !month || !day) return value;
+    return `${day}/${month}/${year.slice(-2)}`;
+  }
+  function formatSchedule(date?: string | null, time?: string | null) {
+    const dateLabel = formatShortDate(date);
+    const timeLabel = normalizeTime(time);
+    if (dateLabel && timeLabel) return `${dateLabel} - ${timeLabel}`;
+    return dateLabel || timeLabel || "";
+  }
+  function formatSetLine(sets: Match["sets"], side: "a" | "b") {
+    if (!sets || sets.length === 0) return "";
+    return sets.map((set) => String(set[side] ?? "")).join("  ");
   }
 
   function openScheduleModal(match: Match) {
@@ -522,6 +744,9 @@ export default function TournamentPlayoffsPage() {
 
   function validateManualPairs(): string | null {
     if (!manualStage) return "Selecciona una instancia para armar.";
+    if (categoryFilter === "all" || genderFilter === "all") {
+      return "Selecciona categoria y genero antes de generar playoffs.";
+    }
 
     for (let i = 0; i < manualPairs.length; i += 1) {
       const pair = manualPairs[i];
@@ -565,6 +790,8 @@ export default function TournamentPlayoffsPage() {
           team_a_id: pair.team_a_id as number,
           team_b_id: pair.team_b_id as number,
         })),
+        category: categoryFilter === "all" ? undefined : categoryFilter,
+        gender: genderFilter === "all" ? undefined : genderFilter,
       };
       const created = await api<Match[]>(`/tournaments/${tournamentId}/generate-playoffs`, {
         method: "POST",
@@ -585,7 +812,16 @@ export default function TournamentPlayoffsPage() {
     setActionError(null);
 
     try {
-      const payload: PlayoffGenerateRequest = { stage };
+      if (categoryFilter === "all" || genderFilter === "all") {
+        setActionError("Selecciona categoria y genero antes de generar playoffs.");
+        setConfirmStage(null);
+        return;
+      }
+      const payload: PlayoffGenerateRequest = {
+        stage,
+        category: categoryFilter,
+        gender: genderFilter,
+      };
       const created = await api<Match[]>(`/tournaments/${tournamentId}/generate-playoffs`, {
         method: "POST",
         body: payload,
@@ -612,12 +848,51 @@ export default function TournamentPlayoffsPage() {
           <p className="text-sm text-zinc-300">Generacion y cruces por instancia.</p>
         </div>
 
-        <Button
-          variant="secondary"
-          onClick={() => router.push(`/tournaments/${tournamentId}`)}
-        >
-          Volver
-        </Button>
+          <div className="flex items-center gap-2">
+            {categories.length > 0 && (
+              <select
+                className="rounded-xl border border-zinc-400 bg-white px-3 py-2 text-sm font-semibold text-zinc-900 shadow-sm focus:border-zinc-700 focus:outline-none focus:ring-2 focus:ring-zinc-900/20"
+                value={categoryFilter}
+              onChange={(e) =>
+                setCategoryFilter(
+                  e.target.value === "all" ? "all" : e.target.value
+                )
+              }
+            >
+              <option value="all">Todas</option>
+              {categories.map((category) => (
+                <option key={category} value={category}>
+                  {category}
+                </option>
+                ))}
+              </select>
+            )}
+            {genders.length > 0 && (
+              <select
+                className="rounded-xl border border-zinc-400 bg-white px-3 py-2 text-sm font-semibold text-zinc-900 shadow-sm focus:border-zinc-700 focus:outline-none focus:ring-2 focus:ring-zinc-900/20"
+                value={genderFilter}
+                onChange={(e) =>
+                  setGenderFilter(e.target.value === "all" ? "all" : e.target.value)
+                }
+              >
+                <option value="all">Todos</option>
+                {genders.map((gender) => (
+                  <option key={gender} value={gender}>
+                    {gender === "damas" ? "Damas" : "Masculino"}
+                  </option>
+                ))}
+              </select>
+            )}
+            <Button variant="secondary" onClick={() => setGridOpen(true)}>
+              Grilla de partidos
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={() => router.push(`/tournaments/${tournamentId}`)}
+            >
+            Volver
+          </Button>
+        </div>
       </div>
 
       {loading ? (
@@ -799,7 +1074,12 @@ export default function TournamentPlayoffsPage() {
                   Cuadro de playoffs
                 </div>
                 <div className="overflow-x-auto">
-                  <div className="flex w-full justify-between gap-8 pb-2">
+                  <div
+                    className="grid w-full min-w-max gap-8 pb-2"
+                    style={{
+                      gridTemplateColumns: `repeat(${activeStages.length}, minmax(260px, 1fr))`,
+                    }}
+                  >
                     {activeStages.map((stage, stageIdx) => {
                       const stageMatches = [...(matchesByStage.get(stage) ?? [])].sort(
                         (a, b) => a.id - b.id
@@ -834,7 +1114,7 @@ export default function TournamentPlayoffsPage() {
                       });
                       const baseMatches =
                         initialStage ? STAGE_TEAM_COUNTS[initialStage] / 2 : 0;
-                      const rowHeight = 20;
+                      const rowHeight = 18;
                       const cardSpan = 6;
                       const gapSpan = 2;
                       const baseStep = cardSpan + gapSpan;
@@ -849,7 +1129,7 @@ export default function TournamentPlayoffsPage() {
                             );
 
                       return (
-                        <div key={stage} className="min-w-[260px] space-y-3">
+                        <div key={stage} className="w-full min-w-[260px] space-y-3">
                           <div className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">
                             {STAGE_LABELS[stage]}
                           </div>
@@ -873,7 +1153,7 @@ export default function TournamentPlayoffsPage() {
                                 return (
                                   <div
                                     key={`${stage}-placeholder-${idx}`}
-                                    className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-3 text-sm text-zinc-400"
+                                    className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-400"
                                     style={gridStyle}
                                   >
                                     <div className="text-xs uppercase tracking-[0.12em]">
@@ -892,60 +1172,117 @@ export default function TournamentPlayoffsPage() {
 
                               const match = item.match;
                               const played = match.status === "played";
-                              const canSchedule = !match.scheduled_time && !played;
+                              const canSchedule = !played;
+                              const canLoadResult = !played && !!match.scheduled_time;
+                              const scheduleLabel = formatSchedule(
+                                match.scheduled_date,
+                                match.scheduled_time
+                              );
+                              const hasSchedule = !!scheduleLabel;
                               return (
                                 <div
                                   key={match.id}
-                                  className={`rounded-2xl border p-3 text-sm shadow-sm ${
+                                  className={`h-full rounded-2xl border px-3 py-2 text-sm shadow-sm ${
                                     played
                                       ? "border-emerald-300 bg-emerald-100/70"
                                       : "border-zinc-200 bg-white"
                                   }`}
                                   style={gridStyle}
                                 >
-                                  <div className="text-xs text-zinc-500">Partido</div>
-                                  <div
-                                    className={`mt-1 font-medium text-zinc-900 ${
-                                      match.winner_team_id === match.team_a_id
-                                        ? "font-semibold"
-                                        : ""
-                                    }`}
-                                  >
-                                    {getTeamLabel(match.team_a_id)}
-                                  </div>
-                                  <div className="text-xs text-zinc-400">vs</div>
-                                  <div
-                                    className={`font-medium text-zinc-900 ${
-                                      match.winner_team_id === match.team_b_id
-                                        ? "font-semibold"
-                                        : ""
-                                    }`}
-                                  >
-                                    {getTeamLabel(match.team_b_id)}
-                                  </div>
-                                  <div className="mt-2 flex items-center gap-2 text-xs text-zinc-500">
-                                    {match.status !== "played" && <span>Pendiente</span>}
-                                    {canSchedule ? (
-                                      <Button
-                                        onClick={() => openScheduleModal(match)}
-                                        disabled={scheduling}
-                                        variant="secondary"
-                                        className="ml-auto"
+                                  <div className="flex h-full flex-col">
+                                    <div className="text-xs text-zinc-500">
+                                      Partido {getMatchCode(match)}
+                                    </div>
+                                  <div className="mt-1 space-y-1">
+                                    <div className="flex items-center justify-between gap-2">
+                                      <div
+                                        className={`font-medium text-zinc-900 ${
+                                          match.winner_team_id === match.team_a_id
+                                            ? "font-semibold"
+                                            : ""
+                                        }`}
                                       >
-                                        Programar partido
-                                      </Button>
-                                    ) : (
-                                      <Button
-                                        onClick={() => openResultModal(match)}
-                                        disabled={!canEdit}
-                                        variant={played ? "secondary" : "primary"}
-                                        className="ml-auto"
+                                        {getTeamLabel(match.team_a_id)}
+                                      </div>
+                                      {played && (
+                                        <div
+                                          className={`text-xs text-right ${
+                                            match.winner_team_id === match.team_a_id
+                                              ? "font-semibold text-zinc-900"
+                                              : "font-normal text-zinc-400"
+                                          }`}
+                                        >
+                                          {formatSetLine(match.sets, "a")}
+                                        </div>
+                                      )}
+                                    </div>
+                                    <div className="flex items-center justify-between gap-2">
+                                      <div
+                                        className={`font-medium text-zinc-900 ${
+                                          match.winner_team_id === match.team_b_id
+                                            ? "font-semibold"
+                                            : ""
+                                        }`}
                                       >
-                                        {match.status === "played"
-                                          ? "Editar resultado"
-                                          : "Cargar resultado"}
-                                      </Button>
-                                    )}
+                                        {getTeamLabel(match.team_b_id)}
+                                      </div>
+                                      {played && (
+                                        <div
+                                          className={`text-xs text-right ${
+                                            match.winner_team_id === match.team_b_id
+                                              ? "font-semibold text-zinc-900"
+                                              : "font-normal text-zinc-400"
+                                          }`}
+                                        >
+                                          {formatSetLine(match.sets, "b")}
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+                                    <div className="mt-auto space-y-1 text-xs text-zinc-500">
+                                      {played && (
+                                        <div className="h-px w-full bg-emerald-400/70" />
+                                      )}
+                                      {!played && hasSchedule && (
+                                        <div className="h-px w-full bg-zinc-300" />
+                                      )}
+                                      {(played || hasSchedule) && (
+                                        <div className="text-xs text-zinc-600">
+                                          {scheduleLabel || "Horario a confirmar"}
+                                        </div>
+                                      )}
+                                      {!played && !hasSchedule && <div>Pendiente</div>}
+                                      <div className="flex flex-wrap justify-end gap-2">
+                                        {canSchedule && (
+                                          <Button
+                                            onClick={() => openScheduleModal(match)}
+                                            disabled={scheduling}
+                                            variant="secondary"
+                                          >
+                                            {match.scheduled_time
+                                              ? "Editar horario"
+                                              : "Programar partido"}
+                                          </Button>
+                                        )}
+                                        {played ? (
+                                          <Button
+                                            onClick={() => openResultModal(match)}
+                                            disabled={!canEdit}
+                                            variant="secondary"
+                                          >
+                                            Editar resultado
+                                          </Button>
+                                        ) : canLoadResult ? (
+                                          <Button
+                                            onClick={() => openResultModal(match)}
+                                            disabled={!canEdit}
+                                            variant="primary"
+                                          >
+                                            Cargar resultado
+                                          </Button>
+                                        ) : null}
+                                      </div>
+                                    </div>
                                   </div>
                                 </div>
                               );
@@ -1036,9 +1373,9 @@ export default function TournamentPlayoffsPage() {
         >
           <div className="text-sm text-zinc-600">
             {scheduleMatch
-              ? `${getTeamLabel(scheduleMatch.team_a_id)} vs ${getTeamLabel(
-                  scheduleMatch.team_b_id
-                )}`
+              ? `Partido ${getMatchCode(scheduleMatch)} · ${getTeamLabel(
+                  scheduleMatch.team_a_id
+                )} vs ${getTeamLabel(scheduleMatch.team_b_id)}`
               : null}
           </div>
 
@@ -1103,7 +1440,11 @@ export default function TournamentPlayoffsPage() {
 
       <Modal
         open={!!selectedMatch}
-        title={selectedMatch ? `Resultado - Match #${selectedMatch.id}` : "Resultado"}
+        title={
+          selectedMatch
+            ? `Resultado - Partido ${getMatchCode(selectedMatch)}`
+            : "Resultado"
+        }
         onClose={closeResultModal}
       >
         <form
@@ -1116,7 +1457,9 @@ export default function TournamentPlayoffsPage() {
         >
           <div className="text-sm text-zinc-600">
             {selectedMatch
-              ? `${getTeamLabel(selectedMatch.team_a_id)} vs ${getTeamLabel(selectedMatch.team_b_id)}`
+              ? `Partido ${getMatchCode(selectedMatch)} · ${getTeamLabel(
+                  selectedMatch.team_a_id
+                )} vs ${getTeamLabel(selectedMatch.team_b_id)}`
               : null}
           </div>
 
@@ -1171,6 +1514,142 @@ export default function TournamentPlayoffsPage() {
             </Button>
           </div>
         </form>
+      </Modal>
+
+      <Modal
+        open={gridOpen}
+        title="Grilla de partidos"
+        onClose={() => setGridOpen(false)}
+        className="max-w-[95vw]"
+        closeOnEscape={!gridMatch}
+      >
+        <div className="space-y-4">
+          {gridData.dates.length === 0 ? (
+            <div className="text-sm text-zinc-600">
+              No hay partidos programados para mostrar.
+            </div>
+          ) : (
+            <>
+              <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-zinc-500">
+                <span>
+                  {gridData.dates.length} dias · {gridData.times.length} turnos
+                </span>
+                <span>Click en un partido para ver el detalle.</span>
+              </div>
+              <div className="max-h-[70vh] overflow-auto rounded-2xl border border-zinc-200 bg-white">
+                <div
+                  className="grid gap-2 p-3"
+                  style={{
+                    gridTemplateColumns: `110px repeat(${gridData.dates.length}, minmax(240px, 1fr))`,
+                  }}
+                >
+                  <div className="sticky top-0 z-10 rounded-lg bg-white/95 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-zinc-400">
+                    Hora
+                  </div>
+                  {gridData.dates.map((date) => (
+                    <div
+                      key={`head-${date}`}
+                      className="sticky top-0 z-10 rounded-lg bg-white/95 py-2 text-xs font-semibold text-zinc-700"
+                    >
+                      {formatShortDate(date)}
+                    </div>
+                  ))}
+
+                  {gridData.times.map((slotTime, rowIdx) => {
+                    const rowClass = rowIdx % 2 === 0 ? "bg-white" : "bg-zinc-100";
+                    return (
+                    <Fragment key={`row-${slotTime}`}>
+                      <div
+                        className={`rounded-lg px-2 py-1 text-sm font-medium text-zinc-700 ${rowClass}`}
+                      >
+                        {slotTime}
+                      </div>
+                      {gridData.dates.map((date) => {
+                        const matchesInCell =
+                          gridData.map.get(date)?.get(slotTime) ?? [];
+                        return (
+                          <div
+                            key={`cell-${date}-${slotTime}`}
+                            className={`min-h-[92px] rounded-2xl border border-zinc-200 p-2 ${rowClass}`}
+                          >
+                            {matchesInCell.length === 0 ? (
+                              <div className="flex h-full items-center justify-center rounded-xl border border-dashed border-zinc-200 text-xs text-zinc-400">
+                                Sin partidos
+                              </div>
+                            ) : (
+                              <div className="grid gap-2 md:grid-cols-2">
+                                {matchesInCell.map((match) => (
+                                  <button
+                                    key={match.id}
+                                    type="button"
+                                    onClick={() => setGridMatch(match)}
+                                    className={`group rounded-xl border p-2 text-left text-xs shadow-sm transition hover:-translate-y-0.5 hover:shadow ${
+                                      match.status === "played"
+                                        ? "border-zinc-200 bg-zinc-100 text-zinc-500"
+                                        : "border-zinc-200 bg-white text-zinc-700 hover:border-zinc-300"
+                                    }`}
+                                  >
+                                    <div className="flex items-center justify-between text-[11px] text-zinc-500">
+                                      <span
+                                        className={`rounded-full px-2 py-0.5 font-semibold ${getCourtBadgeClass(
+                                          match.court_number
+                                        )}`}
+                                      >
+                                        Cancha {match.court_number ?? "—"}
+                                      </span>
+                                      <span className="text-[10px] uppercase tracking-wide text-zinc-400">
+                                        {getStageLabel(match)} · {getMatchCode(match)}
+                                      </span>
+                                    </div>
+                                    <div className="mt-2 text-sm font-medium text-zinc-900">
+                                      {getTeamLabel(match.team_a_id)} vs {getTeamLabel(match.team_b_id)}
+                                    </div>
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </Fragment>
+                  );
+                  })}
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      </Modal>
+
+      <Modal
+        open={!!gridMatch}
+        title="Detalle del partido"
+        onClose={() => setGridMatch(null)}
+      >
+        <div className="space-y-3">
+          {gridMatch && (
+            <>
+              <div className="text-sm text-zinc-500">
+                {getStageLabel(gridMatch)} · Partido {getMatchCode(gridMatch)}
+              </div>
+              <div className="text-base font-semibold text-zinc-900">
+                {getTeamLabel(gridMatch.team_a_id)} vs {getTeamLabel(gridMatch.team_b_id)}
+              </div>
+              <div className="text-sm text-zinc-600">
+                {gridMatch.scheduled_date ? `Fecha: ${gridMatch.scheduled_date} · ` : ""}
+                Hora: {normalizeTime(gridMatch.scheduled_time)} · Cancha: {gridMatch.court_number ?? "—"}
+              </div>
+              <div className="text-sm text-zinc-600">
+                Estado: {gridMatch.status === "played" ? "Jugado" : "Programado"}
+              </div>
+            </>
+          )}
+          <div className="flex justify-end">
+            <Button variant="secondary" onClick={() => setGridMatch(null)}>
+              Cerrar
+            </Button>
+          </div>
+        </div>
       </Modal>
     </div>
   );
