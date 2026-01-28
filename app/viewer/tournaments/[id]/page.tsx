@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import Card from "@/components/ui/Card";
 import Input from "@/components/ui/Input";
@@ -74,6 +74,7 @@ export default function PublicTournamentPage() {
   const [collapsedStages, setCollapsedStages] = useState<Record<string, boolean>>({});
   const [collapsedDivisions, setCollapsedDivisions] = useState<Record<string, boolean>>({});
   const [divisionFilter, setDivisionFilter] = useState<string | "all">("all");
+  const hasDefaultedDivision = useRef(false);
 
   useEffect(() => {
     if (!Number.isFinite(tournamentId)) return;
@@ -173,6 +174,14 @@ export default function PublicTournamentPage() {
     });
     return Array.from(values).sort();
   }, [teams]);
+
+  useEffect(() => {
+    if (hasDefaultedDivision.current) return;
+    if (divisionFilter !== "all") return;
+    if (divisions.length === 0) return;
+    setDivisionFilter(divisions[0]);
+    hasDefaultedDivision.current = true;
+  }, [divisions, divisionFilter]);
 
   function isMatchVisible(match: Match, normalized: string) {
     if (!normalized) return true;
@@ -661,7 +670,12 @@ export default function PublicTournamentPage() {
                       </div>
                     ) : (
                       <div className="overflow-x-auto">
-                        <div className="flex w-full justify-between gap-8 pb-2">
+                        <div
+                          className="grid w-full min-w-max gap-8 pb-2"
+                          style={{
+                            gridTemplateColumns: `repeat(${activeStages.length}, minmax(220px, 1fr))`,
+                          }}
+                        >
                           {activeStages.map((stage, stageIdx) => {
                             const stageMatches = [...(matchesByStage.get(stage) ?? [])].sort(
                               (a, b) => a.id - b.id
@@ -712,7 +726,10 @@ export default function PublicTournamentPage() {
                                   );
 
                             return (
-                              <div key={stage} className="min-w-[220px] space-y-3 sm:min-w-[260px]">
+                              <div
+                                key={stage}
+                                className="w-full min-w-[220px] space-y-3 sm:min-w-[260px]"
+                              >
                                 <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500 sm:text-xs">
                                   {stageLabel(stage)}
                                 </div>
@@ -763,6 +780,7 @@ export default function PublicTournamentPage() {
                                       match.scheduled_date,
                                       match.scheduled_time
                                     );
+                                    const hasSchedule = !!schedule;
                                     const scoreA = played ? formatSetLine(match.sets, "a") : "";
                                     const scoreB = played ? formatSetLine(match.sets, "b") : "";
                                     const aWinner = match.winner_team_id === match.team_a_id;
@@ -780,52 +798,59 @@ export default function PublicTournamentPage() {
                                         <div className="text-xs text-zinc-500">
                                           Partido {getMatchCode(match)}
                                         </div>
-                                        <div className="mt-1 grid grid-cols-[1fr_auto] gap-x-3 gap-y-1 sm:gap-x-4">
-                                          <div
-                                            className={`font-medium text-zinc-900 ${
-                                              match.winner_team_id === match.team_a_id
-                                                ? "font-semibold"
-                                                : ""
-                                            }`}
-                                          >
-                                            {getTeamLabel(match.team_a_id)}
-                                          </div>
-                                          {played && (
+                                        <div className="mt-1 space-y-1">
+                                          <div className="flex items-center justify-between gap-2">
                                             <div
-                                              className={`text-xs text-right sm:text-sm ${
-                                                aWinner
-                                                  ? "font-semibold text-zinc-900"
-                                                  : "font-normal text-zinc-400"
+                                              className={`font-medium text-zinc-900 ${
+                                                match.winner_team_id === match.team_a_id
+                                                  ? "font-semibold"
+                                                  : ""
                                               }`}
                                             >
-                                              {scoreA}
+                                              {getTeamLabel(match.team_a_id)}
                                             </div>
-                                          )}
-                                          <div
-                                            className={`font-medium text-zinc-900 ${
-                                              match.winner_team_id === match.team_b_id
-                                                ? "font-semibold"
-                                                : ""
-                                            }`}
-                                          >
-                                            {getTeamLabel(match.team_b_id)}
+                                            {played && (
+                                              <div
+                                                className={`text-xs text-right sm:text-sm ${
+                                                  aWinner
+                                                    ? "font-semibold text-zinc-900"
+                                                    : "font-normal text-zinc-400"
+                                                }`}
+                                              >
+                                                {scoreA}
+                                              </div>
+                                            )}
                                           </div>
-                                          {played && (
+                                          <div className="flex items-center justify-between gap-2">
                                             <div
-                                              className={`text-xs text-right sm:text-sm ${
-                                                bWinner
-                                                  ? "font-semibold text-zinc-900"
-                                                  : "font-normal text-zinc-400"
+                                              className={`font-medium text-zinc-900 ${
+                                                match.winner_team_id === match.team_b_id
+                                                  ? "font-semibold"
+                                                  : ""
                                               }`}
                                             >
-                                              {scoreB}
+                                              {getTeamLabel(match.team_b_id)}
                                             </div>
-                                          )}
+                                            {played && (
+                                              <div
+                                                className={`text-xs text-right sm:text-sm ${
+                                                  bWinner
+                                                    ? "font-semibold text-zinc-900"
+                                                    : "font-normal text-zinc-400"
+                                                }`}
+                                              >
+                                                {scoreB}
+                                              </div>
+                                            )}
+                                          </div>
                                         </div>
                                         {played && (
                                           <div className="mt-1 h-px w-full bg-emerald-400/70" />
                                         )}
-                                        {schedule ? (
+                                        {!played && hasSchedule && (
+                                          <div className="mt-1 h-px w-full bg-zinc-800" />
+                                        )}
+                                        {hasSchedule ? (
                                           <div className="mt-1 text-xs text-zinc-500">
                                             {schedule}
                                           </div>

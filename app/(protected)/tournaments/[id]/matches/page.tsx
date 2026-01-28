@@ -610,15 +610,24 @@ export default function TournamentMatchesPage() {
                         )}
                       </div>
 
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
                         {match.status === "played" ? (
                           <Button onClick={() => openResultModal(match)} disabled={!canResult}>
                             Editar resultado
                           </Button>
                         ) : match.scheduled_time ? (
-                          <Button onClick={() => openResultModal(match)} disabled={!canResult}>
-                            Cargar resultado
-                          </Button>
+                          <>
+                            <Button onClick={() => openResultModal(match)} disabled={!canResult}>
+                              Cargar resultado
+                            </Button>
+                            <Button
+                              variant="secondary"
+                              onClick={() => openScheduleModal(match)}
+                              disabled={!canSchedule}
+                            >
+                              Editar horario
+                            </Button>
+                          </>
                         ) : (
                           <Button onClick={() => openScheduleModal(match)} disabled={!canSchedule}>
                             Programar partido
@@ -827,16 +836,22 @@ export default function TournamentMatchesPage() {
                     </div>
                   ))}
 
-                  {gridData.times.map((slotTime) => (
+                  {gridData.times.map((slotTime, rowIdx) => {
+                    const rowClass = rowIdx % 2 === 0 ? "bg-white" : "bg-zinc-100";
+                    return (
                     <Fragment key={`row-${slotTime}`}>
-                      <div className="text-sm font-medium text-zinc-700">{slotTime}</div>
+                      <div
+                        className={`rounded-lg px-2 py-1 text-sm font-medium text-zinc-700 ${rowClass}`}
+                      >
+                        {slotTime}
+                      </div>
                       {gridData.dates.map((date) => {
                         const matchesInCell =
                           gridData.map.get(date)?.get(slotTime) ?? [];
                         return (
                           <div
                             key={`cell-${date}-${slotTime}`}
-                            className="min-h-[92px] rounded-2xl border border-zinc-200 bg-zinc-50/50 p-2"
+                            className={`min-h-[92px] rounded-2xl border border-zinc-200 p-2 ${rowClass}`}
                           >
                             {matchesInCell.length === 0 ? (
                               <div className="flex h-full items-center justify-center rounded-xl border border-dashed border-zinc-200 text-xs text-zinc-400">
@@ -874,7 +889,8 @@ export default function TournamentMatchesPage() {
                         );
                       })}
                     </Fragment>
-                  ))}
+                  );
+                  })}
                 </div>
               </div>
             </>
