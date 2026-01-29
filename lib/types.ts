@@ -47,6 +47,9 @@ export type UserProfile = {
   club_name: string | null;
   club_location: string | null;
   club_logo_url: string | null;
+  status?: "active" | "inactive";
+  last_payment_paid_at?: string | null;
+  last_payment_expires_at?: string | null;
 };
 
 export type AdminUser = {
@@ -58,6 +61,7 @@ export type AdminUser = {
   status?: "active" | "inactive";
   last_payment_paid_at?: string | null;
   last_payment_expires_at?: string | null;
+  status_override?: "active" | "inactive" | null;
 };
 
 export type AdminMetrics = {

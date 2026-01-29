@@ -8,6 +8,7 @@ import Modal from "@/components/ui/Modal";
 import Input from "@/components/ui/Input";
 import { api } from "@/lib/api";
 import type {
+  Team,
   TournamentGroupOut,
   TournamentStatus,
 } from "@/lib/types";
@@ -16,6 +17,7 @@ type Props = {
   tournamentId: number;
   status: TournamentStatus;
   groups: TournamentGroupOut[];
+  teams: Team[];
   setGroups: React.Dispatch<React.SetStateAction<TournamentGroupOut[]>>;
   teamsPerGroup: number;
   setTeamsPerGroup: (n: number) => void;
@@ -41,6 +43,7 @@ export default function GroupsPanel({
   tournamentId,
   status,
   groups,
+  teams,
   setGroups,
   teamsPerGroup,
   setTeamsPerGroup,
@@ -74,6 +77,7 @@ export default function GroupsPanel({
   );
   const [generateCourtsCount, setGenerateCourtsCount] = useState(defaultCourtsCount);
   const [generateError, setGenerateError] = useState<string | null>(null);
+  const [generateSuccess, setGenerateSuccess] = useState<string | null>(null);
   const [categoryFilter, setCategoryFilter] = useState<string | "all">("all");
   const [genderFilter, setGenderFilter] = useState<string | "all">("all");
 
@@ -124,6 +128,7 @@ export default function GroupsPanel({
     setGenerateMatchDuration(defaultMatchDurationMinutes);
     setGenerateCourtsCount(defaultCourtsCount);
     setGenerateError(null);
+    setGenerateSuccess(null);
   }, [
     generateOpen,
     defaultStartDate,
@@ -164,6 +169,53 @@ export default function GroupsPanel({
   function removeScheduleWindow(index: number) {
     setGenerateScheduleWindows((prev) => prev.filter((_, idx) => idx !== index));
   }
+
+  function parseTimeToMinutes(value: string) {
+    const parts = value.split(":");
+    if (parts.length < 2) return null;
+    const hours = Number(parts[0]);
+    const minutes = Number(parts[1]);
+    if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null;
+    return hours * 60 + minutes;
+  }
+
+  const requiredMatches = useMemo(() => {
+    if (teamsPerGroup <= 1) return 0;
+    const counts = new Map<string, number>();
+    teams.forEach((team) => {
+      const first = team.players[0];
+      const category = first?.category ?? "sin_categoria";
+      const gender = first?.gender ?? "sin_genero";
+      const key = `${category}::${gender}`;
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    });
+    let total = 0;
+    counts.forEach((count) => {
+      const fullGroups = Math.floor(count / teamsPerGroup);
+      const remainder = count % teamsPerGroup;
+      total += (fullGroups * teamsPerGroup * (teamsPerGroup - 1)) / 2;
+      if (remainder > 1) {
+        total += (remainder * (remainder - 1)) / 2;
+      }
+    });
+    return total;
+  }, [teams, teamsPerGroup]);
+
+  const availableSlots = useMemo(() => {
+    if (generateMatchDuration <= 0 || generateCourtsCount <= 0) return 0;
+    let total = 0;
+    for (const window of generateScheduleWindows) {
+      if (!window.start_time || !window.end_time) return 0;
+      const start = parseTimeToMinutes(window.start_time);
+      const end = parseTimeToMinutes(window.end_time);
+      if (start === null || end === null) return 0;
+      if (end < start) return 0;
+      const slotsPerCourt =
+        Math.floor((end - start) / generateMatchDuration) + 1;
+      total += slotsPerCourt * generateCourtsCount;
+    }
+    return total;
+  }, [generateScheduleWindows, generateMatchDuration, generateCourtsCount]);
 
   const allTeams = useMemo(() => {
     return groups.flatMap((group) =>
@@ -380,7 +432,17 @@ export default function GroupsPanel({
       return;
     }
 
+    if (requiredMatches > 0 && availableSlots > 0 && availableSlots < requiredMatches) {
+      setGenerateError(
+        `No hay suficientes horarios disponibles para programar todos los partidos. ` +
+          `Partidos requeridos: ${requiredMatches}. Slots disponibles: ${availableSlots}. ` +
+          "Aumenta ventanas horarias, canchas o reduce la duracion."
+      );
+      return;
+    }
+
     setGenerateError(null);
+    setGenerateSuccess(null);
     try {
       await onGenerate({
         teams_per_group: teamsPerGroup,
@@ -388,6 +450,7 @@ export default function GroupsPanel({
         match_duration_minutes: generateMatchDuration,
         courts_count: generateCourtsCount,
       });
+      setGenerateSuccess("Zonas generadas con exito.");
       setGenerateOpen(false);
     } catch (err: any) {
       setGenerateError(err?.message ?? "No se pudo generar zonas");
@@ -432,6 +495,12 @@ export default function GroupsPanel({
             </Button>
           </div>
         </div>
+
+        {generateSuccess && (
+          <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">
+            {generateSuccess}
+          </div>
+        )}
 
         {/* Controls */}
         <div className="flex flex-col gap-2 md:flex-row md:items-center">
@@ -670,6 +739,12 @@ export default function GroupsPanel({
               />
             </div>
           </div>
+
+          {requiredMatches > 0 && (
+            <div className="text-xs text-zinc-600">
+              Slots disponibles: {availableSlots} · Partidos requeridos: {requiredMatches}
+            </div>
+          )}
 
           {generateError && (
             <div className="rounded-xl border border-red-300 bg-red-100 p-3 text-sm text-red-800">

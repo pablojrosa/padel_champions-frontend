@@ -24,7 +24,7 @@ export default function TournamentsPage() {
     "  - 2-1: 2 pts\n" +
     "  - 1-2: 1 pt\n" +
     "  - 0-2: 0 pts\n" +
-    "- Criterios de clasificacion: puntos, diferencia de sets, diferencia de games.";
+    "- Criterios de clasificación: puntos, diferencia de sets, diferencia de games.";
 
   const [name, setName] = useState("");
   const [description, setDescription] = useState(defaultDescription);

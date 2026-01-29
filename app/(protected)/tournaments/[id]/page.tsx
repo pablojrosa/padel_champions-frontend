@@ -117,9 +117,6 @@ export default function TournamentDetailPage() {
 
   const [startingTournament, setStartingTournament] = useState(false);
   const [copyMessage, setCopyMessage] = useState<string | null>(null);
-  const [menuOpen, setMenuOpen] = useState(false);
-  const menuRef = useRef<HTMLDivElement | null>(null);
-
   const [editOpen, setEditOpen] = useState(false);
   const [editName, setEditName] = useState("");
   const [editDescription, setEditDescription] = useState("");
@@ -255,18 +252,6 @@ async function load(options?: { silent?: boolean }) {
       window.clearInterval(interval);
     };
   }, [importingPairs, tournamentId]);
-
-  useEffect(() => {
-    function handleOutsideClick(event: MouseEvent) {
-      if (!menuRef.current) return;
-      if (!menuRef.current.contains(event.target as Node)) {
-        setMenuOpen(false);
-      }
-    }
-
-    document.addEventListener("mousedown", handleOutsideClick);
-    return () => document.removeEventListener("mousedown", handleOutsideClick);
-  }, []);
 
 
   async function copyPublicLink() {
@@ -915,80 +900,25 @@ async function load(options?: { silent?: boolean }) {
           <p className="text-sm text-zinc-300">Equipos, zonas y estado general.</p>
         </div>
 
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
+          <Button
+            variant="secondary"
+            onClick={() => router.push(`/tournaments/${tournamentId}/matches`)}
+          >
+            Partidos
+          </Button>
+          <Button
+            variant="secondary"
+            onClick={() => router.push(`/tournaments/${tournamentId}/playoffs`)}
+          >
+            Playoffs
+          </Button>
           <Button
             variant="secondary"
             onClick={() => router.push("/tournaments")}
           >
             Volver
           </Button>
-
-          <div className="relative" ref={menuRef}>
-            <Button
-              variant="secondary"
-              onClick={() => setMenuOpen((prev) => !prev)}
-              aria-haspopup="menu"
-              aria-expanded={menuOpen}
-            >
-              <span className="sr-only">Opciones</span>
-              <svg
-                width="18"
-                height="18"
-                viewBox="0 0 24 24"
-                fill="none"
-                xmlns="http://www.w3.org/2000/svg"
-                aria-hidden="true"
-              >
-                <circle cx="12" cy="5" r="2" fill="currentColor" />
-                <circle cx="12" cy="12" r="2" fill="currentColor" />
-                <circle cx="12" cy="19" r="2" fill="currentColor" />
-              </svg>
-            </Button>
-            {menuOpen && (
-              <div className="absolute right-0 z-10 mt-2 w-56 rounded-xl border border-zinc-200 bg-white p-1 shadow-lg">
-                <button
-                  type="button"
-                  className="w-full rounded-lg px-3 py-2 text-left text-sm text-zinc-800 hover:bg-zinc-50"
-                  onClick={() => {
-                    setMenuOpen(false);
-                    openEditModal();
-                  }}
-                >
-                  Editar torneo
-                </button>
-                <button
-                  type="button"
-                  className="w-full rounded-lg px-3 py-2 text-left text-sm text-zinc-800 hover:bg-zinc-50"
-                  onClick={() => {
-                    router.push(`/tournaments/${tournamentId}/matches`);
-                    setMenuOpen(false);
-                  }}
-                >
-                  Partidos
-                </button>
-                <button
-                  type="button"
-                  className="w-full rounded-lg px-3 py-2 text-left text-sm text-zinc-800 hover:bg-zinc-50"
-                  onClick={() => {
-                    router.push(`/tournaments/${tournamentId}/playoffs`);
-                    setMenuOpen(false);
-                  }}
-                >
-                  Playoffs
-                </button>
-                <button
-                  type="button"
-                  className="w-full rounded-lg px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50"
-                  onClick={() => {
-                    setMenuOpen(false);
-                    deleteTournament();
-                  }}
-                >
-                  {deletingTournament ? "Eliminando..." : "Eliminar torneo"}
-                </button>
-              </div>
-            )}
-          </div>
         </div>
       </div>
 
@@ -1269,8 +1199,9 @@ async function load(options?: { silent?: boolean }) {
           )}
 
           <Card className="bg-white/95">
-          <div className="p-6 flex items-start justify-between gap-3">
-            <div className="space-y-2">
+          <div className="p-6 space-y-4">
+            <div className="flex items-start justify-between gap-3">
+              <div className="space-y-2">
               <div className="text-xl font-semibold text-zinc-900">
                 {tournament?.name ?? `Torneo #${tournamentId}`}
               </div>
@@ -1301,8 +1232,11 @@ async function load(options?: { silent?: boolean }) {
               </div>
             </div>
 
-            <div className="flex flex-col items-end gap-2">
-              <div className="flex flex-wrap items-center justify-end gap-2">
+              <div className="flex flex-col items-end gap-2">
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                  <Button variant="secondary" onClick={openEditModal}>
+                    Editar torneo
+                  </Button>
                 <Button variant="secondary" onClick={copyPublicLink}>
                   Copiar link publico
                 </Button>
@@ -1317,6 +1251,17 @@ async function load(options?: { silent?: boolean }) {
               {copyMessage && (
                 <div className="text-xs text-zinc-500">{copyMessage}</div>
               )}
+            </div>
+            </div>
+            <div className="flex justify-end">
+              <Button
+                variant="secondary"
+                onClick={deleteTournament}
+                disabled={deletingTournament}
+                className="!border-red-300 !bg-red-50 !text-red-700 font-semibold hover:!bg-red-100"
+              >
+                {deletingTournament ? "Eliminando..." : "Eliminar torneo"}
+              </Button>
             </div>
           </div>
           </Card>
@@ -1619,6 +1564,7 @@ async function load(options?: { silent?: boolean }) {
               tournamentId={tournamentId}
               status={status}
               groups={groups}
+              teams={teams}
               setGroups={setGroups}
               teamsPerGroup={teamsPerGroup}
               setTeamsPerGroup={setTeamsPerGroup}

@@ -32,6 +32,9 @@ export default function AdminUsersPage() {
   const [editClubName, setEditClubName] = useState("");
   const [editClubLocation, setEditClubLocation] = useState("");
   const [editClubLogoUrl, setEditClubLogoUrl] = useState("");
+  const [editStatusOverride, setEditStatusOverride] = useState<
+    "" | "active" | "inactive"
+  >("");
 
   const sorted = useMemo(
     () => [...users].sort((a, b) => a.email.localeCompare(b.email)),
@@ -108,6 +111,7 @@ export default function AdminUsersPage() {
         club_name: editClubName.trim() || null,
         club_location: editClubLocation.trim() || null,
         club_logo_url: editClubLogoUrl.trim() || null,
+        status_override: editStatusOverride ? editStatusOverride : null,
       };
       if (editPassword.trim()) {
         payload.password = editPassword.trim();
@@ -123,6 +127,7 @@ export default function AdminUsersPage() {
       setEditClubName("");
       setEditClubLocation("");
       setEditClubLogoUrl("");
+      setEditStatusOverride("");
     } catch (err: any) {
       setError(err?.message ?? "No se pudo actualizar usuario");
     } finally {
@@ -296,6 +301,17 @@ export default function AdminUsersPage() {
                         onChange={(e) => setEditClubLogoUrl(e.target.value)}
                         placeholder="Logo URL"
                       />
+                      <select
+                        className="w-full rounded-xl border border-zinc-300 bg-zinc-50 px-3 py-2 text-sm text-zinc-900 shadow-sm focus:border-zinc-900 focus:outline-none focus:ring-2 focus:ring-zinc-900/20"
+                        value={editStatusOverride}
+                        onChange={(e) =>
+                          setEditStatusOverride(e.target.value as "" | "active" | "inactive")
+                        }
+                      >
+                        <option value="">Estado automático</option>
+                        <option value="active">Forzar activo</option>
+                        <option value="inactive">Forzar inactivo</option>
+                      </select>
                     </div>
                   ) : (
                     <div className="space-y-1">
@@ -312,6 +328,11 @@ export default function AdminUsersPage() {
                         >
                           {user.status === "active" ? "Activo" : "Inactivo"}
                         </span>
+                        {user.status_override && (
+                          <span className="text-xs font-semibold text-amber-600">
+                            Manual
+                          </span>
+                        )}
                       </div>
                       <div className="text-xs text-zinc-500">
                         {user.club_name || "Sin club"} ·{" "}
@@ -348,6 +369,7 @@ export default function AdminUsersPage() {
                             setEditClubName("");
                             setEditClubLocation("");
                             setEditClubLogoUrl("");
+                            setEditStatusOverride("");
                           }}
                         >
                           Cancelar
@@ -364,6 +386,7 @@ export default function AdminUsersPage() {
                             setEditClubName(user.club_name ?? "");
                             setEditClubLocation(user.club_location ?? "");
                             setEditClubLogoUrl(user.club_logo_url ?? "");
+                            setEditStatusOverride(user.status_override ?? "");
                           }}
                         >
                           Editar
