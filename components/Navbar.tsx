@@ -77,6 +77,14 @@ export default function Navbar() {
           Padel Champions
         </Link>
         <nav className="flex items-center gap-3 relative" ref={menuRef}>
+          {!isAdmin && (
+            <Link
+              href="/soporte"
+              className="inline-flex items-center justify-center rounded-xl border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-900 transition hover:bg-zinc-50"
+            >
+              Soporte
+            </Link>
+          )}
           <Button
             variant="secondary"
             onClick={() => setMenuOpen((prev) => !prev)}
@@ -133,6 +141,13 @@ export default function Navbar() {
                     onClick={() => setMenuOpen(false)}
                   >
                     Pagos
+                  </Link>
+                  <Link
+                    className="block rounded-lg px-3 py-2 text-sm text-zinc-800 hover:bg-zinc-50"
+                    href="/admin/soporte"
+                    onClick={() => setMenuOpen(false)}
+                  >
+                    Soporte
                   </Link>
                 </>
               ) : (

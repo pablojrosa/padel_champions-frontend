@@ -90,6 +90,33 @@ export type AdminPaymentsSeries = {
   total: number;
 };
 
+export type SupportTicketStatus = "open" | "pending" | "closed";
+
+export type SupportTicket = {
+  id: number;
+  user_id: number;
+  subject: string;
+  status: SupportTicketStatus;
+  tags?: string[] | null;
+  created_at: string;
+  updated_at: string;
+  last_message_at?: string | null;
+  user_email?: string | null;
+  user_club_name?: string | null;
+};
+
+export type SupportMessage = {
+  id: number;
+  ticket_id: number;
+  author_type: "user" | "admin";
+  body: string;
+  created_at: string;
+};
+
+export type SupportTicketDetail = SupportTicket & {
+  messages: SupportMessage[];
+};
+
 export type TournamentStatus = "upcoming" | "ongoing" | "groups_finished" | "finished";
 
 export type TournamentStatusResponse = {

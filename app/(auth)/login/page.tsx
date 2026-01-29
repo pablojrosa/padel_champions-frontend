@@ -122,6 +122,14 @@ function LoginForm() {
               <button
                 type="button"
                 className="w-full text-sm text-zinc-600 underline"
+                onClick={() => router.push("/reset-password")}
+              >
+                Olvidé mi contraseña
+              </button>
+
+              <button
+                type="button"
+                className="w-full text-sm text-zinc-600 underline"
                 onClick={() => router.push("/register")}
               >
                 Crear cuenta

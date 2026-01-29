@@ -8,7 +8,7 @@ import Button from "@/components/ui/Button";
 import Modal from "@/components/ui/Modal";
 import { api, ApiError } from "@/lib/api";
 import { clearToken } from "@/lib/auth";
-import type { AdminUser } from "@/lib/types";
+import type { AdminPayment, AdminUser } from "@/lib/types";
 
 export default function AdminUsersPage() {
   const router = useRouter();
@@ -35,11 +35,23 @@ export default function AdminUsersPage() {
   const [editStatusOverride, setEditStatusOverride] = useState<
     "" | "active" | "inactive"
   >("");
+  const [paymentsOpen, setPaymentsOpen] = useState(false);
+  const [paymentsUser, setPaymentsUser] = useState<AdminUser | null>(null);
+  const [payments, setPayments] = useState<AdminPayment[]>([]);
+  const [paymentsLoading, setPaymentsLoading] = useState(false);
+  const [paymentsLoaded, setPaymentsLoaded] = useState(false);
+  const [paymentsError, setPaymentsError] = useState<string | null>(null);
 
   const sorted = useMemo(
     () => [...users].sort((a, b) => a.email.localeCompare(b.email)),
     [users]
   );
+  const paymentsForUser = useMemo(() => {
+    if (!paymentsUser) return [];
+    return [...payments]
+      .filter((payment) => payment.user_id === paymentsUser.id)
+      .sort((a, b) => b.paid_at.localeCompare(a.paid_at) || b.id - a.id);
+  }, [payments, paymentsUser]);
 
   async function load() {
     setLoading(true);
@@ -147,6 +159,39 @@ export default function AdminUsersPage() {
     }
   }
 
+  async function loadPayments() {
+    if (paymentsLoading) return;
+    setPaymentsLoading(true);
+    setPaymentsError(null);
+
+    try {
+      const data = await api<AdminPayment[]>("/admin/payments");
+      setPayments(data);
+      setPaymentsLoaded(true);
+    } catch (err: any) {
+      if (err instanceof ApiError && err.status === 401) {
+        clearToken();
+        router.replace("/login");
+        return;
+      }
+      if (err instanceof ApiError && err.status === 403) {
+        setForbidden(true);
+        return;
+      }
+      setPaymentsError(err?.message ?? "No se pudieron cargar pagos");
+    } finally {
+      setPaymentsLoading(false);
+    }
+  }
+
+  function openPayments(user: AdminUser) {
+    setPaymentsUser(user);
+    setPaymentsOpen(true);
+    if (!paymentsLoaded) {
+      loadPayments();
+    }
+  }
+
   if (forbidden) {
     return (
       <div className="space-y-6">
@@ -249,6 +294,74 @@ export default function AdminUsersPage() {
               disabled={creating || !email.trim() || !password.trim()}
             >
               {creating ? "Creando..." : "Crear usuario"}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
+        open={paymentsOpen}
+        title={
+          paymentsUser
+            ? `Pagos de ${paymentsUser.club_name || paymentsUser.email}`
+            : "Pagos"
+        }
+        onClose={() => {
+          setPaymentsOpen(false);
+          setPaymentsUser(null);
+          setPaymentsError(null);
+        }}
+        className="max-w-2xl"
+      >
+        <div className="space-y-3">
+          {paymentsError && (
+            <div className="rounded-xl border border-red-300 bg-red-100 p-3 text-sm text-red-800">
+              {paymentsError}
+            </div>
+          )}
+          {paymentsLoading ? (
+            <div className="text-sm text-zinc-600">Cargando pagos...</div>
+          ) : paymentsUser && paymentsForUser.length === 0 ? (
+            <div className="text-sm text-zinc-600">
+              No hay pagos registrados para este usuario.
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {paymentsForUser.map((payment) => (
+                <div
+                  key={payment.id}
+                  className="rounded-xl border border-zinc-200 bg-white p-3"
+                >
+                  <div className="text-sm font-semibold text-zinc-800">
+                    Pago {payment.paid_at}
+                  </div>
+                  <div className="text-xs text-zinc-500">
+                    Vence {payment.expires_at}
+                  </div>
+                  {payment.plan_months ? (
+                    <div className="text-xs text-zinc-400">
+                      Plan: {payment.plan_months} mes(es)
+                    </div>
+                  ) : null}
+                  {payment.amount !== null &&
+                  payment.amount !== undefined &&
+                  payment.amount !== "" ? (
+                    <div className="text-xs text-zinc-400">
+                      Monto: {payment.amount} {payment.currency}
+                    </div>
+                  ) : null}
+                  {payment.notes ? (
+                    <div className="text-xs text-zinc-400">
+                      {payment.notes}
+                    </div>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="flex items-center justify-end">
+            <Button variant="secondary" onClick={() => setPaymentsOpen(false)}>
+              Cerrar
             </Button>
           </div>
         </div>
@@ -377,6 +490,12 @@ export default function AdminUsersPage() {
                       </>
                     ) : (
                       <>
+                        <Button
+                          variant="secondary"
+                          onClick={() => openPayments(user)}
+                        >
+                          Ver pagos
+                        </Button>
                         <Button
                           variant="secondary"
                           onClick={() => {
