@@ -14,7 +14,7 @@ import type { LoginResponse } from "@/lib/types";
 function LoginForm() {
   const router = useRouter();
   const sp = useSearchParams();
-  const next = sp.get("next") || "/dashboard";
+  const next = sp.get("next");
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -49,8 +49,18 @@ function LoginForm() {
   
       const data: LoginResponse = await res.json();
   
-      setToken(data.access_token);
-      router.replace(next);
+      const isAdmin = Boolean(data.is_admin);
+      setToken(data.access_token, isAdmin);
+      let target = next || (isAdmin ? "/admin" : "/dashboard");
+
+      if (!isAdmin && target.startsWith("/admin")) {
+        target = "/dashboard";
+      }
+      if (isAdmin && target === "/dashboard") {
+        target = "/admin";
+      }
+
+      router.replace(target);
     } catch (err: any) {
       setError(err.message ?? "Login failed");
     } finally {

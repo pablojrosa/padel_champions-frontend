@@ -193,8 +193,11 @@ function mapTeamsFromApi(rawTeams: TeamApi[], tournamentId: number): UiTeam[] {
   }));
 }
 
-async function load() {
-  setLoading(true);
+async function load(options?: { silent?: boolean }) {
+  const { silent = false } = options ?? {};
+  if (!silent) {
+    setLoading(true);
+  }
   setError(null);
 
   try {
@@ -226,7 +229,9 @@ async function load() {
     }
     setError(err?.message ?? "Failed to load tournament");
   } finally {
-    setLoading(false);
+    if (!silent) {
+      setLoading(false);
+    }
   }
 }
 
@@ -235,6 +240,21 @@ async function load() {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tournamentId]);
+
+  useEffect(() => {
+    if (!importingPairs) return;
+    let active = true;
+    const poll = async () => {
+      if (!active) return;
+      await load({ silent: true });
+    };
+    poll();
+    const interval = window.setInterval(poll, 2000);
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+    };
+  }, [importingPairs, tournamentId]);
 
   useEffect(() => {
     function handleOutsideClick(event: MouseEvent) {
@@ -692,7 +712,7 @@ async function load() {
       if (rowErrors.length > 0) {
         setImportError(rowErrors.slice(0, 5).join(" "));
       }
-      await load();
+      await load({ silent: true });
     } catch (err: any) {
       setImportError(err?.message ?? "No se pudo importar el archivo.");
     } finally {
@@ -1343,6 +1363,35 @@ async function load() {
                   className="hidden"
                   onChange={handleImportFile}
                 />
+                {importingPairs && (
+                  <div
+                    className="flex items-center gap-3 rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs text-zinc-600"
+                    role="status"
+                    aria-live="polite"
+                  >
+                    <div className="relative h-9 w-9" aria-hidden="true">
+                      <span
+                        className="absolute bottom-0 left-1/2 h-1.5 w-6 -translate-x-1/2 rounded-full bg-zinc-900/20 blur-[1px] motion-reduce:animate-none animate-pulse"
+                        style={{ animationDuration: "1.8s" }}
+                      />
+                      <svg
+                        className="absolute inset-0 h-9 w-9 text-zinc-900 motion-reduce:animate-none animate-bounce"
+                        style={{ animationDuration: "1.8s" }}
+                        viewBox="0 0 64 64"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="3"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <circle cx="32" cy="32" r="26" />
+                        <path d="M8 24 C 16 18 26 18 34 24 C 42 30 50 30 56 24" />
+                        <path d="M8 40 C 16 46 26 46 34 40 C 42 34 50 34 56 40" />
+                      </svg>
+                    </div>
+                    <span>Importando parejas... esto puede tardar unos segundos.</span>
+                  </div>
+                )}
                 {importSummary && (
                   <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-900">
                     Importadas {importSummary.created} de {importSummary.total}. Fallidas:{" "}

@@ -4,14 +4,16 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Button from "./ui/Button";
-import { clearToken } from "@/lib/auth";
+import { clearToken, getIsAdmin } from "@/lib/auth";
 
 export default function Navbar() {
   const router = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
+    setIsAdmin(getIsAdmin());
     function handleOutsideClick(event: MouseEvent) {
       if (!menuRef.current) return;
       if (!menuRef.current.contains(event.target as Node)) {
@@ -40,34 +42,62 @@ export default function Navbar() {
           </Button>
           {menuOpen && (
             <div className="absolute right-0 top-full mt-2 z-20 w-56 rounded-xl border border-zinc-200 bg-white p-1 shadow-lg">
-              <Link
-                className="block rounded-lg px-3 py-2 text-sm text-zinc-800 hover:bg-zinc-50"
-                href="/profile"
-                onClick={() => setMenuOpen(false)}
-              >
-                Club
-              </Link>
-              <Link
-                className="block rounded-lg px-3 py-2 text-sm text-zinc-800 hover:bg-zinc-50"
-                href="/ayuda"
-                onClick={() => setMenuOpen(false)}
-              >
-                Ayuda
-              </Link>
-              <Link
-                className="block rounded-lg px-3 py-2 text-sm text-zinc-800 hover:bg-zinc-50"
-                href="/players"
-                onClick={() => setMenuOpen(false)}
-              >
-                Jugadores
-              </Link>
-              <Link
-                className="block rounded-lg px-3 py-2 text-sm text-zinc-800 hover:bg-zinc-50"
-                href="/tournaments"
-                onClick={() => setMenuOpen(false)}
-              >
-                Torneos
-              </Link>
+              {isAdmin ? (
+                <>
+                  <Link
+                    className="block rounded-lg px-3 py-2 text-sm text-zinc-800 hover:bg-zinc-50"
+                    href="/admin"
+                    onClick={() => setMenuOpen(false)}
+                  >
+                    Backoffice
+                  </Link>
+                  <Link
+                    className="block rounded-lg px-3 py-2 text-sm text-zinc-800 hover:bg-zinc-50"
+                    href="/admin/users"
+                    onClick={() => setMenuOpen(false)}
+                  >
+                    Usuarios
+                  </Link>
+                  <Link
+                    className="block rounded-lg px-3 py-2 text-sm text-zinc-800 hover:bg-zinc-50"
+                    href="/admin/pagos"
+                    onClick={() => setMenuOpen(false)}
+                  >
+                    Pagos
+                  </Link>
+                </>
+              ) : (
+                <>
+                  <Link
+                    className="block rounded-lg px-3 py-2 text-sm text-zinc-800 hover:bg-zinc-50"
+                    href="/profile"
+                    onClick={() => setMenuOpen(false)}
+                  >
+                    Club
+                  </Link>
+                  <Link
+                    className="block rounded-lg px-3 py-2 text-sm text-zinc-800 hover:bg-zinc-50"
+                    href="/ayuda"
+                    onClick={() => setMenuOpen(false)}
+                  >
+                    Ayuda
+                  </Link>
+                  <Link
+                    className="block rounded-lg px-3 py-2 text-sm text-zinc-800 hover:bg-zinc-50"
+                    href="/players"
+                    onClick={() => setMenuOpen(false)}
+                  >
+                    Jugadores
+                  </Link>
+                  <Link
+                    className="block rounded-lg px-3 py-2 text-sm text-zinc-800 hover:bg-zinc-50"
+                    href="/tournaments"
+                    onClick={() => setMenuOpen(false)}
+                  >
+                    Torneos
+                  </Link>
+                </>
+              )}
               <button
                 type="button"
                 className="block w-full rounded-lg px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50"
