@@ -38,6 +38,7 @@ export type Team = {
 export type LoginResponse = {
   access_token: string;
   token_type: "bearer";
+  is_admin?: boolean;
 };
 
 export type UserProfile = {
@@ -46,6 +47,74 @@ export type UserProfile = {
   club_name: string | null;
   club_location: string | null;
   club_logo_url: string | null;
+  status?: "active" | "inactive";
+  last_payment_paid_at?: string | null;
+  last_payment_expires_at?: string | null;
+};
+
+export type AdminUser = {
+  id: number;
+  email: string;
+  club_name: string | null;
+  club_location: string | null;
+  club_logo_url: string | null;
+  status?: "active" | "inactive";
+  last_payment_paid_at?: string | null;
+  last_payment_expires_at?: string | null;
+  status_override?: "active" | "inactive" | null;
+};
+
+export type AdminMetrics = {
+  total_users: number;
+  active_users: number;
+  inactive_users: number;
+  total_revenue: number;
+  ai_total_cost_usd: number;
+};
+
+export type AdminPayment = {
+  id: number;
+  user_id: number;
+  user_email?: string | null;
+  user_club_name?: string | null;
+  paid_at: string;
+  expires_at: string;
+  plan_months?: number | null;
+  amount?: number | string | null;
+  currency: string;
+  notes?: string | null;
+};
+
+export type AdminPaymentsSeries = {
+  date: string;
+  total: number;
+};
+
+export type SupportTicketStatus = "open" | "pending" | "closed";
+
+export type SupportTicket = {
+  id: number;
+  user_id: number;
+  subject: string;
+  status: SupportTicketStatus;
+  tags?: string[] | null;
+  created_at: string;
+  updated_at: string;
+  last_message_at?: string | null;
+  user_email?: string | null;
+  user_club_name?: string | null;
+};
+
+export type SupportMessage = {
+  id: number;
+  ticket_id: number;
+  author_type: "user" | "admin";
+  body: string;
+  created_at: string;
+};
+
+export type SupportTicketDetail = SupportTicket & {
+  messages: SupportMessage[];
 };
 
 export type TournamentStatus = "upcoming" | "ongoing" | "groups_finished" | "finished";

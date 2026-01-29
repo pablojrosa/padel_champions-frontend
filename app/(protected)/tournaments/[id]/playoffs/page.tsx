@@ -1455,36 +1455,65 @@ export default function TournamentPlayoffsPage() {
             saveResult();
           }}
         >
-          <div className="text-sm text-zinc-600">
-            {selectedMatch
-              ? `Partido ${getMatchCode(selectedMatch)} · ${getTeamLabel(
-                  selectedMatch.team_a_id
-                )} vs ${getTeamLabel(selectedMatch.team_b_id)}`
-              : null}
-          </div>
-
           <div className="space-y-3">
-            {setsInput.map((setScore, idx) => (
-              <div key={idx} className="grid grid-cols-3 items-center gap-2">
-                <div className="text-sm text-zinc-600">Set {idx + 1}</div>
-                <Input
-                  type="number"
-                  min={0}
-                  placeholder="A"
-                  value={setScore.a}
-                  onChange={(e) => updateSet(idx, "a", e.target.value)}
-                  disabled={!canEdit}
-                />
-                <Input
-                  type="number"
-                  min={0}
-                  placeholder="B"
-                  value={setScore.b}
-                  onChange={(e) => updateSet(idx, "b", e.target.value)}
-                  disabled={!canEdit}
-                />
+            <div className="overflow-x-auto">
+              <div
+                className="grid min-w-[420px] items-center gap-2"
+                style={{
+                  gridTemplateColumns: `minmax(180px, 1fr) repeat(${setsInput.length}, minmax(72px, 1fr))`,
+                }}
+              >
+                <div className="text-xs font-semibold uppercase tracking-wide text-zinc-400">
+                  Parejas
+                </div>
+                {setsInput.map((_, idx) => (
+                  <div
+                    key={`head-${idx}`}
+                    className="text-center text-xs font-semibold uppercase tracking-wide text-zinc-400"
+                  >
+                    Set {idx + 1}
+                  </div>
+                ))}
+
+                <div className="space-y-0.5">
+                  <div className="text-xs font-semibold text-zinc-500">Pareja 1</div>
+                  <div className="text-sm text-zinc-700">
+                    {selectedMatch ? getTeamLabel(selectedMatch.team_a_id) : "-"}
+                  </div>
+                </div>
+                {setsInput.map((setScore, idx) => (
+                  <Input
+                    key={`a-${idx}`}
+                    type="number"
+                    min={0}
+                    placeholder="0"
+                    value={setScore.a}
+                    onChange={(e) => updateSet(idx, "a", e.target.value)}
+                    disabled={!canEdit}
+                    className="score-input text-center tabular-nums"
+                  />
+                ))}
+
+                <div className="space-y-0.5">
+                  <div className="text-xs font-semibold text-zinc-500">Pareja 2</div>
+                  <div className="text-sm text-zinc-700">
+                    {selectedMatch ? getTeamLabel(selectedMatch.team_b_id) : "-"}
+                  </div>
+                </div>
+                {setsInput.map((setScore, idx) => (
+                  <Input
+                    key={`b-${idx}`}
+                    type="number"
+                    min={0}
+                    placeholder="0"
+                    value={setScore.b}
+                    onChange={(e) => updateSet(idx, "b", e.target.value)}
+                    disabled={!canEdit}
+                    className="score-input text-center tabular-nums"
+                  />
+                ))}
               </div>
-            ))}
+            </div>
           </div>
 
           {formError && (

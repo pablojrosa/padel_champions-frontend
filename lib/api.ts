@@ -53,7 +53,7 @@ export async function api<T>(
   // Handle 401 globally
   if (res.status === 401) {
     clearToken();
-    throw new ApiError("Unauthorized", 401);
+    throw new ApiError("No autorizado", 401);
   }
 
   const text = await res.text();
@@ -62,7 +62,7 @@ export async function api<T>(
   if (!res.ok) {
     const msg =
       (data && (data.message || data.detail)) ||
-      `Request failed (${res.status})`;
+      `La solicitud fallo (${res.status})`;
     throw new ApiError(String(msg), res.status, data);
   }
 

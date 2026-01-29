@@ -5,8 +5,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import Card from "@/components/ui/Card";
 import { api, ApiError } from "@/lib/api";
-import { clearToken } from "@/lib/auth";
-import type { Player, Tournament, TournamentStatusResponse } from "@/lib/types";
+import { clearToken, getIsAdmin } from "@/lib/auth";
+import type { AdminUser, Player, Tournament, TournamentStatusResponse } from "@/lib/types";
 
 type DashboardStats = {
   ongoing: number;
@@ -22,9 +22,13 @@ const emptyStats: DashboardStats = {
 
 export default function DashboardPage() {
   const router = useRouter();
+  const isAdmin = getIsAdmin();
   const [stats, setStats] = useState<DashboardStats>(emptyStats);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [expiringUsers, setExpiringUsers] = useState<AdminUser[]>([]);
+  const [expiringLoading, setExpiringLoading] = useState(false);
+  const [expiringError, setExpiringError] = useState<string | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -65,12 +69,64 @@ export default function DashboardPage() {
       }
     }
 
+    async function loadExpiringUsers() {
+      if (!isAdmin) return;
+      setExpiringLoading(true);
+      setExpiringError(null);
+      try {
+        const users = await api<AdminUser[]>("/admin/users");
+        if (!mounted) return;
+        const today = new Date();
+        const cutoff = new Date();
+        cutoff.setDate(today.getDate() + 10);
+        const todayISO = today.toISOString().slice(0, 10);
+        const cutoffISO = cutoff.toISOString().slice(0, 10);
+
+        const filtered = users
+          .filter(
+            (user) =>
+              user.last_payment_expires_at &&
+              user.last_payment_expires_at >= todayISO &&
+              user.last_payment_expires_at <= cutoffISO
+          )
+          .sort((a, b) =>
+            (a.last_payment_expires_at ?? "").localeCompare(
+              b.last_payment_expires_at ?? ""
+            )
+          );
+
+        setExpiringUsers(filtered);
+      } catch (err: any) {
+        if (err instanceof ApiError && err.status === 401) {
+          clearToken();
+          router.replace("/login");
+          return;
+        }
+        if (err instanceof ApiError && err.status === 403) {
+          setExpiringUsers([]);
+          return;
+        }
+        setExpiringError(err?.message ?? "No se pudieron cargar los vencimientos");
+      } finally {
+        if (mounted) setExpiringLoading(false);
+      }
+    }
+
     load();
+    loadExpiringUsers();
 
     return () => {
       mounted = false;
     };
-  }, [router]);
+  }, [router, isAdmin]);
+
+  const daysUntil = (dateString: string) => {
+    const today = new Date();
+    const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    const target = new Date(`${dateString}T00:00:00`);
+    const diff = target.getTime() - todayStart.getTime();
+    return Math.ceil(diff / (1000 * 60 * 60 * 24));
+  };
 
   const statItems = useMemo(
     () => [
@@ -159,6 +215,68 @@ export default function DashboardPage() {
           </div>
         </div>
       </Card>
+
+      {isAdmin && (
+        <Card className="bg-white/95">
+          <div className="p-6 space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="text-lg font-semibold text-zinc-900">
+                Vencimientos próximos
+              </div>
+              <div className="text-xs text-zinc-500">Próximos 10 días</div>
+            </div>
+
+            {expiringError && (
+              <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                {expiringError}
+              </div>
+            )}
+
+            {expiringLoading ? (
+              <div className="text-sm text-zinc-600">Cargando vencimientos...</div>
+            ) : expiringUsers.length === 0 ? (
+              <div className="text-sm text-zinc-600">
+                No hay usuarios con vencimiento en los próximos 10 días.
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {expiringUsers.map((user) => {
+                  const expiresAt = user.last_payment_expires_at ?? "";
+                  const daysLeft = daysUntil(expiresAt);
+                  const urgency =
+                    daysLeft <= 1
+                      ? "text-red-600"
+                      : daysLeft <= 3
+                      ? "text-amber-600"
+                      : "text-zinc-500";
+
+                  return (
+                    <div
+                      key={user.id}
+                      className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-zinc-200 bg-white px-4 py-3"
+                    >
+                      <div className="space-y-1">
+                        <div className="text-sm font-semibold text-zinc-800">
+                          {user.club_name || user.email}
+                        </div>
+                        <div className="text-xs text-zinc-500">{user.email}</div>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-sm font-semibold text-zinc-900">
+                          {expiresAt}
+                        </div>
+                        <div className={`text-xs ${urgency}`}>
+                          Vence en {daysLeft} día{daysLeft === 1 ? "" : "s"}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </Card>
+      )}
     </div>
   );
 }
