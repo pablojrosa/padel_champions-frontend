@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getBlogPost } from "@/lib/blogPosts";
+import BrandLogo from "@/components/BrandLogo";
 
 type BlogPostPageProps = {
   params: Promise<{ slug: string }>;
@@ -23,8 +24,8 @@ export default async function BlogPostPage({ params }: BlogPostPageProps) {
       </div>
 
       <header className="relative z-10 mx-auto flex w-full max-w-4xl items-center justify-between px-4 py-6 md:px-8">
-        <Link className="text-lg font-semibold tracking-wide" href="/">
-          provopadel.com
+        <Link href="/" aria-label="Inicio">
+          <BrandLogo theme="dark" />
         </Link>
         <Link className="text-sm text-zinc-300 hover:text-white" href="/">
           Volver al inicio
