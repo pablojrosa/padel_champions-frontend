@@ -1,29 +1,29 @@
 import Link from "next/link";
-import BrandLogo from "@/components/BrandLogo";
+import LandingHeader from "@/components/LandingHeader";
 
 const quarterfinalMatches = [
   {
     id: "qf-1",
-    pairs: ["Tapia / Coello", "Ruiz / Bergamini"],
+    pairs: ["Agustín Tapia & Arturo Coello", "Javi Garrido & Lucas Bergamini"],
     winnerIndex: 0,
     delay: "0.2s",
   },
   {
     id: "qf-2",
-    pairs: ["Chingotto / Galán", "Nieto / Sanz"],
+    pairs: ["Ale Galán & Federico Chingotto", "Coki Nieto & Jon Sanz"],
     winnerIndex: 0,
     delay: "1s",
   },
   {
     id: "qf-3",
-    pairs: ["Stupaczuk / Di Nenno", "Navarro / Lebrón"],
+    pairs: ["Franco Stupaczuk & Mike Yanguas", "Juan Lebrón & Leo Augsburger"],
     winnerIndex: 0,
     delay: "1.8s",
   },
   {
     id: "qf-4",
-    pairs: ["Yanguas / Garrido", "Cardona / Augsburger"],
-    winnerIndex: 0,
+    pairs: ["Paquito Navarro & Fran Guerrero", "Momo González & Martín Di Nenno"],
+    winnerIndex: 1,
     delay: "2.6s",
   },
 ];
@@ -31,20 +31,20 @@ const quarterfinalMatches = [
 const semifinalMatches = [
   {
     id: "sf-1",
-    pairs: ["Tapia / Coello", "Chingotto / Galán"],
-    winnerIndex: 1,
+    pairs: ["Agustín Tapia & Arturo Coello", "Ale Galán & Federico Chingotto"],
+    winnerIndex: 0,
     delay: "3.4s",
   },
   {
     id: "sf-2",
-    pairs: ["Stupaczuk / Di Nenno", "Yanguas / Garrido"],
+    pairs: ["Franco Stupaczuk & Mike Yanguas", "Momo González & Martín Di Nenno"],
     winnerIndex: 0,
     delay: "4.2s",
   },
 ];
 
 const finalMatch = {
-  pairs: ["Chingotto / Galán", "Stupaczuk / Di Nenno"],
+  pairs: ["Agustín Tapia & Arturo Coello", "Franco Stupaczuk & Mike Yanguas"],
   winnerIndex: 0,
   delay: "5s",
 };
@@ -62,27 +62,12 @@ export default function HomePage() {
         <div className="ambient-blobs blob-3 absolute bottom-0 left-1/3 h-80 w-80 rounded-full bg-sky-500/15 blur-[140px]" />
       </div>
 
-      <header className="relative z-10 mx-auto flex w-full max-w-6xl items-center justify-between px-4 py-6 md:px-8">
-        <Link href="/" aria-label="Inicio">
-          <BrandLogo theme="dark" />
-        </Link>
-        <nav className="flex items-center gap-3 text-sm">
-          <Link className="text-zinc-300 hover:text-white" href="/login">
-            Ingresar
-          </Link>
-          <Link
-            className="rounded-full border border-emerald-400/40 bg-emerald-500/20 px-4 py-2 text-sm font-semibold text-emerald-100 hover:bg-emerald-500/30"
-            href="/register"
-          >
-            Comenzar ahora
-          </Link>
-        </nav>
-      </header>
+      <LandingHeader />
 
-      <section className="relative z-10 mx-auto grid w-full max-w-6xl gap-10 px-4 pb-16 pt-8 md:grid-cols-[1.1fr_0.9fr] md:items-center md:px-8">
+      <section className="relative z-10 mx-auto grid w-full max-w-6xl gap-10 px-4 pb-16 pt-8 md:grid-cols-[1.1fr_0.9fr] md:items-center md:px-8 md:pt-10">
         <div className="space-y-6">
           <span className="inline-flex items-center gap-2 rounded-full border border-zinc-800 bg-zinc-900/70 px-3 py-1 text-xs uppercase tracking-[0.2em] text-zinc-400">
-            Organizar un torneo dejó de ser un caos
+            Organizar los mejores torneos.
           </span>
           <h1 className="text-4xl font-semibold leading-tight md:text-5xl">
             Gestioná tus torneos de pádel <span className="text-emerald-400">como nadie</span>.
@@ -201,7 +186,120 @@ export default function HomePage() {
             </div>
           </div>
 
-          <div className="mt-8 overflow-x-auto pb-2">
+          <div className="mt-8 md:hidden">
+            <div className="rounded-2xl border border-zinc-800/90 bg-zinc-950/75 p-4">
+              <div className="space-y-5">
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold uppercase tracking-[0.22em] text-zinc-500">Cuartos</p>
+                  <div className="space-y-3">
+                    {quarterfinalMatches.map((match) => (
+                      <article
+                        key={`mobile-${match.id}`}
+                        className="rounded-xl border border-zinc-800/90 bg-zinc-950/80 p-3"
+                      >
+                        <div className="space-y-2 text-xs">
+                          {match.pairs.map((pair, index) => (
+                            <div
+                              key={`mobile-${match.id}-${pair}`}
+                              className={
+                                index === match.winnerIndex
+                                  ? "bracket-winner flex h-9 items-center justify-between rounded-md border border-zinc-700/80 px-3 text-zinc-100"
+                                  : "flex h-9 items-center justify-between rounded-md border border-zinc-800 bg-zinc-900/70 px-3 text-zinc-400"
+                              }
+                              style={
+                                index === match.winnerIndex
+                                  ? { animationDelay: match.delay }
+                                  : undefined
+                              }
+                            >
+                              <span>{pair}</span>
+                              {index === match.winnerIndex ? (
+                                <span className="text-[10px] uppercase tracking-[0.12em] text-emerald-200">
+                                  Avanza
+                                </span>
+                              ) : null}
+                            </div>
+                          ))}
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold uppercase tracking-[0.22em] text-zinc-500">Semis</p>
+                  <div className="space-y-3">
+                    {semifinalMatches.map((match) => (
+                      <article
+                        key={`mobile-${match.id}`}
+                        className="rounded-xl border border-zinc-800/90 bg-zinc-950/80 p-3"
+                      >
+                        <div className="space-y-2 text-xs">
+                          {match.pairs.map((pair, index) => (
+                            <div
+                              key={`mobile-${match.id}-${pair}`}
+                              className={
+                                index === match.winnerIndex
+                                  ? "bracket-winner flex h-9 items-center justify-between rounded-md border border-zinc-700/80 px-3 text-zinc-100"
+                                  : "flex h-9 items-center justify-between rounded-md border border-zinc-800 bg-zinc-900/70 px-3 text-zinc-400"
+                              }
+                              style={
+                                index === match.winnerIndex
+                                  ? { animationDelay: match.delay }
+                                  : undefined
+                              }
+                            >
+                              <span>{pair}</span>
+                              {index === match.winnerIndex ? (
+                                <span className="text-[10px] uppercase tracking-[0.12em] text-emerald-200">
+                                  Avanza
+                                </span>
+                              ) : null}
+                            </div>
+                          ))}
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold uppercase tracking-[0.22em] text-zinc-500">Final</p>
+                  <article className="rounded-xl border border-zinc-800/90 bg-zinc-950/80 p-3">
+                    <div className="space-y-2 text-xs">
+                      {finalMatch.pairs.map((pair, index) => (
+                        <div
+                          key={`mobile-final-${pair}`}
+                          className={
+                            index === finalMatch.winnerIndex
+                              ? "bracket-winner flex h-9 items-center justify-between rounded-md border border-zinc-700/80 px-3 text-zinc-100"
+                              : "flex h-9 items-center justify-between rounded-md border border-zinc-800 bg-zinc-900/70 px-3 text-zinc-400"
+                          }
+                          style={
+                            index === finalMatch.winnerIndex
+                              ? { animationDelay: finalMatch.delay }
+                              : undefined
+                          }
+                        >
+                          <span>{pair}</span>
+                          {index === finalMatch.winnerIndex ? (
+                            <span className="text-[10px] uppercase tracking-[0.12em] text-emerald-200">
+                              Gana
+                            </span>
+                          ) : null}
+                        </div>
+                      ))}
+                    </div>
+                    <div className="bracket-champion mt-3 rounded-md border border-emerald-400/30 bg-emerald-500/10 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.15em] text-emerald-100">
+                      Campeones: Agustín Tapia & Arturo Coello
+                    </div>
+                  </article>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-8 hidden overflow-x-auto pb-2 md:block">
             <div className="relative h-[520px] min-w-[980px] rounded-2xl border border-zinc-800/90 bg-zinc-950/75 p-4">
               <p className="absolute left-6 top-4 text-xs font-semibold uppercase tracking-[0.22em] text-zinc-500">
                 Cuartos
@@ -308,7 +406,7 @@ export default function HomePage() {
                   ))}
                 </div>
                 <div className="bracket-champion mt-3 rounded-md border border-emerald-400/30 bg-emerald-500/10 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.15em] text-emerald-100">
-                  Campeones: Chingotto / Galán
+                  Campeones: Agustín Tapia & Arturo Coello
                 </div>
               </article>
 
