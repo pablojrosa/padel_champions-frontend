@@ -9,7 +9,7 @@ export default function ViewerLayout({ children }: { children: React.ReactNode }
       <div className="relative z-10">
         <header className="mx-auto flex w-full max-w-screen-2xl items-center justify-between px-4 py-5">
           <div className="text-sm font-semibold tracking-[0.2em] text-zinc-300">
-            Padel Champions
+            provopadel.com
           </div>
         </header>
         {children}

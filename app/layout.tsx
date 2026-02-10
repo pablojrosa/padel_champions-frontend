@@ -2,7 +2,7 @@ import "./globals.css";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Padel Champions",
+  title: "provopadel.com",
   description: "Padel tournament management",
 };
 

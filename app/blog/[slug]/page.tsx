@@ -24,7 +24,7 @@ export default async function BlogPostPage({ params }: BlogPostPageProps) {
 
       <header className="relative z-10 mx-auto flex w-full max-w-4xl items-center justify-between px-4 py-6 md:px-8">
         <Link className="text-lg font-semibold tracking-wide" href="/">
-          Padel Champions
+          provopadel.com
         </Link>
         <Link className="text-sm text-zinc-300 hover:text-white" href="/">
           Volver al inicio
