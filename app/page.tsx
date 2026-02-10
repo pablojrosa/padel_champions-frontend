@@ -1,4 +1,5 @@
 import Link from "next/link";
+import BrandLogo from "@/components/BrandLogo";
 
 const quarterfinalMatches = [
   {
@@ -62,7 +63,9 @@ export default function HomePage() {
       </div>
 
       <header className="relative z-10 mx-auto flex w-full max-w-6xl items-center justify-between px-4 py-6 md:px-8">
-        <div className="text-lg font-semibold tracking-wide">Padel Champions</div>
+        <Link href="/" aria-label="Inicio">
+          <BrandLogo theme="dark" />
+        </Link>
         <nav className="flex items-center gap-3 text-sm">
           <Link className="text-zinc-300 hover:text-white" href="/login">
             Ingresar

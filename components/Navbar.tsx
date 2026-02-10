@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Button from "./ui/Button";
+import BrandLogo from "./BrandLogo";
 import { api, ApiError } from "@/lib/api";
 import { clearToken, getIsAdmin } from "@/lib/auth";
 import type { UserProfile } from "@/lib/types";
@@ -73,8 +74,8 @@ export default function Navbar() {
   return (
     <header className="border-b border-zinc-200 bg-white">
       <div className="mx-auto w-full max-w-screen-2xl px-4 md:px-6 min-h-14 py-2 flex items-center justify-between">
-        <Link href="/dashboard" className="text-lg font-semibold tracking-wide text-zinc-800">
-          Padel Champions
+        <Link href="/dashboard" aria-label="Dashboard">
+          <BrandLogo theme="light" />
         </Link>
         <nav className="flex items-center gap-3 relative" ref={menuRef}>
           {!isAdmin && (

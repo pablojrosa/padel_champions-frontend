@@ -568,7 +568,7 @@ async function load(options?: { silent?: boolean }) {
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = "padel_champions_template_parejas.csv";
+    link.download = "provopadel_template_parejas.csv";
     link.click();
     URL.revokeObjectURL(url);
   }

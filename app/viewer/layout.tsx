@@ -1,3 +1,5 @@
+import BrandLogo from "@/components/BrandLogo";
+
 export default function ViewerLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="relative min-h-screen overflow-hidden bg-zinc-950 text-zinc-100">
@@ -8,9 +10,7 @@ export default function ViewerLayout({ children }: { children: React.ReactNode }
       </div>
       <div className="relative z-10">
         <header className="mx-auto flex w-full max-w-screen-2xl items-center justify-between px-4 py-5">
-          <div className="text-sm font-semibold tracking-[0.2em] text-zinc-300">
-            Padel Champions
-          </div>
+          <BrandLogo theme="dark" />
         </header>
         {children}
       </div>
