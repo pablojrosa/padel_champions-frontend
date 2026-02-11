@@ -1,15 +1,77 @@
+import type { Metadata } from "next";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getBlogPost } from "@/lib/blogPosts";
+import { getBlogPost, getPublishedBlogPosts } from "@/lib/blogPosts";
 import BrandLogo from "@/components/BrandLogo";
 
 type BlogPostPageProps = {
   params: Promise<{ slug: string }>;
 };
 
+function resolvePublicImage(src?: string | null): string | null {
+  if (!src) return null;
+  const normalized = src.startsWith("/") ? src.slice(1) : src;
+  const absolutePath = join(process.cwd(), "public", normalized);
+  return existsSync(absolutePath) ? src : null;
+}
+
+export function generateStaticParams() {
+  return getPublishedBlogPosts().map((post) => ({
+    slug: post.slug,
+  }));
+}
+
+export async function generateMetadata({
+  params,
+}: BlogPostPageProps): Promise<Metadata> {
+  const { slug } = await params;
+  const post = getBlogPost(slug);
+  const coverImage = resolvePublicImage(post?.coverImageSrc);
+
+  if (!post) {
+    return {
+      title: "Articulo no encontrado | ProvoPadel",
+    };
+  }
+
+  return {
+    title: `${post.title} | ProvoPadel`,
+    description: post.excerpt,
+    keywords: [
+      "gestion de torneos de padel",
+      "club de padel",
+      "organizar torneo de padel",
+      "parejas y horarios",
+      "coordinacion de canchas",
+      post.tag.toLowerCase(),
+    ],
+    alternates: {
+      canonical: `/blog/${post.slug}`,
+    },
+    openGraph: {
+      title: post.title,
+      description: post.excerpt,
+      url: `/blog/${post.slug}`,
+      type: "article",
+      images: coverImage
+        ? [
+            {
+              url: coverImage,
+              alt: post.coverImageAlt ?? post.title,
+            },
+          ]
+        : undefined,
+    },
+  };
+}
+
 export default async function BlogPostPage({ params }: BlogPostPageProps) {
   const { slug } = await params;
   const post = getBlogPost(slug);
+  const coverImage = resolvePublicImage(post?.coverImageSrc);
 
   if (!post) {
     notFound();
@@ -46,6 +108,18 @@ export default async function BlogPostPage({ params }: BlogPostPageProps) {
           </h1>
           <p className="text-base text-zinc-300 md:text-lg">{post.excerpt}</p>
         </div>
+        {coverImage ? (
+          <div className="overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-900/60">
+            <Image
+              alt={post.coverImageAlt ?? post.title}
+              className="h-auto w-full object-cover"
+              height={720}
+              priority
+              src={coverImage}
+              width={1280}
+            />
+          </div>
+        ) : null}
       </section>
 
       <section className="relative z-10 mx-auto w-full max-w-4xl space-y-8 px-4 pb-16 md:px-8">

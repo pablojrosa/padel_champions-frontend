@@ -16,6 +16,9 @@ export default function LandingHeader() {
           </Link>
 
           <nav className="hidden items-center gap-3 text-sm md:flex">
+            <Link className="whitespace-nowrap text-zinc-300 hover:text-white" href="/blog">
+              Blog
+            </Link>
             <Link className="whitespace-nowrap text-zinc-300 hover:text-white" href="/login">
               Ingresar
             </Link>
@@ -54,6 +57,13 @@ export default function LandingHeader() {
         ].join(" ")}
         id="landing-mobile-menu"
       >
+        <Link
+          className="block rounded-xl border border-zinc-700 px-4 py-2.5 text-center text-sm font-semibold text-zinc-200 hover:bg-zinc-900"
+          href="/blog"
+          onClick={() => setMenuOpen(false)}
+        >
+          Blog
+        </Link>
         <Link
           className="block rounded-xl bg-emerald-500 px-4 py-2.5 text-center text-sm font-semibold text-zinc-900"
           href="/register"
