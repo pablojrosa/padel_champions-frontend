@@ -2,8 +2,13 @@ import "./globals.css";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "provopadel.com",
+  title: "provopadel",
   description: "Padel tournament management",
+  icons: {
+    icon: "/favicon.ico",
+    shortcut: "/favicon.ico",
+    apple: "/brand/provopadel-mark.png",
+  },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
