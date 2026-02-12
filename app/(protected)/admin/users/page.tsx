@@ -427,40 +427,50 @@ export default function AdminUsersPage() {
                       </select>
                     </div>
                   ) : (
-                    <div className="space-y-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <div className="text-sm font-semibold text-zinc-800">
-                          {user.email}
-                        </div>
-                        <span
-                          className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium ${
-                            user.status === "active"
-                              ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-                              : "bg-zinc-100 text-zinc-700 border-zinc-200"
-                          }`}
-                        >
-                          {user.status === "active" ? "Activo" : "Inactivo"}
-                        </span>
-                        {user.status_override && (
-                          <span className="text-xs font-semibold text-amber-600">
-                            Manual
-                          </span>
+                    <div className="flex items-start gap-3">
+                      <div className="h-14 w-14 shrink-0 overflow-hidden rounded-xl border border-zinc-200 bg-zinc-50">
+                        {user.club_logo_url ? (
+                          <img
+                            src={user.club_logo_url}
+                            alt={user.club_name || user.email}
+                            className="h-full w-full object-cover"
+                          />
+                        ) : (
+                          <div className="flex h-full w-full items-center justify-center text-[10px] font-medium text-zinc-400">
+                            Sin logo
+                          </div>
                         )}
                       </div>
-                      <div className="text-xs text-zinc-500">
-                        {user.club_name || "Sin club"} ·{" "}
-                        {user.club_location || "Sin ubicación"}
+                      <div className="min-w-0 flex-1 space-y-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <div className="text-sm font-semibold text-zinc-800">
+                            {user.email}
+                          </div>
+                          <span
+                            className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium ${
+                              user.status === "active"
+                                ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                                : "bg-zinc-100 text-zinc-700 border-zinc-200"
+                            }`}
+                          >
+                            {user.status === "active" ? "Activo" : "Inactivo"}
+                          </span>
+                          {user.status_override && (
+                            <span className="text-xs font-semibold text-amber-600">
+                              Manual
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-xs text-zinc-500">
+                          {user.club_name || "Sin club"} ·{" "}
+                          {user.club_location || "Sin ubicación"}
+                        </div>
+                        {user.last_payment_expires_at && (
+                          <div className="text-xs text-zinc-400">
+                            Vence: {user.last_payment_expires_at}
+                          </div>
+                        )}
                       </div>
-                      {user.last_payment_expires_at && (
-                        <div className="text-xs text-zinc-400">
-                          Vence: {user.last_payment_expires_at}
-                        </div>
-                      )}
-                      {user.club_logo_url && (
-                        <div className="text-xs text-zinc-400">
-                          {user.club_logo_url}
-                        </div>
-                      )}
                     </div>
                   )}
 
