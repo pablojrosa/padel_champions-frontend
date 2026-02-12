@@ -32,10 +32,13 @@ export async function api<T>(
 ): Promise<T> {
   const url = `${API_BASE}${path}`;
   const method = opts?.method ?? "GET";
+  const isFormData =
+    typeof FormData !== "undefined" && opts?.body instanceof FormData;
 
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-  };
+  const headers: Record<string, string> = {};
+  if (!isFormData) {
+    headers["Content-Type"] = "application/json";
+  }
 
   if (opts?.auth !== false) {
     const token = getToken();
@@ -45,7 +48,12 @@ export async function api<T>(
   const res = await fetch(url, {
     method,
     headers,
-    body: opts?.body ? JSON.stringify(opts.body) : undefined,
+    body:
+      opts?.body === undefined
+        ? undefined
+        : isFormData
+        ? (opts.body as FormData)
+        : JSON.stringify(opts.body),
     signal: opts?.signal,
     cache: "no-store",
   });
