@@ -55,6 +55,7 @@ const quarterfinalTops = [44, 162, 280, 398];
 const semifinalTops = [103, 339];
 const finalTop = 221;
 const featuredBlogPosts = getPublishedBlogPosts().slice(0, 3);
+const demoVideoEmbedUrl = "https://www.youtube-nocookie.com/embed/UCb0Px29TDs";
 
 export default function HomePage() {
   return (
@@ -141,6 +142,35 @@ export default function HomePage() {
             </div>
             <div className="rounded-2xl border border-dashed border-zinc-700/70 bg-zinc-950/60 px-4 py-3 text-xs text-zinc-500 transition duration-300 hover:border-emerald-400/40 hover:text-emerald-200">
               Programá partidos en segundos con fecha, hora y cancha.
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="relative z-10 mx-auto w-full max-w-6xl px-4 pb-16 md:px-8">
+        <div className="rounded-3xl border border-zinc-800 bg-zinc-900/70 p-6 shadow-2xl shadow-black/30 md:p-8">
+          <div className="mb-5 space-y-2">
+            <span className="text-sm font-semibold text-emerald-300/90">
+              Demo en video
+            </span>
+            <h2 className="text-2xl font-semibold md:text-3xl">
+              Mira como se usa ProvoPadel en minutos
+            </h2>
+            <p className="max-w-2xl text-sm text-zinc-400 md:text-base">
+              Un recorrido rapido de como crear torneos, gestionar resultados y compartir toda la informacion con los jugadores.
+            </p>
+          </div>
+          <div className="overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950/70 shadow-xl shadow-black/30">
+            <div className="aspect-video">
+              <iframe
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                allowFullScreen
+                className="h-full w-full"
+                loading="lazy"
+                referrerPolicy="strict-origin-when-cross-origin"
+                src={demoVideoEmbedUrl}
+                title="Demo de ProvoPadel en YouTube"
+              />
             </div>
           </div>
         </div>
