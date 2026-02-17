@@ -150,15 +150,9 @@ export default function HomePage() {
       <section className="relative z-10 mx-auto w-full max-w-6xl px-4 pb-16 md:px-8">
         <div className="rounded-3xl border border-zinc-800 bg-zinc-900/70 p-6 shadow-2xl shadow-black/30 md:p-8">
           <div className="mb-5 space-y-2">
-            <span className="text-sm font-semibold text-emerald-300/90">
-              Demo en video
-            </span>
             <h2 className="text-2xl font-semibold md:text-3xl">
-              Mira como se usa ProvoPadel en minutos
+              Te ayudamos a organizar tu torneo de pádel
             </h2>
-            <p className="max-w-2xl text-sm text-zinc-400 md:text-base">
-              Un recorrido rapido de como crear torneos, gestionar resultados y compartir toda la informacion con los jugadores.
-            </p>
           </div>
           <div className="overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950/70 shadow-xl shadow-black/30">
             <div className="aspect-video">
