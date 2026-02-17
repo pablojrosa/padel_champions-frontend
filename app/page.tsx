@@ -55,7 +55,7 @@ const quarterfinalTops = [44, 162, 280, 398];
 const semifinalTops = [103, 339];
 const finalTop = 221;
 const featuredBlogPosts = getPublishedBlogPosts().slice(0, 3);
-const demoVideoEmbedUrl = "https://www.youtube-nocookie.com/embed/zmVps7QeIvA";
+const demoVideoEmbedUrl = "https://www.youtube-nocookie.com/embed/ccFoEOamaz4";
 
 export default function HomePage() {
   return (
