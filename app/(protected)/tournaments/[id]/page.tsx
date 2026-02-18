@@ -121,6 +121,8 @@ export default function TournamentDetailPage() {
   const [editName, setEditName] = useState("");
   const [editDescription, setEditDescription] = useState("");
   const [editLocation, setEditLocation] = useState("");
+  const [editMatchDurationMinutes, setEditMatchDurationMinutes] = useState("90");
+  const [editCourtsCount, setEditCourtsCount] = useState("1");
   const [savingEdit, setSavingEdit] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
 
@@ -276,6 +278,8 @@ async function load(options?: { silent?: boolean }) {
     setEditName(tournament.name ?? "");
     setEditDescription(tournament.description ?? "");
     setEditLocation(tournament.location ?? "");
+    setEditMatchDurationMinutes(String(tournament.match_duration_minutes ?? 90));
+    setEditCourtsCount(String(tournament.courts_count ?? 1));
     setEditError(null);
     setEditOpen(true);
   }
@@ -704,7 +708,7 @@ async function load(options?: { silent?: boolean }) {
       setImportingPairs(false);
     }
   }
-  async function generateGroups(payload: {
+  async function generateGroupsWithAi(payload: {
     teams_per_group: number;
     schedule_windows: {
       date: string;
@@ -731,6 +735,33 @@ async function load(options?: { silent?: boolean }) {
       setGroups(tGroups);
     } catch (err: any) {
       setError(err?.message ?? "Failed to generate groups");
+      throw err;
+    } finally {
+      setGeneratingGroups(false);
+    }
+  }
+
+  async function generateGroupsManual(payload: {
+    teams_per_group: number;
+    groups: { name?: string; team_ids: number[] }[];
+  }) {
+    setGeneratingGroups(true);
+    setError(null);
+
+    try {
+      await api<GenerateGroupsResponse>(
+        `/tournaments/${tournamentId}/groups/generate-manual`,
+        {
+          method: "POST",
+          body: payload,
+        }
+      );
+      const tGroups = await api<TournamentGroupOut[]>(
+        `/tournaments/${tournamentId}/groups`
+      );
+      setGroups(tGroups);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to generate groups manually");
       throw err;
     } finally {
       setGeneratingGroups(false);
@@ -791,6 +822,16 @@ async function load(options?: { silent?: boolean }) {
       setEditError("El nombre del torneo es obligatorio.");
       return;
     }
+    const parsedMatchDuration = Number(editMatchDurationMinutes);
+    const parsedCourtsCount = Number(editCourtsCount);
+    if (!Number.isFinite(parsedMatchDuration) || parsedMatchDuration <= 0) {
+      setEditError("La duracion del partido debe ser mayor a 0.");
+      return;
+    }
+    if (!Number.isFinite(parsedCourtsCount) || parsedCourtsCount <= 0) {
+      setEditError("La cantidad de canchas debe ser mayor a 0.");
+      return;
+    }
 
     setSavingEdit(true);
     setEditError(null);
@@ -801,6 +842,8 @@ async function load(options?: { silent?: boolean }) {
           name: editName.trim(),
           description: editDescription.trim() ? editDescription.trim() : null,
           location: editLocation.trim() ? editLocation.trim() : null,
+          match_duration_minutes: Math.trunc(parsedMatchDuration),
+          courts_count: Math.trunc(parsedCourtsCount),
         },
       });
 
@@ -947,10 +990,34 @@ async function load(options?: { silent?: boolean }) {
                 rows={3}
               />
               <Input
-                placeholder="Ubicacion o link de Google Maps"
+                placeholder="Link de Google Maps"
                 value={editLocation}
                 onChange={(e) => setEditLocation(e.target.value)}
               />
+              <div className="grid gap-2 md:grid-cols-2">
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold text-zinc-500">
+                    Duracion del partido (min)
+                  </label>
+                  <Input
+                    type="number"
+                    min={1}
+                    value={editMatchDurationMinutes}
+                    onChange={(e) => setEditMatchDurationMinutes(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold text-zinc-500">
+                    Canchas simultaneas
+                  </label>
+                  <Input
+                    type="number"
+                    min={1}
+                    value={editCourtsCount}
+                    onChange={(e) => setEditCourtsCount(e.target.value)}
+                  />
+                </div>
+              </div>
 
               {editError && (
                 <div className="rounded-xl border border-red-300 bg-red-100 p-3 text-sm text-red-800">
@@ -1569,7 +1636,8 @@ async function load(options?: { silent?: boolean }) {
               teamsPerGroup={teamsPerGroup}
               setTeamsPerGroup={setTeamsPerGroup}
               generating={generatingGroups}
-              onGenerate={generateGroups}
+              onGenerateWithAi={generateGroupsWithAi}
+              onGenerateManual={generateGroupsManual}
               defaultStartDate={defaultStartDate}
               defaultStartTime={defaultStartTime}
               defaultEndTime={defaultEndTime}

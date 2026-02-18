@@ -29,6 +29,8 @@ export default function TournamentsPage() {
   const [name, setName] = useState("");
   const [description, setDescription] = useState(defaultDescription);
   const [location, setLocation] = useState("");
+  const [matchDurationMinutes, setMatchDurationMinutes] = useState("90");
+  const [courtsCount, setCourtsCount] = useState("1");
   const [creating, setCreating] = useState(false);
 
   async function load() {
@@ -56,6 +58,16 @@ export default function TournamentsPage() {
 
   async function createTournament() {
     if (!name.trim()) return;
+    const parsedMatchDuration = Number(matchDurationMinutes);
+    const parsedCourtsCount = Number(courtsCount);
+    if (!Number.isFinite(parsedMatchDuration) || parsedMatchDuration <= 0) {
+      setError("La duracion del partido debe ser mayor a 0.");
+      return;
+    }
+    if (!Number.isFinite(parsedCourtsCount) || parsedCourtsCount <= 0) {
+      setError("La cantidad de canchas debe ser mayor a 0.");
+      return;
+    }
     setCreating(true);
     setError(null);
     try {
@@ -65,12 +77,16 @@ export default function TournamentsPage() {
           name,
           description: description.trim() ? description.trim() : null,
           location: location.trim() ? location.trim() : null,
+          match_duration_minutes: Math.trunc(parsedMatchDuration),
+          courts_count: Math.trunc(parsedCourtsCount),
         },
       });
       setItems((prev) => [created, ...prev]);
       setName("");
       setDescription(defaultDescription);
       setLocation("");
+      setMatchDurationMinutes("90");
+      setCourtsCount("1");
     } catch (err: any) {
       setError(err?.message ?? "Failed to create tournament");
     } finally {
@@ -101,17 +117,52 @@ export default function TournamentsPage() {
           <div className="text-sm font-semibold text-zinc-800">
             Nuevo torneo
           </div>
+          
           <div className="grid gap-3 md:grid-cols-2">
-            <Input
-              placeholder="Nombre del torneo"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-            />
-            <Input
-              placeholder="Ubicacion o link de Google Maps"
-              value={location}
-              onChange={(e) => setLocation(e.target.value)}
-            />
+            <div className="space-y-1">
+              <label className="text-xs font-semibold text-zinc-500">
+                Nombre del torneo
+              </label>
+              <Input
+                placeholder="Ej: Torneo Primavera 2026"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-semibold text-zinc-500">
+                Ubicacion
+              </label>
+              <Input
+                placeholder="Link de Google Maps"
+                value={location}
+                onChange={(e) => setLocation(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-semibold text-zinc-500">
+                Duracion del partido (min)
+              </label>
+              <Input
+                type="number"
+                min={1}
+                placeholder="Ej: 90"
+                value={matchDurationMinutes}
+                onChange={(e) => setMatchDurationMinutes(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-semibold text-zinc-500">
+                Canchas simultaneas
+              </label>
+              <Input
+                type="number"
+                min={1}
+                placeholder="Ej: 2"
+                value={courtsCount}
+                onChange={(e) => setCourtsCount(e.target.value)}
+              />
+            </div>
             <textarea
               className="md:col-span-2 w-full rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 outline-none focus:border-zinc-900 focus:ring-2 focus:ring-zinc-900/20"
               placeholder="Descripcion / reglas del torneo"
