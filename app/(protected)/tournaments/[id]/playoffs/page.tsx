@@ -58,6 +58,7 @@ const DEFAULT_SETS: EditableSet[] = [
   { a: "", b: "" },
 ];
 const HOURS = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, "0"));
+const MINUTES = Array.from({ length: 60 }, (_, i) => String(i).padStart(2, "0"));
 const COURT_BADGES = [
   "bg-emerald-100 text-emerald-700",
   "bg-blue-100 text-blue-700",
@@ -957,7 +958,7 @@ export default function TournamentPlayoffsPage() {
     const normalized = normalizeTime(match.scheduled_time);
     const [hour = "", minute = ""] = normalized.split(":");
     setScheduleHour(hour);
-    setScheduleMinute(minute === "00" || minute === "30" ? minute : "");
+    setScheduleMinute(MINUTES.includes(minute) ? minute : "");
     setScheduleCourt(match.court_number ? String(match.court_number) : "1");
     setScheduleError(null);
   }
@@ -977,8 +978,8 @@ export default function TournamentPlayoffsPage() {
       return;
     }
 
-    if (scheduleMinute !== "00" && scheduleMinute !== "30") {
-      setScheduleError("Los turnos deben ser a las :00 o :30.");
+    if (!MINUTES.includes(scheduleMinute)) {
+      setScheduleError("Selecciona minutos validos (00-59).");
       return;
     }
 
@@ -2014,8 +2015,11 @@ export default function TournamentPlayoffsPage() {
                 onChange={(e) => setScheduleMinute(e.target.value)}
               >
                 <option value="">Min</option>
-                <option value="00">00</option>
-                <option value="30">30</option>
+                {MINUTES.map((minute) => (
+                  <option key={minute} value={minute}>
+                    {minute}
+                  </option>
+                ))}
               </select>
             </div>
           </div>
