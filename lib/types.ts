@@ -211,6 +211,26 @@ export type PlayoffGenerateRequest = {
   gender?: string;
 };
 
+export type PlayoffManualSeed = {
+  stage: PlayoffStage;
+  match_index: number;
+  side: "a" | "b";
+  team_id: number;
+  category: string;
+  gender: string;
+};
+
+export type PlayoffManualSeedsUpsertRequest = {
+  seeds: {
+    stage: PlayoffStage;
+    match_index: number;
+    side: "a" | "b";
+    team_id: number;
+  }[];
+  category?: string;
+  gender?: string;
+};
+
 export type GroupStandingRow = {
   team: GroupTeamOut;
   played: number;
