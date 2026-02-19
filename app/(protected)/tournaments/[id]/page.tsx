@@ -141,7 +141,7 @@ export default function TournamentDetailPage() {
   const [editPairGender, setEditPairGender] = useState("");
   const [editScheduleConstraints, setEditScheduleConstraints] = useState("");
 
-  const categories = ["7ma", "6ta", "5ta", "4ta", "3ra", "2da", "1ra"];
+  const categories = ["8va","7ma", "6ta", "5ta", "4ta", "3ra", "2da", "1ra"];
   const genders = [
     { value: "masculino", label: "Masculino" },
     { value: "damas", label: "Damas" },
@@ -556,6 +556,7 @@ async function load(options?: { silent?: boolean }) {
       "5": "5ta",
       "6": "6ta",
       "7": "7ma",
+      "8": "8va",
     };
     if (normalized === digitMatch[0]) {
       return categoryMap[digitMatch[0]] ?? normalized;
