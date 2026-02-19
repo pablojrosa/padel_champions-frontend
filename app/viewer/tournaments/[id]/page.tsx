@@ -322,6 +322,10 @@ export default function PublicTournamentPage() {
     if (dateLabel && timeLabel) return `${dateLabel} - ${timeLabel}`;
     return dateLabel || timeLabel || "";
   }
+  function formatCourt(courtNumber?: number | null) {
+    if (!courtNumber) return "";
+    return `Cancha ${courtNumber}`;
+  }
 
   const matchesByStage = useMemo(() => {
     const map = new Map<Match["stage"], Match[]>();
@@ -413,7 +417,8 @@ export default function PublicTournamentPage() {
     const teamBLabel = getTeamLabel(match.team_b_id);
     const winnerId = match.winner_team_id;
     const schedule = formatSchedule(match.scheduled_date, match.scheduled_time);
-    const scheduleLabel = schedule || "Horario a confirmar";
+    const court = formatCourt(match.court_number);
+    const scheduleMeta = [schedule, court].filter(Boolean).join(" · ");
 
     return (
       <div
@@ -426,9 +431,11 @@ export default function PublicTournamentPage() {
           <div className="text-xs font-semibold text-zinc-700">
             {stage} · {getMatchCode(match)}
           </div>
-          <div className="rounded-full border border-emerald-600/80 bg-emerald-100/80 px-2 py-0.5 text-[10px] font-semibold text-emerald-900">
-            {scheduleLabel}
-          </div>
+          {scheduleMeta ? (
+            <div className="rounded-full border border-emerald-600/80 bg-emerald-100/80 px-2 py-0.5 text-[10px] font-semibold text-emerald-900">
+              {scheduleMeta}
+            </div>
+          ) : null}
         </div>
         <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
           <span className={winnerId === match.team_a_id ? "font-semibold text-emerald-700" : ""}>
@@ -482,7 +489,10 @@ export default function PublicTournamentPage() {
                   </a>
                 </>
               ) : (
-                " · Sede a confirmar"
+                <span className="mt-1 block space-y-0.5">
+                  <span className="block">Cancha 1, 2 y 3: Arena padel</span>
+                  <span className="block">Canchas 4 y 5: Rio padel</span>
+                </span>
               )}
             </p>
           </div>
@@ -780,7 +790,9 @@ export default function PublicTournamentPage() {
                                       match.scheduled_date,
                                       match.scheduled_time
                                     );
-                                    const hasSchedule = !!schedule;
+                                    const court = formatCourt(match.court_number);
+                                    const scheduleMeta = [schedule, court].filter(Boolean).join(" · ");
+                                    const hasScheduleMeta = !!scheduleMeta;
                                     const scoreA = played ? formatSetLine(match.sets, "a") : "";
                                     const scoreB = played ? formatSetLine(match.sets, "b") : "";
                                     const aWinner = match.winner_team_id === match.team_a_id;
@@ -847,18 +859,14 @@ export default function PublicTournamentPage() {
                                         {played && (
                                           <div className="mt-1 h-px w-full bg-emerald-400/70" />
                                         )}
-                                        {!played && hasSchedule && (
+                                        {!played && hasScheduleMeta && (
                                           <div className="mt-1 h-px w-full bg-zinc-800" />
                                         )}
-                                        {hasSchedule ? (
+                                        {hasScheduleMeta ? (
                                           <div className="mt-1 text-xs text-zinc-500">
-                                            {schedule}
+                                            {scheduleMeta}
                                           </div>
-                                        ) : (
-                                          <div className="mt-1 text-xs text-zinc-500">
-                                            Horario a confirmar
-                                          </div>
-                                        )}
+                                        ) : null}
                                       </div>
                                     );
                                   })}
