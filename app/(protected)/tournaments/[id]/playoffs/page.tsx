@@ -12,6 +12,8 @@ import type {
   Match,
   MatchSet,
   PlayoffGenerateRequest,
+  PlayoffManualSeed,
+  PlayoffManualSeedsUpsertRequest,
   PlayoffStage,
   Team,
   TournamentGroupOut,
@@ -22,7 +24,33 @@ import type {
 type IdParam = { id: string };
 
 type EditableSet = { a: string; b: string };
-type ManualPairDraft = { team_a_id: number | ""; team_b_id: number | "" };
+type ManualSlotSide = "a" | "b";
+type ManualSlotKind = "manual" | "winner";
+type ManualSlot = {
+  key: string;
+  kind: ManualSlotKind;
+  sourceStage?: PlayoffStage;
+  sourceMatchIndex?: number;
+};
+type ManualDraftMatch = {
+  stage: PlayoffStage;
+  matchIndex: number;
+  slotA: ManualSlot;
+  slotB: ManualSlot;
+};
+type ManualDraftStage = {
+  stage: PlayoffStage;
+  matches: ManualDraftMatch[];
+};
+type GroupRankingEntry = {
+  groupId: number;
+  groupName: string;
+  position: number;
+  points: number;
+  setDiff: number;
+  gameDiff: number;
+  teamId: number;
+};
 
 const DEFAULT_SETS: EditableSet[] = [
   { a: "", b: "" },
@@ -77,6 +105,59 @@ const STAGE_LABELS: Record<PlayoffStage, string> = {
   final: "Final",
 };
 
+function manualSlotKey(stage: PlayoffStage, matchIndex: number, side: ManualSlotSide) {
+  return `${stage}:${matchIndex}:${side}`;
+}
+
+function parseManualSlotKey(
+  value: string
+): { stage: PlayoffStage; matchIndex: number; side: ManualSlotSide } | null {
+  const [stageRaw, matchIndexRaw, sideRaw] = value.split(":");
+  if (!stageRaw || !matchIndexRaw || !sideRaw) return null;
+  if (!PLAYOFF_STAGES.includes(stageRaw as PlayoffStage)) return null;
+  if (sideRaw !== "a" && sideRaw !== "b") return null;
+  const matchIndex = Number(matchIndexRaw);
+  if (!Number.isInteger(matchIndex) || matchIndex < 0) return null;
+  return {
+    stage: stageRaw as PlayoffStage,
+    matchIndex,
+    side: sideRaw,
+  };
+}
+
+function assignWinnerSlotIndexes(
+  previousMatchCount: number,
+  nextMatchCount: number
+): Map<number, number> {
+  const slotCount = nextMatchCount * 2;
+  const result = new Map<number, number>();
+
+  const assign = (winnerIdx: number, slotIdx: number) => {
+    if (slotIdx < 0 || slotIdx >= slotCount) return;
+    result.set(slotIdx, winnerIdx);
+  };
+
+  if (previousMatchCount >= slotCount) {
+    for (let idx = 0; idx < slotCount; idx += 1) {
+      assign(idx, idx);
+    }
+  } else if (previousMatchCount <= nextMatchCount) {
+    for (let idx = 0; idx < previousMatchCount; idx += 1) {
+      assign(idx, idx * 2 + 1);
+    }
+  } else {
+    for (let idx = 0; idx < nextMatchCount; idx += 1) {
+      assign(idx, idx * 2 + 1);
+    }
+    const remaining = previousMatchCount - nextMatchCount;
+    for (let idx = 0; idx < Math.min(remaining, nextMatchCount); idx += 1) {
+      assign(nextMatchCount + idx, idx * 2);
+    }
+  }
+
+  return result;
+}
+
 export default function TournamentPlayoffsPage() {
   const router = useRouter();
   const params = useParams<IdParam>();
@@ -113,7 +194,8 @@ export default function TournamentPlayoffsPage() {
   const [gridMatch, setGridMatch] = useState<Match | null>(null);
 
   const [manualStage, setManualStage] = useState<PlayoffStage | null>(null);
-  const [manualPairs, setManualPairs] = useState<ManualPairDraft[]>([]);
+  const [manualSlotValues, setManualSlotValues] = useState<Record<string, number | "">>({});
+  const [manualInitialTeamCount, setManualInitialTeamCount] = useState(2);
   const [manualError, setManualError] = useState<string | null>(null);
   const [manualStageOpen, setManualStageOpen] = useState(false);
   const [manualStageCandidate, setManualStageCandidate] = useState<PlayoffStage | "">("");
@@ -158,13 +240,33 @@ export default function TournamentPlayoffsPage() {
     );
   }, [groups, categoryFilter, genderFilter]);
 
-  const groupPointsByTeam = useMemo(() => {
-    const points = new Map<number, number>();
-    if (categoryFilter === "all" || genderFilter === "all") return points;
+  const rankedTeamsByGroup = useMemo(() => {
+    if (categoryFilter === "all" || genderFilter === "all") return [];
+
+    const rankEntries: GroupRankingEntry[] = [];
+    const labelForTeamId = (teamId: number) => {
+      const team = teamsById.get(teamId);
+      if (!team) return `Team #${teamId}`;
+      const names = team.players?.map((player) => player.name).filter(Boolean) ?? [];
+      return names.length > 0 ? names.join(" / ") : `Team #${teamId}`;
+    };
 
     filteredGroups.forEach((group) => {
       const groupTeamIds = new Set(group.teams.map((team) => team.id));
-      group.teams.forEach((team) => points.set(team.id, points.get(team.id) ?? 0));
+      const stats = new Map<
+        number,
+        { points: number; setsFor: number; setsAgainst: number; gamesFor: number; gamesAgainst: number }
+      >();
+
+      group.teams.forEach((team) => {
+        stats.set(team.id, {
+          points: 0,
+          setsFor: 0,
+          setsAgainst: 0,
+          gamesFor: 0,
+          gamesAgainst: 0,
+        });
+      });
 
       const groupMatches = matches.filter(
         (match) =>
@@ -181,23 +283,80 @@ export default function TournamentPlayoffsPage() {
 
         let setsWonA = 0;
         let setsWonB = 0;
+        let gamesA = 0;
+        let gamesB = 0;
+
         (match.sets ?? []).forEach((setScore) => {
+          gamesA += setScore.a;
+          gamesB += setScore.b;
           if (setScore.a > setScore.b) setsWonA += 1;
           if (setScore.b > setScore.a) setsWonB += 1;
         });
 
-        if (setsWonA === setsWonB) return;
+        const pointsA = setsWonA > setsWonB ? (setsWonB === 0 ? 3 : 2) : setsWonA < setsWonB ? (setsWonA === 0 ? 0 : 1) : 0;
+        const pointsB = setsWonB > setsWonA ? (setsWonA === 0 ? 3 : 2) : setsWonB < setsWonA ? (setsWonB === 0 ? 0 : 1) : 0;
 
-        const pointsA = setsWonA > setsWonB ? (setsWonB === 0 ? 3 : 2) : (setsWonA === 0 ? 0 : 1);
-        const pointsB = setsWonB > setsWonA ? (setsWonA === 0 ? 3 : 2) : (setsWonB === 0 ? 0 : 1);
+        const teamAStats = stats.get(match.team_a_id);
+        const teamBStats = stats.get(match.team_b_id);
+        if (!teamAStats || !teamBStats) return;
 
-        points.set(match.team_a_id, (points.get(match.team_a_id) ?? 0) + pointsA);
-        points.set(match.team_b_id, (points.get(match.team_b_id) ?? 0) + pointsB);
+        teamAStats.points += pointsA;
+        teamAStats.setsFor += setsWonA;
+        teamAStats.setsAgainst += setsWonB;
+        teamAStats.gamesFor += gamesA;
+        teamAStats.gamesAgainst += gamesB;
+
+        teamBStats.points += pointsB;
+        teamBStats.setsFor += setsWonB;
+        teamBStats.setsAgainst += setsWonA;
+        teamBStats.gamesFor += gamesB;
+        teamBStats.gamesAgainst += gamesA;
+      });
+
+      const rows = Array.from(stats.entries()).map(([teamId, values]) => ({
+        teamId,
+        points: values.points,
+        setDiff: values.setsFor - values.setsAgainst,
+        gameDiff: values.gamesFor - values.gamesAgainst,
+      }));
+
+      rows.sort((a, b) => {
+        if (a.points !== b.points) return b.points - a.points;
+        if (a.setDiff !== b.setDiff) return b.setDiff - a.setDiff;
+        if (a.gameDiff !== b.gameDiff) return b.gameDiff - a.gameDiff;
+        return labelForTeamId(a.teamId).localeCompare(labelForTeamId(b.teamId));
+      });
+
+      rows.forEach((row, idx) => {
+        rankEntries.push({
+          groupId: group.id,
+          groupName: group.name.replace(/^(group|grupo)\s*/i, "Zona "),
+          position: idx + 1,
+          points: row.points,
+          setDiff: row.setDiff,
+          gameDiff: row.gameDiff,
+          teamId: row.teamId,
+        });
       });
     });
 
-    return points;
-  }, [filteredGroups, matches, categoryFilter, genderFilter]);
+    rankEntries.sort((a, b) => {
+      const groupCmp = a.groupName.localeCompare(b.groupName);
+      if (groupCmp !== 0) return groupCmp;
+      if (a.position !== b.position) return a.position - b.position;
+      if (a.points !== b.points) return b.points - a.points;
+      if (a.setDiff !== b.setDiff) return b.setDiff - a.setDiff;
+      return b.gameDiff - a.gameDiff;
+    });
+
+    return rankEntries;
+  }, [filteredGroups, matches, categoryFilter, genderFilter, teamsById]);
+
+  const groupRankingByTeam = useMemo(() => {
+    const map = new Map<number, GroupRankingEntry>();
+    rankedTeamsByGroup.forEach((entry) => map.set(entry.teamId, entry));
+    return map;
+  }, [rankedTeamsByGroup]);
 
   const sortedTeams = useMemo(() => {
     const labelFor = (team: Team) => {
@@ -214,13 +373,26 @@ export default function TournamentPlayoffsPage() {
             const genderMatch = genderFilter === "all" || gender === genderFilter;
             return categoryMatch && genderMatch;
           });
+
+    if (categoryFilter !== "all" && genderFilter !== "all") {
+      const rankOrder = new Map<number, number>();
+      rankedTeamsByGroup.forEach((entry, idx) => rankOrder.set(entry.teamId, idx));
+      return [...filtered].sort((a, b) => {
+        const rankA = rankOrder.get(a.id);
+        const rankB = rankOrder.get(b.id);
+        if (typeof rankA === "number" && typeof rankB === "number" && rankA !== rankB) {
+          return rankA - rankB;
+        }
+        if (typeof rankA === "number") return -1;
+        if (typeof rankB === "number") return 1;
+        return labelFor(a).localeCompare(labelFor(b));
+      });
+    }
+
     return [...filtered].sort((a, b) => {
-      const pointsA = groupPointsByTeam.get(a.id) ?? 0;
-      const pointsB = groupPointsByTeam.get(b.id) ?? 0;
-      if (pointsA !== pointsB) return pointsB - pointsA;
       return labelFor(a).localeCompare(labelFor(b));
     });
-  }, [teams, categoryFilter, genderFilter, groupPointsByTeam]);
+  }, [teams, categoryFilter, genderFilter, rankedTeamsByGroup]);
 
   const matchesByStage = useMemo(() => {
     const map = new Map<PlayoffStage, Match[]>();
@@ -243,6 +415,20 @@ export default function TournamentPlayoffsPage() {
     () => Array.from(matchesByStage.values()).some((items) => items.length > 0),
     [matchesByStage]
   );
+  const winnerByStageIndex = useMemo(() => {
+    const map = new Map<PlayoffStage, Map<number, number>>();
+    PLAYOFF_STAGES.forEach((stage) => {
+      const stageMatches = [...(matchesByStage.get(stage) ?? [])].sort((a, b) => a.id - b.id);
+      const winners = new Map<number, number>();
+      stageMatches.forEach((match, idx) => {
+        if (match.winner_team_id) {
+          winners.set(idx, match.winner_team_id);
+        }
+      });
+      map.set(stage, winners);
+    });
+    return map;
+  }, [matchesByStage]);
 
   const categoryFilteredMatches = useMemo(() => {
     return matches.filter((match) => {
@@ -418,9 +604,190 @@ export default function TournamentPlayoffsPage() {
     return PLAYOFF_STAGES;
   }, [groupStageComplete, categoryFilter, genderFilter]);
 
+  const manualInitialTeamOptions = useMemo(() => {
+    if (!manualStage) return [];
+    const maxTeams = STAGE_TEAM_COUNTS[manualStage];
+    const values: number[] = [];
+    for (let count = 2; count <= maxTeams; count += 2) {
+      values.push(count);
+    }
+    return values;
+  }, [manualStage]);
+
+  const manualDraftStages = useMemo(() => {
+    if (!manualStage) return [];
+
+    const startIdx = PLAYOFF_STAGES.indexOf(manualStage);
+    if (startIdx === -1) return [];
+
+    const stagePath = PLAYOFF_STAGES.slice(startIdx);
+    const drafts: ManualDraftStage[] = [];
+    let previousStage: PlayoffStage | null = null;
+    let previousMatchCount = 0;
+
+    stagePath.forEach((stage, pathIdx) => {
+      const standardMatchCount = Math.max(1, STAGE_TEAM_COUNTS[stage] / 2);
+      const initialMatchCount = Math.max(1, Math.floor(manualInitialTeamCount / 2));
+      const matchCount =
+        pathIdx === 0 ? Math.min(initialMatchCount, standardMatchCount) : standardMatchCount;
+
+      const slots: ManualSlot[] = Array.from({ length: matchCount * 2 }, (_, slotIdx) => {
+        const side: ManualSlotSide = slotIdx % 2 === 0 ? "a" : "b";
+        const matchIndex = Math.floor(slotIdx / 2);
+        return {
+          key: manualSlotKey(stage, matchIndex, side),
+          kind: "manual",
+        };
+      });
+
+      const assignWinnerSlot = (winnerIdx: number, slotIdx: number) => {
+        if (!previousStage || slotIdx < 0 || slotIdx >= slots.length) return;
+        const side: ManualSlotSide = slotIdx % 2 === 0 ? "a" : "b";
+        const matchIndex = Math.floor(slotIdx / 2);
+        slots[slotIdx] = {
+          key: manualSlotKey(stage, matchIndex, side),
+          kind: "winner",
+          sourceStage: previousStage,
+          sourceMatchIndex: winnerIdx,
+        };
+      };
+
+      if (previousStage && previousMatchCount > 0) {
+        if (previousMatchCount >= slots.length) {
+          for (let i = 0; i < slots.length; i += 1) {
+            assignWinnerSlot(i, i);
+          }
+        } else if (previousMatchCount <= matchCount) {
+          for (let i = 0; i < previousMatchCount; i += 1) {
+            assignWinnerSlot(i, i * 2 + 1);
+          }
+        } else {
+          for (let i = 0; i < matchCount; i += 1) {
+            assignWinnerSlot(i, i * 2 + 1);
+          }
+          const remaining = previousMatchCount - matchCount;
+          for (let i = 0; i < remaining && i < matchCount; i += 1) {
+            assignWinnerSlot(matchCount + i, i * 2);
+          }
+        }
+      }
+
+      const matchesDraft: ManualDraftMatch[] = Array.from(
+        { length: matchCount },
+        (_, matchIdx) => ({
+          stage,
+          matchIndex: matchIdx,
+          slotA: slots[matchIdx * 2],
+          slotB: slots[matchIdx * 2 + 1],
+        })
+      );
+
+      drafts.push({ stage, matches: matchesDraft });
+      previousStage = stage;
+      previousMatchCount = matchCount;
+    });
+
+    return drafts;
+  }, [manualStage, manualInitialTeamCount]);
+
+  const manualEditableSlotKeys = useMemo(() => {
+    const keys = new Set<string>();
+    manualDraftStages.forEach((stageDraft) => {
+      stageDraft.matches.forEach((matchDraft) => {
+        if (matchDraft.slotA.kind === "manual") keys.add(matchDraft.slotA.key);
+        if (matchDraft.slotB.kind === "manual") keys.add(matchDraft.slotB.key);
+      });
+    });
+    return keys;
+  }, [manualDraftStages]);
+
   const manualSelectedIds = useMemo(() => {
-    return manualPairs.flatMap((pair) => [pair.team_a_id, pair.team_b_id]);
-  }, [manualPairs]);
+    if (!manualStage) return [];
+    const ids: number[] = [];
+    manualEditableSlotKeys.forEach((slotKey) => {
+      const teamId = manualSlotValues[slotKey];
+      if (typeof teamId === "number") {
+        ids.push(teamId);
+      }
+    });
+    return ids;
+  }, [manualSlotValues, manualEditableSlotKeys, manualStage]);
+  const manualSelectedIdSet = useMemo(
+    () => new Set(manualSelectedIds),
+    [manualSelectedIds]
+  );
+  const manualPreviewLabelBySlotKey = useMemo(() => {
+    const labelForTeamId = (teamId: number) => {
+      const team = teamsById.get(teamId);
+      if (!team) return `Team #${teamId}`;
+      const names = team.players?.map((player) => player.name).filter(Boolean) ?? [];
+      return names.length > 0 ? names.join(" / ") : `Team #${teamId}`;
+    };
+
+    const map = new Map<string, string>();
+    Object.entries(manualSlotValues).forEach(([slotKey, teamId]) => {
+      if (typeof teamId === "number") {
+        map.set(slotKey, labelForTeamId(teamId));
+      }
+    });
+
+    return map;
+  }, [manualSlotValues, teamsById]);
+
+  const loadManualSeeds = useCallback(async () => {
+    if (!Number.isFinite(tournamentId)) return;
+    if (categoryFilter === "all" || genderFilter === "all") {
+      setManualSlotValues({});
+      return;
+    }
+
+    try {
+      const seeds = await api<PlayoffManualSeed[]>(
+        `/tournaments/${tournamentId}/playoff-manual-seeds?category=${encodeURIComponent(categoryFilter)}&gender=${encodeURIComponent(genderFilter)}`
+      );
+      const next: Record<string, number | ""> = {};
+      seeds.forEach((seed) => {
+        next[manualSlotKey(seed.stage, seed.match_index, seed.side)] = seed.team_id;
+      });
+      setManualSlotValues(next);
+    } catch (err: unknown) {
+      if (err instanceof ApiError && err.status === 401) {
+        clearToken();
+        router.replace("/login");
+        return;
+      }
+      setManualSlotValues({});
+    }
+  }, [router, tournamentId, categoryFilter, genderFilter]);
+
+  const persistManualSeeds = useCallback(
+    async (slotValues: Record<string, number | "">) => {
+      if (categoryFilter === "all" || genderFilter === "all") return;
+
+      const seeds: PlayoffManualSeedsUpsertRequest["seeds"] = [];
+      Object.entries(slotValues).forEach(([slotKey, teamId]) => {
+        if (typeof teamId !== "number") return;
+        const parsed = parseManualSlotKey(slotKey);
+        if (!parsed) return;
+        seeds.push({
+          stage: parsed.stage,
+          match_index: parsed.matchIndex,
+          side: parsed.side,
+          team_id: teamId,
+        });
+      });
+
+      await api<PlayoffManualSeed[]>(`/tournaments/${tournamentId}/playoff-manual-seeds`, {
+        method: "PUT",
+        body: {
+          seeds,
+          category: categoryFilter,
+          gender: genderFilter,
+        } satisfies PlayoffManualSeedsUpsertRequest,
+      });
+    },
+    [tournamentId, categoryFilter, genderFilter]
+  );
 
   const loadPlayoffs = useCallback(async () => {
     if (!Number.isFinite(tournamentId)) return;
@@ -475,6 +842,10 @@ export default function TournamentPlayoffsPage() {
   }, [loadPlayoffs]);
 
   useEffect(() => {
+    loadManualSeeds();
+  }, [loadManualSeeds]);
+
+  useEffect(() => {
     if (hasDefaultedFilters.current) return;
     if (categories.length === 0 && genders.length === 0) return;
 
@@ -501,9 +872,10 @@ export default function TournamentPlayoffsPage() {
     if (names.length === 0) return `Team #${teamId}`;
     return names.join(" / ");
   }
-  function getTeamLabelWithPoints(teamId: number) {
-    const points = groupPointsByTeam.get(teamId) ?? 0;
-    return `${getTeamLabel(teamId)} (${points} pts)`;
+  function getTeamLabelWithGroupRank(teamId: number) {
+    const ranking = groupRankingByTeam.get(teamId);
+    if (!ranking) return getTeamLabel(teamId);
+    return `${getTeamLabel(teamId)} (${ranking.position}° ${ranking.groupName})`;
   }
   function getMatchCode(match: Match) {
     return match.match_code ?? String(match.id);
@@ -717,90 +1089,197 @@ export default function TournamentPlayoffsPage() {
 
   function startManualStage(stage: PlayoffStage) {
     setManualStage(stage);
-    setManualPairs([{ team_a_id: "", team_b_id: "" }]);
+    setManualInitialTeamCount(STAGE_TEAM_COUNTS[stage]);
     setManualError(null);
     setManualStageOpen(false);
     setManualStageCandidate("");
   }
 
-  function addManualPair() {
-    setManualPairs((prev) => [...prev, { team_a_id: "", team_b_id: "" }]);
-  }
-
-  function removeManualPair(idx: number) {
-    setManualPairs((prev) => prev.filter((_, pairIdx) => pairIdx !== idx));
-  }
-
-  function updateManualPair(idx: number, key: "team_a_id" | "team_b_id", value: string) {
+  function updateManualSlotValue(slotKey: string, value: string) {
     const parsed = value === "" ? "" : Number(value);
-    setManualPairs((prev) =>
-      prev.map((pair, i) => (i === idx ? { ...pair, [key]: parsed } : pair))
-    );
+    setManualSlotValues((prev) => ({
+      ...prev,
+      [slotKey]: parsed,
+    }));
+    setManualError(null);
   }
 
-  function validateManualPairs(): string | null {
+  function getWinnerTeamFromSlot(slot: ManualSlot): number | "" {
+    if (slot.kind !== "winner" || !slot.sourceStage) return "";
+    const winnerIdx = slot.sourceMatchIndex ?? -1;
+    return winnerByStageIndex.get(slot.sourceStage)?.get(winnerIdx) ?? "";
+  }
+
+  function getManualSlotValue(slot: ManualSlot): number | "" {
+    if (slot.kind === "winner") return getWinnerTeamFromSlot(slot);
+    return manualSlotValues[slot.key] ?? "";
+  }
+
+  function getManualSlotPlaceholder(slot: ManualSlot): string {
+    if (slot.kind !== "winner") return "Seleccionar pareja";
+    if (!slot.sourceStage) return "Ganador partido previo";
+    const sourceMatch = (slot.sourceMatchIndex ?? 0) + 1;
+    return `Ganador ${STAGE_LABELS[slot.sourceStage]} · Partido ${sourceMatch}`;
+  }
+
+  function getManualWinnerSlotLabel(slot: ManualSlot): string {
+    const winnerTeamId = getWinnerTeamFromSlot(slot);
+    if (typeof winnerTeamId === "number") {
+      return getTeamLabelWithGroupRank(winnerTeamId);
+    }
+    return getManualSlotPlaceholder(slot);
+  }
+
+  function validateManualBracket() {
     if (!manualStage) return "Selecciona una instancia para armar.";
     if (categoryFilter === "all" || genderFilter === "all") {
       return "Selecciona categoria y genero antes de generar playoffs.";
     }
-    if (manualPairs.length === 0) {
-      return "Agrega al menos un cruce manual.";
-    }
-
-    for (let i = 0; i < manualPairs.length; i += 1) {
-      const pair = manualPairs[i];
-      if (pair.team_a_id === "" || pair.team_b_id === "") {
-        return "Completa todas las parejas.";
-      }
-      if (pair.team_a_id === pair.team_b_id) {
-        return `Partido ${i + 1} tiene el mismo equipo en ambos lados.`;
-      }
-    }
-
-    const ids = manualPairs.flatMap((pair) => [
-      pair.team_a_id,
-      pair.team_b_id,
-    ]);
-    const normalized = ids.filter((id): id is number => typeof id === "number");
-
-    if (new Set(normalized).size !== normalized.length) {
-      return "No podes repetir parejas en la misma instancia.";
-    }
-
     return null;
   }
 
   async function submitManualPairs() {
     if (!manualStage) return;
 
-    const validation = validateManualPairs();
+    const validation = validateManualBracket();
     if (validation) {
       setManualError(validation);
       return;
     }
 
+    const stagePayloads: Array<{
+      stage: PlayoffStage;
+      manual_pairs: { team_a_id: number; team_b_id: number }[];
+    }> = [];
+    const generatedSlotKeys = new Set<string>();
+
+    for (const stageDraft of manualDraftStages) {
+      const existingStageMatches = matchesByStage.get(stageDraft.stage) ?? [];
+      const occupiedTeamIds = new Set<number>();
+      const existingPairs = new Set<string>();
+
+      existingStageMatches.forEach((match) => {
+        occupiedTeamIds.add(match.team_a_id);
+        occupiedTeamIds.add(match.team_b_id);
+        const key = [match.team_a_id, match.team_b_id].sort((a, b) => a - b).join("-");
+        existingPairs.add(key);
+      });
+
+      const pairsForStage: { team_a_id: number; team_b_id: number }[] = [];
+
+      for (const matchDraft of stageDraft.matches) {
+        const teamA = getManualSlotValue(matchDraft.slotA);
+        const teamB = getManualSlotValue(matchDraft.slotB);
+        const editableSides =
+          Number(matchDraft.slotA.kind === "manual")
+          + Number(matchDraft.slotB.kind === "manual");
+        const hasTeamA = typeof teamA === "number";
+        const hasTeamB = typeof teamB === "number";
+
+        if (editableSides === 0) {
+          continue;
+        }
+
+        if (!hasTeamA && !hasTeamB) {
+          continue;
+        }
+
+        if (!hasTeamA || !hasTeamB) {
+          if (editableSides === 2) {
+            setManualError(
+              `${STAGE_LABELS[stageDraft.stage]} · Partido ${matchDraft.matchIndex + 1}: completa ambos equipos o deja el partido vacio.`
+            );
+            return;
+          }
+          continue;
+        }
+
+        if (teamA === teamB) {
+          setManualError(
+            `${STAGE_LABELS[stageDraft.stage]} · Partido ${matchDraft.matchIndex + 1}: no podes enfrentar la misma pareja.`
+          );
+          return;
+        }
+
+        if (occupiedTeamIds.has(teamA) || occupiedTeamIds.has(teamB)) {
+          setManualError(
+            `${STAGE_LABELS[stageDraft.stage]}: una de las parejas ya tiene partido en esta instancia.`
+          );
+          return;
+        }
+
+        const pairKey = [teamA, teamB].sort((a, b) => a - b).join("-");
+        if (existingPairs.has(pairKey)) {
+          setManualError(
+            `${STAGE_LABELS[stageDraft.stage]}: el cruce ${getTeamLabel(teamA)} vs ${getTeamLabel(teamB)} ya existe.`
+          );
+          return;
+        }
+
+        existingPairs.add(pairKey);
+        occupiedTeamIds.add(teamA);
+        occupiedTeamIds.add(teamB);
+        if (matchDraft.slotA.kind === "manual") generatedSlotKeys.add(matchDraft.slotA.key);
+        if (matchDraft.slotB.kind === "manual") generatedSlotKeys.add(matchDraft.slotB.key);
+        pairsForStage.push({ team_a_id: teamA, team_b_id: teamB });
+      }
+
+      if (pairsForStage.length > 0) {
+        stagePayloads.push({
+          stage: stageDraft.stage,
+          manual_pairs: pairsForStage,
+        });
+      }
+    }
+
     setGenerating(true);
     setManualError(null);
 
+    let runningStage: PlayoffStage | null = null;
+    const createdAll: Match[] = [];
+
     try {
-      const payload: PlayoffGenerateRequest = {
-        stage: manualStage,
-        manual_pairs: manualPairs.map((pair) => ({
-          team_a_id: pair.team_a_id as number,
-          team_b_id: pair.team_b_id as number,
-        })),
-        category: categoryFilter === "all" ? undefined : categoryFilter,
-        gender: genderFilter === "all" ? undefined : genderFilter,
-      };
-      const created = await api<Match[]>(`/tournaments/${tournamentId}/generate-playoffs`, {
-        method: "POST",
-        body: payload,
+      if (stagePayloads.length === 0) {
+        await persistManualSeeds(manualSlotValues);
+        setManualError(null);
+        return;
+      }
+
+      for (const stagePayload of stagePayloads) {
+        runningStage = stagePayload.stage;
+        const payload: PlayoffGenerateRequest = {
+          stage: stagePayload.stage,
+          manual_pairs: stagePayload.manual_pairs,
+          category: categoryFilter === "all" ? undefined : categoryFilter,
+          gender: genderFilter === "all" ? undefined : genderFilter,
+        };
+        const created = await api<Match[]>(`/tournaments/${tournamentId}/generate-playoffs`, {
+          method: "POST",
+          body: payload,
+        });
+        createdAll.push(...created);
+      }
+
+      if (createdAll.length > 0) {
+        setMatches((prev) => [...prev, ...createdAll]);
+      }
+      const remainingSlotValues: Record<string, number | ""> = { ...manualSlotValues };
+      generatedSlotKeys.forEach((key) => {
+        delete remainingSlotValues[key];
       });
-      setMatches((prev) => [...prev, ...created]);
-      setManualStage(null);
-      setManualPairs([]);
+      await persistManualSeeds(remainingSlotValues);
+      setManualSlotValues(remainingSlotValues);
+      setManualError(null);
     } catch (err: any) {
-      setManualError(err?.message ?? "No se pudieron generar los cruces");
+      await reloadMatches();
+      const stageLabel = runningStage
+        ? STAGE_LABELS[runningStage]
+        : stagePayloads.length === 0
+        ? "guardado de semillas"
+        : "la instancia seleccionada";
+      setManualError(
+        `${stageLabel}: ${err?.message ?? "No se pudieron generar los cruces"}`
+      );
     } finally {
       setGenerating(false);
     }
@@ -907,43 +1386,43 @@ export default function TournamentPlayoffsPage() {
           )}
 
           {!hasPlayoffs && (
-            <>
-              <Card className="bg-white/95">
-                <div className="p-6 space-y-4">
-                  <div className="flex flex-col gap-2">
-                    <div className="text-sm font-semibold text-zinc-800">Instancias disponibles (automatico)</div>
-                    {availableStages.length === 0 ? (
-                      <div className="text-sm text-zinc-600">
-                        {!groupStageComplete && !latestStage
-                          ? "Tenes que completar los resultados de grupos para esta categoria y genero."
-                          : latestStage && !canGenerateNextStage
-                          ? `Completa los resultados de ${STAGE_LABELS[latestStage]} para avanzar.`
-                          : "No hay instancias disponibles para generar ahora."}
-                      </div>
-                    ) : (
-                      <div className="flex flex-wrap gap-2">
-                        {availableStages.map((stage) => (
-                          <Button
-                            key={stage}
-                            onClick={() => setConfirmStage(stage)}
-                            disabled={generating}
-                          >
-                            Generar {STAGE_LABELS[stage]}
-                          </Button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-
-                  {actionError && (
-                    <div className="rounded-xl border border-red-300 bg-red-100 p-3 text-sm text-red-800">
-                      {actionError}
+            <Card className="bg-white/95">
+              <div className="p-6 space-y-4">
+                <div className="flex flex-col gap-2">
+                  <div className="text-sm font-semibold text-zinc-800">Instancias disponibles (automatico)</div>
+                  {availableStages.length === 0 ? (
+                    <div className="text-sm text-zinc-600">
+                      {!groupStageComplete && !latestStage
+                        ? "Tenes que completar los resultados de grupos para esta categoria y genero."
+                        : latestStage && !canGenerateNextStage
+                        ? `Completa los resultados de ${STAGE_LABELS[latestStage]} para avanzar.`
+                        : "No hay instancias disponibles para generar ahora."}
+                    </div>
+                  ) : (
+                    <div className="flex flex-wrap gap-2">
+                      {availableStages.map((stage) => (
+                        <Button
+                          key={stage}
+                          onClick={() => setConfirmStage(stage)}
+                          disabled={generating}
+                        >
+                          Generar {STAGE_LABELS[stage]}
+                        </Button>
+                      ))}
                     </div>
                   )}
                 </div>
-              </Card>
 
-              <Card className="bg-white/95">
+                {actionError && (
+                  <div className="rounded-xl border border-red-300 bg-red-100 p-3 text-sm text-red-800">
+                    {actionError}
+                  </div>
+                )}
+              </div>
+            </Card>
+          )}
+
+          <Card className="bg-white/95">
                 <div className="p-6 space-y-4">
                   <div className="text-sm font-semibold text-zinc-800">Armado manual por instancia</div>
 
@@ -975,59 +1454,120 @@ export default function TournamentPlayoffsPage() {
                         {STAGE_LABELS[manualStage]}
                       </div>
                       <div className="text-xs text-zinc-500">
-                        Podes agregar la cantidad de cruces que necesites para esta instancia.
+                        Armá el cuadro completo desde esta instancia. Los cupos marcados como
+                        ganador se completan cuando exista ese resultado.
                       </div>
-                      <div className="space-y-2">
-                        {manualPairs.map((pair, idx) => (
-                          <div
-                            key={idx}
-                            className="flex flex-col gap-2 rounded-2xl border border-zinc-200 p-3 text-sm md:flex-row md:items-center"
+                      {manualInitialTeamOptions.length > 0 && (
+                        <div className="flex items-center gap-3">
+                          <label className="text-xs font-semibold text-zinc-500">
+                            Parejas que juegan {STAGE_LABELS[manualStage]}
+                          </label>
+                          <select
+                            className="rounded-xl border border-zinc-400 bg-white px-3 py-2 text-sm font-medium text-zinc-900 shadow-sm focus:border-zinc-700 focus:outline-none focus:ring-2 focus:ring-zinc-900/15"
+                            value={manualInitialTeamCount}
+                            onChange={(e) => setManualInitialTeamCount(Number(e.target.value))}
                           >
-                            <div className="w-24 text-xs font-semibold text-zinc-500">
-                              Partido {idx + 1}
+                            {manualInitialTeamOptions.map((count) => (
+                              <option key={count} value={count}>
+                                {count}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      )}
+
+                      <div className="space-y-3">
+                        {manualDraftStages.map((stageDraft) => (
+                          <div
+                            key={stageDraft.stage}
+                            className="rounded-2xl border border-zinc-200 p-3 space-y-2"
+                          >
+                            <div className="flex items-center justify-between">
+                              <div className="text-xs font-semibold uppercase tracking-[0.15em] text-zinc-500">
+                                {STAGE_LABELS[stageDraft.stage]}
+                              </div>
+                              <div className="text-xs text-zinc-500">
+                                {stageDraft.matches.length} partidos
+                              </div>
                             </div>
-                            <select
-                              className="w-full rounded-xl border border-zinc-400 bg-white px-3 py-2 text-sm font-medium text-zinc-900 shadow-sm focus:border-zinc-700 focus:outline-none focus:ring-2 focus:ring-zinc-900/15 md:w-64"
-                              value={pair.team_a_id}
-                              onChange={(e) => updateManualPair(idx, "team_a_id", e.target.value)}
-                            >
-                              <option value="">Seleccionar pareja</option>
-                              {sortedTeams.map((team) => {
-                                const disabled =
-                                  manualSelectedIds.includes(team.id) &&
-                                  team.id !== pair.team_a_id;
-                                return (
-                                  <option key={team.id} value={team.id} disabled={disabled}>
-                                    {getTeamLabelWithPoints(team.id)}
-                                  </option>
-                                );
-                              })}
-                            </select>
-                            <span className="text-xs text-zinc-500">vs</span>
-                            <select
-                              className="w-full rounded-xl border border-zinc-400 bg-white px-3 py-2 text-sm font-medium text-zinc-900 shadow-sm focus:border-zinc-700 focus:outline-none focus:ring-2 focus:ring-zinc-900/15 md:w-64"
-                              value={pair.team_b_id}
-                              onChange={(e) => updateManualPair(idx, "team_b_id", e.target.value)}
-                            >
-                              <option value="">Seleccionar pareja</option>
-                              {sortedTeams.map((team) => {
-                                const disabled =
-                                  manualSelectedIds.includes(team.id) &&
-                                  team.id !== pair.team_b_id;
-                                return (
-                                  <option key={team.id} value={team.id} disabled={disabled}>
-                                    {getTeamLabelWithPoints(team.id)}
-                                  </option>
-                                );
-                              })}
-                            </select>
-                            <Button
-                              variant="secondary"
-                              onClick={() => removeManualPair(idx)}
-                              disabled={manualPairs.length <= 1}
-                            >
-                              Quitar
-                            </Button>
+                            {stageDraft.matches.map((matchDraft) => {
+                              const teamA = getManualSlotValue(matchDraft.slotA);
+                              const teamB = getManualSlotValue(matchDraft.slotB);
+                              return (
+                                <div
+                                  key={`${stageDraft.stage}-${matchDraft.matchIndex}`}
+                                  className="flex flex-col gap-2 rounded-xl border border-zinc-200 p-3 text-sm md:flex-row md:items-center"
+                                >
+                                  <div className="w-24 text-xs font-semibold text-zinc-500">
+                                    Partido {matchDraft.matchIndex + 1}
+                                  </div>
+
+                                  {matchDraft.slotA.kind === "manual" ? (
+                                    <select
+                                      className="w-full rounded-xl border border-zinc-400 bg-white px-3 py-2 text-sm font-medium text-zinc-900 shadow-sm focus:border-zinc-700 focus:outline-none focus:ring-2 focus:ring-zinc-900/15 md:w-[28rem]"
+                                      value={teamA}
+                                      onChange={(e) =>
+                                        updateManualSlotValue(matchDraft.slotA.key, e.target.value)
+                                      }
+                                    >
+                                      <option value="">Seleccionar pareja</option>
+                                      {sortedTeams.map((team) => {
+                                        const disabled =
+                                          manualSelectedIdSet.has(team.id) && team.id !== teamA;
+                                        return (
+                                          <option key={team.id} value={team.id} disabled={disabled}>
+                                            {getTeamLabelWithGroupRank(team.id)}
+                                          </option>
+                                        );
+                                      })}
+                                    </select>
+                                  ) : (
+                                    <div
+                                      className={`w-full rounded-xl px-3 py-2 text-xs font-semibold md:w-[28rem] ${
+                                        typeof getManualSlotValue(matchDraft.slotA) === "number"
+                                          ? "border border-emerald-200 bg-emerald-50 text-emerald-700"
+                                          : "border border-dashed border-zinc-300 bg-zinc-50 text-zinc-500"
+                                      }`}
+                                    >
+                                      {getManualWinnerSlotLabel(matchDraft.slotA)}
+                                    </div>
+                                  )}
+
+                                  <span className="text-xs text-zinc-500">vs</span>
+
+                                  {matchDraft.slotB.kind === "manual" ? (
+                                    <select
+                                      className="w-full rounded-xl border border-zinc-400 bg-white px-3 py-2 text-sm font-medium text-zinc-900 shadow-sm focus:border-zinc-700 focus:outline-none focus:ring-2 focus:ring-zinc-900/15 md:w-[28rem]"
+                                      value={teamB}
+                                      onChange={(e) =>
+                                        updateManualSlotValue(matchDraft.slotB.key, e.target.value)
+                                      }
+                                    >
+                                      <option value="">Seleccionar pareja</option>
+                                      {sortedTeams.map((team) => {
+                                        const disabled =
+                                          manualSelectedIdSet.has(team.id) && team.id !== teamB;
+                                        return (
+                                          <option key={team.id} value={team.id} disabled={disabled}>
+                                            {getTeamLabelWithGroupRank(team.id)}
+                                          </option>
+                                        );
+                                      })}
+                                    </select>
+                                  ) : (
+                                    <div
+                                      className={`w-full rounded-xl px-3 py-2 text-xs font-semibold md:w-[28rem] ${
+                                        typeof getManualSlotValue(matchDraft.slotB) === "number"
+                                          ? "border border-emerald-200 bg-emerald-50 text-emerald-700"
+                                          : "border border-dashed border-zinc-300 bg-zinc-50 text-zinc-500"
+                                      }`}
+                                    >
+                                      {getManualWinnerSlotLabel(matchDraft.slotB)}
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
                           </div>
                         ))}
                       </div>
@@ -1039,14 +1579,10 @@ export default function TournamentPlayoffsPage() {
                       )}
 
                       <div className="flex flex-wrap gap-2">
-                        <Button variant="secondary" onClick={addManualPair}>
-                          Agregar partido
-                        </Button>
                         <Button
                           variant="secondary"
                           onClick={() => {
                             setManualStage(null);
-                            setManualPairs([]);
                             setManualError(null);
                           }}
                         >
@@ -1060,8 +1596,6 @@ export default function TournamentPlayoffsPage() {
                   )}
                 </div>
               </Card>
-            </>
-          )}
 
           {finalWinner && (
             <Card className="bg-white/95">
@@ -1091,9 +1625,38 @@ export default function TournamentPlayoffsPage() {
                     }}
                   >
                     {activeStages.map((stage, stageIdx) => {
-                      const stageMatches = [...(matchesByStage.get(stage) ?? [])].sort(
+                      const stageMatchesRaw = [...(matchesByStage.get(stage) ?? [])].sort(
                         (a, b) => a.id - b.id
                       );
+                      const nextStageForOrdering =
+                        stageIdx < activeStages.length - 1 ? activeStages[stageIdx + 1] : null;
+                      const nextStageMatchCountForOrdering = nextStageForOrdering
+                        ? Math.max(1, Math.floor(STAGE_TEAM_COUNTS[nextStageForOrdering] / 2))
+                        : 0;
+                      const winnerSlotByCurrentStageMatchIdx =
+                        nextStageMatchCountForOrdering > 0
+                          ? assignWinnerSlotIndexes(
+                              stageMatchesRaw.length,
+                              nextStageMatchCountForOrdering
+                            )
+                          : new Map<number, number>();
+                      const destinationByCurrentStageMatchIdx = new Map<number, number>();
+                      winnerSlotByCurrentStageMatchIdx.forEach((winnerIdx, slotIdx) => {
+                        destinationByCurrentStageMatchIdx.set(
+                          winnerIdx,
+                          Math.floor(slotIdx / 2)
+                        );
+                      });
+                      const stageMatches = stageMatchesRaw
+                        .map((stageMatch, idx) => ({
+                          stageMatch,
+                          idx,
+                          destination: destinationByCurrentStageMatchIdx.get(idx) ?? idx,
+                        }))
+                        .sort(
+                          (a, b) => a.destination - b.destination || a.idx - b.idx
+                        )
+                        .map((item) => item.stageMatch);
                       const prevStage = stageIdx > 0 ? activeStages[stageIdx - 1] : null;
                       const prevStageMatches = prevStage
                         ? [...(matchesByStage.get(prevStage) ?? [])].sort(
@@ -1104,19 +1667,52 @@ export default function TournamentPlayoffsPage() {
                         stageMatches.length,
                         prevStage ? Math.ceil(prevStageMatches.length / 2) : stageMatches.length
                       );
+                      const winnerBySlotIndex = new Map<number, number>();
+                      if (prevStage) {
+                        const winnerSlotIndexes = assignWinnerSlotIndexes(
+                          prevStageMatches.length,
+                          expectedMatches
+                        );
+                        winnerSlotIndexes.forEach((winnerIdx, slotIdx) => {
+                          const winnerTeamId =
+                            prevStageMatches[winnerIdx]?.winner_team_id ?? null;
+                          if (winnerTeamId) {
+                            winnerBySlotIndex.set(slotIdx, winnerTeamId);
+                          }
+                        });
+                      }
                       const seededPlaceholders = Array.from(
                         { length: expectedMatches },
                         (_, idx) => {
-                          if (!prevStage) return { type: "placeholder", key: `${stage}-${idx}` };
-                          const left = prevStageMatches[idx * 2];
-                          const right = prevStageMatches[idx * 2 + 1];
-                          const leftWinner = left?.winner_team_id ?? null;
-                          const rightWinner = right?.winner_team_id ?? null;
+                          if (!prevStage) {
+                            const manualSeedA = manualPreviewLabelBySlotKey.get(
+                              manualSlotKey(stage, idx, "a")
+                            );
+                            const manualSeedB = manualPreviewLabelBySlotKey.get(
+                              manualSlotKey(stage, idx, "b")
+                            );
+                            return {
+                              type: "placeholder",
+                              key: `${stage}-${idx}`,
+                              seedA: manualSeedA ?? "Por definir",
+                              seedB: manualSeedB ?? "Por definir",
+                            };
+                          }
+                          const slotA = idx * 2;
+                          const slotB = idx * 2 + 1;
+                          const mappedWinnerA = winnerBySlotIndex.get(slotA) ?? null;
+                          const mappedWinnerB = winnerBySlotIndex.get(slotB) ?? null;
+                          const manualSeedA = manualPreviewLabelBySlotKey.get(
+                            manualSlotKey(stage, idx, "a")
+                          );
+                          const manualSeedB = manualPreviewLabelBySlotKey.get(
+                            manualSlotKey(stage, idx, "b")
+                          );
                           return {
                             type: "placeholder",
                             key: `${stage}-placeholder-${idx}`,
-                            seedA: leftWinner ? getTeamLabel(leftWinner) : "Por definir",
-                            seedB: rightWinner ? getTeamLabel(rightWinner) : "Por definir",
+                            seedA: manualSeedA ?? (mappedWinnerA ? getTeamLabel(mappedWinnerA) : "Por definir"),
+                            seedB: manualSeedB ?? (mappedWinnerB ? getTeamLabel(mappedWinnerB) : "Por definir"),
                           };
                         }
                       );
