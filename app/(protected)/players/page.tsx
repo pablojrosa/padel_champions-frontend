@@ -143,7 +143,7 @@ export default function PlayersPage() {
               required
             >
               <option value="">Seleccionar categoría</option>
-              {["7ma", "6ta", "5ta", "4ta", "3ra", "2da", "1ra"].map((c) => (
+              {["8va","7ma", "6ta", "5ta", "4ta", "3ra", "2da", "1ra"].map((c) => (
                 <option key={c} value={c}>
                   {c}
                 </option>
@@ -200,7 +200,7 @@ export default function PlayersPage() {
                         onChange={(e) => setEditCategory(e.target.value)}
                       >
                         <option value="">Categoría</option>
-                        {["7ma", "6ta", "5ta", "4ta", "3ra", "2da", "1ra"].map((c) => (
+                        {["8va","7ma", "6ta", "5ta", "4ta", "3ra", "2da", "1ra"].map((c) => (
                           <option key={c} value={c}>
                             {c}
                           </option>

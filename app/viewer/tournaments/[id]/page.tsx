@@ -462,11 +462,11 @@ export default function PublicTournamentPage() {
             <h1 className="text-2xl font-semibold sm:text-3xl">
               {tournament ? tournament.name : "Torneo"}
             </h1>
-            <p className="mt-1 text-xs text-zinc-400 sm:text-sm">
-              {tournament?.start_date
-                ? `Fecha de inicio: ${formatShortDate(tournament.start_date)}`
-                : "Fecha por definir"}
-            </p>
+            {tournament?.start_date ? (
+              <p className="mt-1 text-xs text-zinc-400 sm:text-sm">
+                {`Fecha de inicio: ${formatShortDate(tournament.start_date)}`}
+              </p>
+            ) : null}
             <p className="mt-1 text-xs text-zinc-400 sm:text-sm">
               {tournament?.club_name ? tournament.club_name : "Club"}
               {tournament?.location ? (
