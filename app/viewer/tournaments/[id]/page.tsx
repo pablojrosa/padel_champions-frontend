@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useParams } from "next/navigation";
 import Card from "@/components/ui/Card";
 import Input from "@/components/ui/Input";
@@ -44,6 +44,64 @@ const STAGE_TEAM_COUNTS: Record<Match["stage"], number> = {
   final: 2,
 };
 
+const URL_CANDIDATE_REGEX = /((?:https?:\/\/|www\.)[^\s<>"']+)/gi;
+const URL_STRICT_REGEX = /^(?:https?:\/\/|www\.)[^\s<>"']+$/i;
+
+function splitUrlAndTrailingPunctuation(candidate: string) {
+  let url = candidate;
+  let trailing = "";
+  while (url.length > 0 && /[),.;!?]$/.test(url)) {
+    trailing = url.slice(-1) + trailing;
+    url = url.slice(0, -1);
+  }
+  return { url, trailing };
+}
+
+function normalizeHref(candidate: string) {
+  if (candidate.startsWith("www.")) return `https://${candidate}`;
+  return candidate;
+}
+
+function renderTextWithLinks(text: string) {
+  const parts = text.split(URL_CANDIDATE_REGEX);
+  return parts.map((part, index) => {
+    if (!part) return null;
+    if (!URL_STRICT_REGEX.test(part)) return <span key={`text-${index}`}>{part}</span>;
+    const { url, trailing } = splitUrlAndTrailingPunctuation(part);
+    if (!url || !URL_STRICT_REGEX.test(url)) {
+      return <span key={`text-${index}`}>{part}</span>;
+    }
+    const href = normalizeHref(url);
+    return (
+      <span key={`link-${index}`}>
+        <a
+          href={href}
+          target="_blank"
+          rel="noreferrer"
+          className="font-medium text-emerald-700 underline underline-offset-2 hover:text-emerald-600"
+        >
+          {url}
+        </a>
+        {trailing}
+      </span>
+    );
+  });
+}
+
+function renderDescriptionWithLinks(text: string) {
+  const lines = text.split(/\r?\n/);
+  const nodes: ReactNode[] = [];
+  lines.forEach((line, index) => {
+    nodes.push(
+      <span key={`line-${index}`}>
+        {renderTextWithLinks(line)}
+      </span>
+    );
+    if (index < lines.length - 1) nodes.push("\n");
+  });
+  return nodes;
+}
+
 function stageLabel(stage: Match["stage"]) {
   if (stage === "round_of_32") return "16vos";
   if (stage === "round_of_16") return "Octavos";
@@ -74,6 +132,7 @@ export default function PublicTournamentPage() {
   const [collapsedStages, setCollapsedStages] = useState<Record<string, boolean>>({});
   const [collapsedDivisions, setCollapsedDivisions] = useState<Record<string, boolean>>({});
   const [divisionFilter, setDivisionFilter] = useState<string | "all">("all");
+  const [isDescriptionExpanded, setIsDescriptionExpanded] = useState(false);
   const hasDefaultedDivision = useRef(false);
 
   useEffect(() => {
@@ -218,6 +277,20 @@ export default function PublicTournamentPage() {
       return getTeamDivision(match.team_a_id) === divisionFilter;
     });
   }, [matches, query, teamsById, divisionFilter]);
+  const descriptionText = tournament?.description?.trim() ?? "";
+  const descriptionContent = useMemo(
+    () => renderDescriptionWithLinks(descriptionText),
+    [descriptionText]
+  );
+  const isLongDescription = useMemo(() => {
+    if (!descriptionText) return false;
+    const lines = descriptionText.split(/\r?\n/).length;
+    return lines > 6 || descriptionText.length > 280;
+  }, [descriptionText]);
+
+  useEffect(() => {
+    setIsDescriptionExpanded(false);
+  }, [descriptionText]);
 
   const groupedDivisions = useMemo(() => {
     const allowedDivisions =
@@ -488,12 +561,7 @@ export default function PublicTournamentPage() {
                     Ver ubicacion
                   </a>
                 </>
-              ) : (
-                <span className="mt-1 block space-y-0.5">
-                  <span className="block">Cancha 1, 2 y 3: Arena padel</span>
-                  <span className="block">Canchas 4 y 5: Rio padel</span>
-                </span>
-              )}
+              ) : null}
             </p>
           </div>
         </div>
@@ -501,6 +569,30 @@ export default function PublicTournamentPage() {
           <StatusBadge status={status} className="text-[10px] sm:text-xs" />
         </div>
       </div>
+
+      {descriptionText ? (
+        <Card className="bg-white/95">
+          <div className="p-4 sm:p-5">
+            <div className={`relative ${isLongDescription && !isDescriptionExpanded ? "max-h-28 overflow-hidden sm:max-h-36" : ""}`}>
+              <div className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-700">
+                {descriptionContent}
+              </div>
+              {isLongDescription && !isDescriptionExpanded ? (
+                <div className="pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t from-white/95 to-transparent" />
+              ) : null}
+            </div>
+            {isLongDescription ? (
+              <button
+                type="button"
+                onClick={() => setIsDescriptionExpanded((prev) => !prev)}
+                className="mt-2 text-xs font-semibold text-emerald-700 hover:text-emerald-600"
+              >
+                {isDescriptionExpanded ? "Ver menos" : "Ver descripcion completa"}
+              </button>
+            ) : null}
+          </div>
+        </Card>
+      ) : null}
 
       <div className="sticky top-0 z-20 -mx-4 bg-transparent px-4 pb-3 pt-2 backdrop-blur sm:static sm:mx-0 sm:px-0 sm:pb-0 sm:pt-0 sm:backdrop-blur-0">
         <Card className="bg-transparent text-zinc-100 shadow-none ring-0 border-none">

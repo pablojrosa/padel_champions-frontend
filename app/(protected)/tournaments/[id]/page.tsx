@@ -1291,7 +1291,7 @@ async function load(options?: { silent?: boolean }) {
                 </div>
               )}
               {tournament?.description && (
-                <div className="text-sm text-zinc-600">
+                <div className="whitespace-pre-wrap text-sm text-zinc-600">
                   {tournament.description}
                 </div>
               )}
