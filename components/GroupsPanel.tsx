@@ -64,6 +64,7 @@ type Props = {
     match_duration_minutes: number;
     courts_count: number;
   }) => Promise<void>;
+  onCancelGenerateWithAi: () => void;
   onGenerateManual: (payload: {
     teams_per_group: number;
     groups: { name?: string; team_ids: number[] }[];
@@ -85,6 +86,7 @@ export default function GroupsPanel({
   setTeamsPerGroup,
   generating,
   onGenerateWithAi,
+  onCancelGenerateWithAi,
   onGenerateManual,
   defaultStartDate,
   defaultStartTime,
@@ -115,6 +117,8 @@ export default function GroupsPanel({
   const [generateCourtsCount, setGenerateCourtsCount] = useState(defaultCourtsCount);
   const [generateError, setGenerateError] = useState<string | null>(null);
   const [generateSuccess, setGenerateSuccess] = useState<string | null>(null);
+  const [activeGeneration, setActiveGeneration] = useState<"ai" | "manual" | null>(null);
+  const [aiDots, setAiDots] = useState(".");
   const [manualOpen, setManualOpen] = useState(false);
   const [manualZones, setManualZones] = useState<ManualZone[]>([
     { id: "manual-zone-1", name: "Grupo 1", teamIds: [] },
@@ -126,6 +130,10 @@ export default function GroupsPanel({
   const [manualError, setManualError] = useState<string | null>(null);
   const [categoryFilter, setCategoryFilter] = useState<string | "all">("all");
   const [genderFilter, setGenderFilter] = useState<string | "all">("all");
+
+  function isAbortError(err: unknown) {
+    return err instanceof Error && err.name === "AbortError";
+  }
 
   const categories = useMemo(() => {
     const values = new Set<string>();
@@ -203,6 +211,41 @@ export default function GroupsPanel({
       return categoryMatch && genderMatch;
     });
   }, [availableManualTeams, manualCategory, manualGender]);
+
+  useEffect(() => {
+    if (!generating) {
+      setActiveGeneration(null);
+      return;
+    }
+    if (activeGeneration !== "ai") {
+      setAiDots(".");
+      return;
+    }
+    const frames = [".", "..", "..."];
+    let frameIndex = 0;
+    const intervalId = window.setInterval(() => {
+      frameIndex = (frameIndex + 1) % frames.length;
+      setAiDots(frames[frameIndex]);
+    }, 350);
+    return () => window.clearInterval(intervalId);
+  }, [generating, activeGeneration]);
+
+  function getAiGeneratingLabel() {
+    return (
+      <span className="inline-flex items-center">
+        <span>Generando con IA</span>
+        <span className="inline-block w-6 text-left font-mono">{aiDots}</span>
+      </span>
+    );
+  }
+
+  function closeGenerateModal() {
+    if (generating && activeGeneration === "ai") {
+      onCancelGenerateWithAi();
+      setGenerateError("Generacion cancelada por el usuario.");
+    }
+    setGenerateOpen(false);
+  }
   const manualMissingByDivision = useMemo(() => {
     const counts = new Map<string, { category: string | null; gender: string | null; count: number }>();
     teams.forEach((team) => {
@@ -570,6 +613,7 @@ export default function GroupsPanel({
 
     setGenerateError(null);
     setGenerateSuccess(null);
+    setActiveGeneration("ai");
     try {
       await onGenerateWithAi({
         teams_per_group: teamsPerGroup,
@@ -579,8 +623,12 @@ export default function GroupsPanel({
       });
       setGenerateSuccess("Zonas generadas con exito.");
       setGenerateOpen(false);
-    } catch (err: any) {
-      setGenerateError(err?.message ?? "No se pudo generar zonas");
+    } catch (err: unknown) {
+      if (isAbortError(err)) {
+        setGenerateError("Generacion cancelada por el usuario.");
+        return;
+      }
+      setGenerateError(err instanceof Error ? err.message : "No se pudo generar zonas");
     }
   }
 
@@ -674,6 +722,7 @@ export default function GroupsPanel({
 
     setManualError(null);
     setGenerateSuccess(null);
+    setActiveGeneration("manual");
     try {
       await onGenerateManual({
         teams_per_group: teamsPerGroup,
@@ -743,7 +792,9 @@ export default function GroupsPanel({
               onClick={() => setGenerateOpen(true)}
               disabled={disabled || generating}
             >
-              {generating ? "Generando..." : "Generar zonas con IA"}
+              {generating && activeGeneration === "ai"
+                ? getAiGeneratingLabel()
+                : "Generar zonas con IA"}
             </Button>
           </div>
         </div>
@@ -887,7 +938,7 @@ export default function GroupsPanel({
       <Modal
         open={generateOpen}
         title="Generar zonas con IA"
-        onClose={() => setGenerateOpen(false)}
+        onClose={closeGenerateModal}
       >
         <div className="space-y-4">
           <div className="text-sm text-zinc-600">
@@ -988,11 +1039,13 @@ export default function GroupsPanel({
           )}
 
           <div className="flex justify-end gap-2">
-            <Button variant="secondary" onClick={() => setGenerateOpen(false)}>
+            <Button variant="secondary" onClick={closeGenerateModal}>
               Cancelar
             </Button>
             <Button onClick={submitGenerate} disabled={generating}>
-              {generating ? "Generando..." : "Generar zonas con IA"}
+              {generating && activeGeneration === "ai"
+                ? getAiGeneratingLabel()
+                : "Generar zonas con IA"}
             </Button>
           </div>
         </div>

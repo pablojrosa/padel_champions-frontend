@@ -230,16 +230,24 @@ export default function TournamentPlayoffsPage() {
     });
     return Array.from(values).sort();
   }, [teams]);
-  const filteredGroups = useMemo(() => {
-    if (categoryFilter === "all" || genderFilter === "all") return groups;
-    return groups.filter((group) =>
-      group.teams.some((team) => {
-        const category = team.players?.[0]?.category ?? null;
-        const gender = team.players?.[0]?.gender ?? null;
-        return category === categoryFilter && gender === genderFilter;
+  const divisionGroups = useMemo(() => {
+    if (categoryFilter === "all" || genderFilter === "all") return [];
+    return groups
+      .map((group) => {
+        const teamIds = group.teams
+          .filter((team) => {
+            const fallbackTeam = teamsById.get(team.id);
+            const category =
+              team.players?.[0]?.category ?? fallbackTeam?.players?.[0]?.category ?? null;
+            const gender =
+              team.players?.[0]?.gender ?? fallbackTeam?.players?.[0]?.gender ?? null;
+            return category === categoryFilter && gender === genderFilter;
+          })
+          .map((team) => team.id);
+        return { group, teamIds };
       })
-    );
-  }, [groups, categoryFilter, genderFilter]);
+      .filter((entry) => entry.teamIds.length > 0);
+  }, [groups, categoryFilter, genderFilter, teamsById]);
 
   const rankedTeamsByGroup = useMemo(() => {
     if (categoryFilter === "all" || genderFilter === "all") return [];
@@ -252,15 +260,15 @@ export default function TournamentPlayoffsPage() {
       return names.length > 0 ? names.join(" / ") : `Team #${teamId}`;
     };
 
-    filteredGroups.forEach((group) => {
-      const groupTeamIds = new Set(group.teams.map((team) => team.id));
+    divisionGroups.forEach(({ group, teamIds }) => {
+      const groupTeamIds = new Set(teamIds);
       const stats = new Map<
         number,
         { points: number; setsFor: number; setsAgainst: number; gamesFor: number; gamesAgainst: number }
       >();
 
-      group.teams.forEach((team) => {
-        stats.set(team.id, {
+      teamIds.forEach((teamId) => {
+        stats.set(teamId, {
           points: 0,
           setsFor: 0,
           setsAgainst: 0,
@@ -275,13 +283,11 @@ export default function TournamentPlayoffsPage() {
           && match.group_id === group.id
           && match.status === "played"
           && !!match.sets
+          && groupTeamIds.has(match.team_a_id)
+          && groupTeamIds.has(match.team_b_id)
       );
 
       groupMatches.forEach((match) => {
-        if (!groupTeamIds.has(match.team_a_id) || !groupTeamIds.has(match.team_b_id)) {
-          return;
-        }
-
         let setsWonA = 0;
         let setsWonB = 0;
         let gamesA = 0;
@@ -351,13 +357,30 @@ export default function TournamentPlayoffsPage() {
     });
 
     return rankEntries;
-  }, [filteredGroups, matches, categoryFilter, genderFilter, teamsById]);
+  }, [divisionGroups, matches, categoryFilter, genderFilter, teamsById]);
 
   const groupRankingByTeam = useMemo(() => {
     const map = new Map<number, GroupRankingEntry>();
     rankedTeamsByGroup.forEach((entry) => map.set(entry.teamId, entry));
     return map;
   }, [rankedTeamsByGroup]);
+  const overallRankingByTeam = useMemo(() => {
+    const labelForTeamId = (teamId: number) => {
+      const team = teamsById.get(teamId);
+      if (!team) return `Team #${teamId}`;
+      const names = team.players?.map((player) => player.name).filter(Boolean) ?? [];
+      return names.length > 0 ? names.join(" / ") : `Team #${teamId}`;
+    };
+    const global = [...rankedTeamsByGroup].sort((a, b) => {
+      if (a.points !== b.points) return b.points - a.points;
+      if (a.setDiff !== b.setDiff) return b.setDiff - a.setDiff;
+      if (a.gameDiff !== b.gameDiff) return b.gameDiff - a.gameDiff;
+      return labelForTeamId(a.teamId).localeCompare(labelForTeamId(b.teamId));
+    });
+    const map = new Map<number, number>();
+    global.forEach((entry, idx) => map.set(entry.teamId, idx + 1));
+    return map;
+  }, [rankedTeamsByGroup, teamsById]);
 
   const sortedTeams = useMemo(() => {
     const labelFor = (team: Team) => {
@@ -376,11 +399,9 @@ export default function TournamentPlayoffsPage() {
           });
 
     if (categoryFilter !== "all" && genderFilter !== "all") {
-      const rankOrder = new Map<number, number>();
-      rankedTeamsByGroup.forEach((entry, idx) => rankOrder.set(entry.teamId, idx));
       return [...filtered].sort((a, b) => {
-        const rankA = rankOrder.get(a.id);
-        const rankB = rankOrder.get(b.id);
+        const rankA = overallRankingByTeam.get(a.id);
+        const rankB = overallRankingByTeam.get(b.id);
         if (typeof rankA === "number" && typeof rankB === "number" && rankA !== rankB) {
           return rankA - rankB;
         }
@@ -393,7 +414,7 @@ export default function TournamentPlayoffsPage() {
     return [...filtered].sort((a, b) => {
       return labelFor(a).localeCompare(labelFor(b));
     });
-  }, [teams, categoryFilter, genderFilter, rankedTeamsByGroup]);
+  }, [teams, categoryFilter, genderFilter, overallRankingByTeam]);
 
   const matchesByStage = useMemo(() => {
     const map = new Map<PlayoffStage, Match[]>();
@@ -503,13 +524,18 @@ export default function TournamentPlayoffsPage() {
 
   const groupStageComplete = useMemo(() => {
     if (categoryFilter === "all" || genderFilter === "all") return false;
-    if (filteredGroups.length === 0) return false;
+    if (divisionGroups.length === 0) return false;
 
-    for (const group of filteredGroups) {
+    for (const { group, teamIds } of divisionGroups) {
+      const divisionTeamIds = new Set(teamIds);
       const groupMatches = matches.filter(
-        (match) => match.stage === "group" && match.group_id === group.id
+        (match) =>
+          match.stage === "group"
+          && match.group_id === group.id
+          && divisionTeamIds.has(match.team_a_id)
+          && divisionTeamIds.has(match.team_b_id)
       );
-      const expected = (group.teams.length * (group.teams.length - 1)) / 2;
+      const expected = (teamIds.length * (teamIds.length - 1)) / 2;
 
       if (groupMatches.length < expected) return false;
       if (groupMatches.some((match) => match.status !== "played" || !match.sets)) {
@@ -518,7 +544,7 @@ export default function TournamentPlayoffsPage() {
     }
 
     return true;
-  }, [filteredGroups, matches, categoryFilter, genderFilter]);
+  }, [divisionGroups, matches, categoryFilter, genderFilter]);
 
   const latestStage = useMemo(() => {
     let latest: PlayoffStage | null = null;
@@ -573,14 +599,14 @@ export default function TournamentPlayoffsPage() {
 
     if (!groupStageComplete) return [];
 
-    if (filteredGroups.length === 0) return [];
+    if (divisionGroups.length === 0) return [];
 
-    const baseQualified = filteredGroups.reduce(
-      (sum, group) => sum + Math.min(2, group.teams.length),
+    const baseQualified = divisionGroups.reduce(
+      (sum, entry) => sum + Math.min(2, entry.teamIds.length),
       0
     );
-    const thirdsAvailable = filteredGroups.reduce(
-      (sum, group) => sum + (group.teams.length >= 3 ? 1 : 0),
+    const thirdsAvailable = divisionGroups.reduce(
+      (sum, entry) => sum + (entry.teamIds.length >= 3 ? 1 : 0),
       0
     );
     const maxQualified = baseQualified + thirdsAvailable;
@@ -594,7 +620,7 @@ export default function TournamentPlayoffsPage() {
     nextStage,
     canGenerateNextStage,
     groupStageComplete,
-    filteredGroups,
+    divisionGroups,
     categoryFilter,
     genderFilter,
   ]);
@@ -875,8 +901,15 @@ export default function TournamentPlayoffsPage() {
   }
   function getTeamLabelWithGroupRank(teamId: number) {
     const ranking = groupRankingByTeam.get(teamId);
-    if (!ranking) return getTeamLabel(teamId);
-    return `${getTeamLabel(teamId)} (${ranking.position}° ${ranking.groupName})`;
+    const overallRank = overallRankingByTeam.get(teamId);
+    if (!ranking) {
+      if (overallRank) return `${getTeamLabel(teamId)} (${overallRank}° gral)`;
+      return getTeamLabel(teamId);
+    }
+    if (!overallRank) {
+      return `${getTeamLabel(teamId)} (${ranking.position}° ${ranking.groupName})`;
+    }
+    return `${getTeamLabel(teamId)} (${overallRank}° gral · ${ranking.position}° ${ranking.groupName})`;
   }
   function getMatchCode(match: Match) {
     return match.match_code ?? String(match.id);

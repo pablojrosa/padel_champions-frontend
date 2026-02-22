@@ -53,6 +53,10 @@ export default function GroupStandingsPage() {
     });
   }, [data]);
 
+  function formatDiff(value: number) {
+    return value > 0 ? `+${value}` : String(value);
+  }
+
   return (
     <div className="space-y-8">
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
@@ -92,8 +96,8 @@ export default function GroupStandingsPage() {
                     <th className="py-2">PJ</th>
                     <th className="py-2">PG</th>
                     <th className="py-2">PP</th>
-                    <th className="py-2">Sets</th>
-                    <th className="py-2">Games</th>
+                    <th className="py-2">Dif sets</th>
+                    <th className="py-2">Dif games</th>
                     <th className="py-2">Pts</th>
                   </tr>
                 </thead>
@@ -109,12 +113,8 @@ export default function GroupStandingsPage() {
                         <td className="py-2">{row.played}</td>
                         <td className="py-2">{row.won}</td>
                         <td className="py-2">{row.lost}</td>
-                        <td className="py-2">
-                          {row.sets_for}-{row.sets_against}
-                        </td>
-                        <td className="py-2">
-                          {row.games_for}-{row.games_against}
-                        </td>
+                        <td className="py-2">{formatDiff(row.set_diff)}</td>
+                        <td className="py-2">{formatDiff(row.game_diff)}</td>
                         <td className="py-2 font-semibold">{row.points}</td>
                       </tr>
                     );
