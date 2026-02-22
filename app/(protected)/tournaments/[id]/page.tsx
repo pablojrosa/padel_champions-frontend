@@ -64,6 +64,10 @@ const FIELD_LABELS: Record<string, string> = {
   constraints: "Restricciones",
 };
 
+function isAbortError(err: unknown) {
+  return err instanceof Error && err.name === "AbortError";
+}
+
 export default function TournamentDetailPage() {
   const router = useRouter();
   const params = useParams<IdParam>();
@@ -118,6 +122,7 @@ export default function TournamentDetailPage() {
   const [startingTournament, setStartingTournament] = useState(false);
   const [copyMessage, setCopyMessage] = useState<string | null>(null);
   const [editOpen, setEditOpen] = useState(false);
+  const aiGenerateAbortRef = useRef<AbortController | null>(null);
   const [editName, setEditName] = useState("");
   const [editDescription, setEditDescription] = useState("");
   const [editLocation, setEditLocation] = useState("");
@@ -719,27 +724,40 @@ async function load(options?: { silent?: boolean }) {
     match_duration_minutes: number;
     courts_count: number;
   }) {
+    const controller = new AbortController();
+    aiGenerateAbortRef.current = controller;
     setGeneratingGroups(true);
     setError(null);
   
     try {
-      const res = await api<GenerateGroupsResponse>(
+      await api<GenerateGroupsResponse>(
         `/tournaments/${tournamentId}/groups/generate`,
         {
           method: "POST",
           body: payload,
+          signal: controller.signal,
         }
       );
       const tGroups = await api<TournamentGroupOut[]>(
         `/tournaments/${tournamentId}/groups`
       );
       setGroups(tGroups);
-    } catch (err: any) {
-      setError(err?.message ?? "Failed to generate groups");
+    } catch (err: unknown) {
+      if (isAbortError(err)) {
+        throw err;
+      }
+      setError(err instanceof Error ? err.message : "Failed to generate groups");
       throw err;
     } finally {
+      if (aiGenerateAbortRef.current === controller) {
+        aiGenerateAbortRef.current = null;
+      }
       setGeneratingGroups(false);
     }
+  }
+
+  function cancelGenerateGroupsWithAi() {
+    aiGenerateAbortRef.current?.abort();
   }
 
   async function generateGroupsManual(payload: {
@@ -1638,6 +1656,7 @@ async function load(options?: { silent?: boolean }) {
               setTeamsPerGroup={setTeamsPerGroup}
               generating={generatingGroups}
               onGenerateWithAi={generateGroupsWithAi}
+              onCancelGenerateWithAi={cancelGenerateGroupsWithAi}
               onGenerateManual={generateGroupsManual}
               defaultStartDate={defaultStartDate}
               defaultStartTime={defaultStartTime}

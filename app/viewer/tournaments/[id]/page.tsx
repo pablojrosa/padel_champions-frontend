@@ -111,6 +111,16 @@ function stageLabel(stage: Match["stage"]) {
   return "Zonas";
 }
 
+function formatDiff(value: number) {
+  return value > 0 ? `+${value}` : String(value);
+}
+
+function diffTextColor(value: number) {
+  if (value > 0) return "text-emerald-700";
+  if (value < 0) return "text-red-600";
+  return "text-zinc-500";
+}
+
 export default function PublicTournamentPage() {
   const params = useParams<IdParam>();
   const tournamentId = Number(params.id);
@@ -1046,9 +1056,16 @@ export default function PublicTournamentPage() {
                                     </div>
                                   </div>
                                 </div>
-                                <div className="mt-2 text-[11px] text-zinc-500">
-                                  Sets {row.sets_for}-{row.sets_against} · Games {row.games_for}-
-                                  {row.games_against}
+                                <div className="mt-2 text-[11px]">
+                                  <span className="font-semibold text-zinc-500">Dif sets </span>
+                                  <span className={`font-semibold ${diffTextColor(row.set_diff)}`}>
+                                    {formatDiff(row.set_diff)}
+                                  </span>
+                                  <span className="text-zinc-400"> · </span>
+                                  <span className="font-semibold text-zinc-500">Dif games </span>
+                                  <span className={`font-semibold ${diffTextColor(row.game_diff)}`}>
+                                    {formatDiff(row.game_diff)}
+                                  </span>
                                 </div>
                               </div>
                             );
@@ -1063,8 +1080,8 @@ export default function PublicTournamentPage() {
                                 <th className="py-1.5 sm:py-2">PJ</th>
                                 <th className="py-1.5 sm:py-2">PG</th>
                                 <th className="py-1.5 sm:py-2">PP</th>
-                                <th className="py-1.5 sm:py-2">Sets</th>
-                                <th className="py-1.5 sm:py-2">Games</th>
+                                <th className="py-1.5 sm:py-2">Dif sets</th>
+                                <th className="py-1.5 sm:py-2">Dif games</th>
                                 <th className="py-1.5 sm:py-2">Pts</th>
                               </tr>
                             </thead>
@@ -1079,12 +1096,8 @@ export default function PublicTournamentPage() {
                                     <td className="py-1.5 sm:py-2">{row.played}</td>
                                     <td className="py-1.5 sm:py-2">{row.won}</td>
                                     <td className="py-1.5 sm:py-2">{row.lost}</td>
-                                    <td className="py-1.5 sm:py-2">
-                                      {row.sets_for}-{row.sets_against}
-                                    </td>
-                                    <td className="py-1.5 sm:py-2">
-                                      {row.games_for}-{row.games_against}
-                                    </td>
+                                    <td className="py-1.5 sm:py-2">{formatDiff(row.set_diff)}</td>
+                                    <td className="py-1.5 sm:py-2">{formatDiff(row.game_diff)}</td>
                                     <td className="py-1.5 font-semibold sm:py-2">{row.points}</td>
                                   </tr>
                                 );
