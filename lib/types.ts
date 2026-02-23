@@ -191,8 +191,10 @@ export type Match = {
   tournament_id: number;
   group_id: number | null;
   stage: MatchStage;
-  team_a_id: number;
-  team_b_id: number;
+  category?: string | null;
+  gender?: string | null;
+  team_a_id: number | null;
+  team_b_id: number | null;
   sets: MatchSet[] | null;
   winner_team_id: number | null;
   played_at: string | null;

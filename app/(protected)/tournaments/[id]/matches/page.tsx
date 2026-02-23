@@ -149,7 +149,8 @@ export default function TournamentMatchesPage() {
     load();
   }, [tournamentId, router]);
 
-  function getTeamLabel(teamId: number) {
+  function getTeamLabel(teamId?: number | null) {
+    if (typeof teamId !== "number") return "Por definir";
     const team = teamsById.get(teamId);
     if (!team) return `Team #${teamId}`;
 
@@ -157,19 +158,18 @@ export default function TournamentMatchesPage() {
     if (names.length === 0) return `Team #${teamId}`;
     return names.join(" / ");
   }
-  function getTeamCategory(teamId: number) {
+  function getTeamCategory(teamId?: number | null) {
+    if (typeof teamId !== "number") return null;
     const team = teamsById.get(teamId);
     return team?.players?.[0]?.category ?? null;
   }
-  function getTeamGender(teamId: number) {
+  function getTeamGender(teamId?: number | null) {
+    if (typeof teamId !== "number") return null;
     const team = teamsById.get(teamId);
     return team?.players?.[0]?.gender ?? null;
   }
-  function getTeamSearchLabel(teamId: number) {
-    const team = teamsById.get(teamId);
-    const names = team?.players?.map((player) => player.name).filter(Boolean) ?? [];
-    if (names.length === 0) return "";
-    return names.join(" ").toLowerCase();
+  function hasDefinedTeams(match: Match): match is Match & { team_a_id: number; team_b_id: number } {
+    return typeof match.team_a_id === "number" && typeof match.team_b_id === "number";
   }
   function getMatchCode(match: Match) {
     return match.match_code ?? String(match.id);
@@ -297,6 +297,10 @@ export default function TournamentMatchesPage() {
 
   async function saveResult() {
     if (!selectedMatch) return;
+    if (!hasDefinedTeams(selectedMatch)) {
+      setFormError("Todavia no estan definidas las parejas para este partido.");
+      return;
+    }
 
     const payloadSets = buildPayloadSets();
     if (!payloadSets) return;
@@ -380,15 +384,26 @@ export default function TournamentMatchesPage() {
   const canResult = tournamentStatus === "ongoing" || tournamentStatus === "groups_finished";
   const categoryFilteredMatches = useMemo(() => {
     const normalizedQuery = nameQuery.trim().toLowerCase();
+    const matchCategory = (match: Match) =>
+      match.category ?? getTeamCategory(match.team_a_id) ?? getTeamCategory(match.team_b_id);
+    const matchGender = (match: Match) =>
+      match.gender ?? getTeamGender(match.team_a_id) ?? getTeamGender(match.team_b_id);
+    const teamSearchLabel = (teamId?: number | null) => {
+      if (typeof teamId !== "number") return "";
+      const team = teamsById.get(teamId);
+      const names = team?.players?.map((player) => player.name).filter(Boolean) ?? [];
+      if (names.length === 0) return "";
+      return names.join(" ").toLowerCase();
+    };
     return matches.filter((match) => {
-      const category = getTeamCategory(match.team_a_id);
-      const gender = getTeamGender(match.team_a_id);
+      const category = matchCategory(match);
+      const gender = matchGender(match);
       const categoryMatch = categoryFilter === "all" || category === categoryFilter;
       const genderMatch = genderFilter === "all" || gender === genderFilter;
       if (!categoryMatch || !genderMatch) return false;
       if (!normalizedQuery) return true;
-      const aLabel = getTeamSearchLabel(match.team_a_id);
-      const bLabel = getTeamSearchLabel(match.team_b_id);
+      const aLabel = teamSearchLabel(match.team_a_id);
+      const bLabel = teamSearchLabel(match.team_b_id);
       return aLabel.includes(normalizedQuery) || bLabel.includes(normalizedQuery);
     });
   }, [matches, categoryFilter, genderFilter, nameQuery, teamsById]);
@@ -612,28 +627,40 @@ export default function TournamentMatchesPage() {
                       </div>
 
                       <div className="flex flex-wrap items-center gap-2">
-                        {match.status === "played" ? (
-                          <Button onClick={() => openResultModal(match)} disabled={!canResult}>
-                            Editar resultado
-                          </Button>
-                        ) : match.scheduled_time ? (
-                          <>
-                            <Button onClick={() => openResultModal(match)} disabled={!canResult}>
-                              Cargar resultado
+                        {/*
+                          Keep scheduling enabled for placeholders; result actions require both teams.
+                        */}
+                        {(() => {
+                          const canLoadResult = hasDefinedTeams(match);
+                          if (match.status === "played") {
+                            return (
+                              <Button onClick={() => openResultModal(match)} disabled={!canResult || !canLoadResult}>
+                                Editar resultado
+                              </Button>
+                            );
+                          }
+                          if (match.scheduled_time) {
+                            return (
+                              <>
+                                <Button onClick={() => openResultModal(match)} disabled={!canResult || !canLoadResult}>
+                                  Cargar resultado
+                                </Button>
+                                <Button
+                                  variant="secondary"
+                                  onClick={() => openScheduleModal(match)}
+                                  disabled={!canSchedule}
+                                >
+                                  Editar horario
+                                </Button>
+                              </>
+                            );
+                          }
+                          return (
+                            <Button onClick={() => openScheduleModal(match)} disabled={!canSchedule}>
+                              Programar partido
                             </Button>
-                            <Button
-                              variant="secondary"
-                              onClick={() => openScheduleModal(match)}
-                              disabled={!canSchedule}
-                            >
-                              Editar horario
-                            </Button>
-                          </>
-                        ) : (
-                          <Button onClick={() => openScheduleModal(match)} disabled={!canSchedule}>
-                            Programar partido
-                          </Button>
-                        )}
+                          );
+                        })()}
                       </div>
                     </div>
                   </div>

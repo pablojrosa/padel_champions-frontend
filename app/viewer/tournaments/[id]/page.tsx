@@ -17,6 +17,16 @@ import type {
 } from "@/lib/types";
 
 type IdParam = { id: string };
+type PlayoffStage = Exclude<Match["stage"], "group">;
+type SeedLabel = {
+  seedA: string;
+  seedB: string;
+};
+type SeedCandidate = {
+  groupName: string;
+  groupOrder: number;
+  position: number;
+};
 
 const STAGE_ORDER: Match["stage"][] = [
   "group",
@@ -27,7 +37,7 @@ const STAGE_ORDER: Match["stage"][] = [
   "final",
 ];
 
-const PLAYOFF_STAGES: Match["stage"][] = [
+const PLAYOFF_STAGES: PlayoffStage[] = [
   "round_of_32",
   "round_of_16",
   "quarter",
@@ -121,6 +131,118 @@ function diffTextColor(value: number) {
   return "text-zinc-500";
 }
 
+function normalizeGroupSeedLabel(groupName: string) {
+  return groupName.replace(/^(group|grupo|zona)\s*/i, "Grupo ");
+}
+
+function formatSeedCandidate(seed: SeedCandidate) {
+  return `Pareja ${seed.position} ${normalizeGroupSeedLabel(seed.groupName)}`;
+}
+
+function rankSeedCandidate(seed: SeedCandidate) {
+  return [seed.position, seed.groupOrder] as const;
+}
+
+function pairSeedCandidatesRanked(seeds: SeedCandidate[]) {
+  const ordered = [...seeds].sort((a, b) => {
+    const [posA, orderA] = rankSeedCandidate(a);
+    const [posB, orderB] = rankSeedCandidate(b);
+    if (posA !== posB) return posA - posB;
+    return orderA - orderB;
+  });
+  const remaining = [...ordered];
+  const pairs: Array<[SeedCandidate, SeedCandidate]> = [];
+
+  while (remaining.length >= 2) {
+    const high = remaining.shift()!;
+    let opponentIdx = -1;
+    for (let idx = remaining.length - 1; idx >= 0; idx -= 1) {
+      if (remaining[idx].groupName !== high.groupName) {
+        opponentIdx = idx;
+        break;
+      }
+    }
+    if (opponentIdx === -1) opponentIdx = remaining.length - 1;
+    const low = remaining.splice(opponentIdx, 1)[0];
+    pairs.push([high, low]);
+  }
+
+  return pairs;
+}
+
+function buildDefaultSeedLabelsForStage(
+  stage: PlayoffStage,
+  groups: Array<{ name: string; teamCount: number }>
+): SeedLabel[] {
+  const targetTeamCount = STAGE_TEAM_COUNTS[stage];
+  if (targetTeamCount <= 0 || groups.length === 0) return [];
+
+  const allSeeds: SeedCandidate[] = [];
+  groups.forEach((group, idx) => {
+    if (group.teamCount >= 1) allSeeds.push({ groupName: group.name, groupOrder: idx, position: 1 });
+    if (group.teamCount >= 2) allSeeds.push({ groupName: group.name, groupOrder: idx, position: 2 });
+    if (group.teamCount >= 3) allSeeds.push({ groupName: group.name, groupOrder: idx, position: 3 });
+  });
+
+  const baseSeeds = allSeeds
+    .filter((seed) => seed.position <= 2)
+    .sort((a, b) => {
+      const [posA, orderA] = rankSeedCandidate(a);
+      const [posB, orderB] = rankSeedCandidate(b);
+      if (posA !== posB) return posA - posB;
+      return orderA - orderB;
+    });
+
+  let qualified = baseSeeds.slice(0, targetTeamCount);
+  if (qualified.length < targetTeamCount) {
+    const thirds = allSeeds
+      .filter((seed) => seed.position === 3)
+      .sort((a, b) => a.groupOrder - b.groupOrder);
+    qualified = [...qualified, ...thirds.slice(0, targetTeamCount - qualified.length)];
+  }
+
+  const grouped = new Map<string, Map<number, SeedCandidate>>();
+  const groupOrder: string[] = [];
+  qualified.forEach((seed) => {
+    if (!grouped.has(seed.groupName)) {
+      grouped.set(seed.groupName, new Map());
+      groupOrder.push(seed.groupName);
+    }
+    grouped.get(seed.groupName)!.set(seed.position, seed);
+  });
+
+  const used = new Set<string>();
+  const pairs: Array<[SeedCandidate, SeedCandidate]> = [];
+  for (let idx = 0; idx < groupOrder.length - 1; idx += 2) {
+    const a = grouped.get(groupOrder[idx]);
+    const b = grouped.get(groupOrder[idx + 1]);
+    const a1 = a?.get(1);
+    const a2 = a?.get(2);
+    const b1 = b?.get(1);
+    const b2 = b?.get(2);
+    if (!a1 || !a2 || !b1 || !b2) continue;
+    pairs.push([a1, b2]);
+    pairs.push([a2, b1]);
+    used.add(`${a1.groupName}:${a1.position}`);
+    used.add(`${a2.groupName}:${a2.position}`);
+    used.add(`${b1.groupName}:${b1.position}`);
+    used.add(`${b2.groupName}:${b2.position}`);
+  }
+
+  const remaining = qualified.filter(
+    (seed) => !used.has(`${seed.groupName}:${seed.position}`)
+  );
+  if (remaining.length > 0) {
+    pairs.push(...pairSeedCandidatesRanked(remaining));
+  }
+
+  const maxPairs = Math.floor(targetTeamCount / 2);
+  return pairs.slice(0, maxPairs).map(([seedA, seedB]) => ({
+    seedA: formatSeedCandidate(seedA),
+    seedB: formatSeedCandidate(seedB),
+  }));
+}
+
 export default function PublicTournamentPage() {
   const params = useParams<IdParam>();
   const tournamentId = Number(params.id);
@@ -136,7 +258,7 @@ export default function PublicTournamentPage() {
   const [showGroups, setShowGroups] = useState(true);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeSection, setActiveSection] = useState<"playoffs" | "groups" | "matches">(
+  const [activeSection, setActiveSection] = useState<"playoffs" | "groups" | "matches" | "results">(
     "groups"
   );
   const [collapsedStages, setCollapsedStages] = useState<Record<string, boolean>>({});
@@ -205,7 +327,8 @@ export default function PublicTournamentPage() {
     return map;
   }, [groups]);
 
-  function getTeamLabel(teamId: number) {
+  function getTeamLabel(teamId?: number | null) {
+    if (typeof teamId !== "number") return "Por definir";
     const team = teamsById.get(teamId);
     if (!team) return `Team #${teamId}`;
     const names = team.players?.map((player) => player.name).filter(Boolean) ?? [];
@@ -216,12 +339,16 @@ export default function PublicTournamentPage() {
     return match.match_code ?? String(match.id);
   }
 
-  function getTeamDivision(teamId: number) {
+  function getTeamDivision(teamId?: number | null) {
+    if (typeof teamId !== "number") return null;
     const team = teamsById.get(teamId);
     const category = team?.players?.[0]?.category ?? null;
     const gender = team?.players?.[0]?.gender ?? null;
     if (!category || !gender) return null;
     return `${category} - ${gender === "damas" ? "Damas" : "Masculino"}`;
+  }
+  function hasDefinedTeams(match: Match): match is Match & { team_a_id: number; team_b_id: number } {
+    return typeof match.team_a_id === "number" && typeof match.team_b_id === "number";
   }
   function getGroupDivision(group: TournamentGroupOut) {
     for (const team of group.teams) {
@@ -243,6 +370,35 @@ export default function PublicTournamentPage() {
     });
     return Array.from(values).sort();
   }, [teams]);
+  const divisionGroupsForSeeds = useMemo(() => {
+    return groups
+      .map((group) => {
+        const teamCount = group.teams.filter((team) => {
+          const fallbackTeam = teamsById.get(team.id);
+          const category =
+            team.players?.[0]?.category ?? fallbackTeam?.players?.[0]?.category ?? null;
+          const gender =
+            team.players?.[0]?.gender ?? fallbackTeam?.players?.[0]?.gender ?? null;
+          if (!category || !gender) return false;
+          if (divisionFilter === "all") return true;
+          const label = `${category} - ${gender === "damas" ? "Damas" : "Masculino"}`;
+          return label === divisionFilter;
+        }).length;
+        return {
+          name: group.name,
+          teamCount,
+        };
+      })
+      .filter((entry) => entry.teamCount > 0)
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [groups, divisionFilter, teamsById]);
+  const defaultSeedLabelsByStage = useMemo(() => {
+    const map = new Map<PlayoffStage, SeedLabel[]>();
+    PLAYOFF_STAGES.forEach((stage) => {
+      map.set(stage, buildDefaultSeedLabelsForStage(stage, divisionGroupsForSeeds));
+    });
+    return map;
+  }, [divisionGroupsForSeeds]);
 
   useEffect(() => {
     if (hasDefaultedDivision.current) return;
@@ -251,13 +407,6 @@ export default function PublicTournamentPage() {
     setDivisionFilter(divisions[0]);
     hasDefaultedDivision.current = true;
   }, [divisions, divisionFilter]);
-
-  function isMatchVisible(match: Match, normalized: string) {
-    if (!normalized) return true;
-    const aLabel = getTeamLabel(match.team_a_id).toLowerCase();
-    const bLabel = getTeamLabel(match.team_b_id).toLowerCase();
-    return aLabel.includes(normalized) || bLabel.includes(normalized);
-  }
 
   const filteredGroups = useMemo(() => {
     const normalized = query.trim().toLowerCase();
@@ -281,12 +430,24 @@ export default function PublicTournamentPage() {
 
   const filteredMatches = useMemo(() => {
     const normalized = query.trim().toLowerCase();
+    const matchDivision = (match: Match) => {
+      if (match.category && match.gender) {
+        return `${match.category} - ${match.gender === "damas" ? "Damas" : "Masculino"}`;
+      }
+      return getTeamDivision(match.team_a_id) ?? getTeamDivision(match.team_b_id);
+    };
+    const isVisible = (match: Match) => {
+      if (!normalized) return true;
+      const aLabel = getTeamLabel(match.team_a_id).toLowerCase();
+      const bLabel = getTeamLabel(match.team_b_id).toLowerCase();
+      return aLabel.includes(normalized) || bLabel.includes(normalized);
+    };
     return matches.filter((match) => {
-      if (!isMatchVisible(match, normalized)) return false;
+      if (!isVisible(match)) return false;
       if (divisionFilter === "all") return true;
-      return getTeamDivision(match.team_a_id) === divisionFilter;
+      return matchDivision(match) === divisionFilter;
     });
-  }, [matches, query, teamsById, divisionFilter]);
+  }, [matches, query, divisionFilter, teamsById]);
   const descriptionText = tournament?.description?.trim() ?? "";
   const descriptionContent = useMemo(
     () => renderDescriptionWithLinks(descriptionText),
@@ -303,6 +464,12 @@ export default function PublicTournamentPage() {
   }, [descriptionText]);
 
   const groupedDivisions = useMemo(() => {
+    const matchDivision = (match: Match) => {
+      if (match.category && match.gender) {
+        return `${match.category} - ${match.gender === "damas" ? "Damas" : "Masculino"}`;
+      }
+      return getTeamDivision(match.team_a_id) ?? getTeamDivision(match.team_b_id);
+    };
     const allowedDivisions =
       divisionFilter === "all" ? divisions : divisions.filter((division) => division === divisionFilter);
     const map = new Map<
@@ -325,7 +492,7 @@ export default function PublicTournamentPage() {
     filteredMatches
       .filter((match) => match.stage === "group")
       .forEach((match) => {
-        const label = getTeamDivision(match.team_a_id);
+        const label = matchDivision(match);
         if (!label) return;
         if (divisionFilter !== "all" && label !== divisionFilter) return;
         const entry = map.get(label) ?? { label, groups: [], matches: [] };
@@ -343,6 +510,11 @@ export default function PublicTournamentPage() {
     [matches]
   );
   const hasPlayoffs = playoffMatches.length > 0;
+  const hasAssignedPlayoffs = useMemo(
+    () => playoffMatches.some((match) => hasDefinedTeams(match)),
+    [playoffMatches]
+  );
+  const hasOnlyScheduledPlayoffs = hasPlayoffs && !hasAssignedPlayoffs;
 
   const filteredPlayoffMatches = useMemo(
     () => filteredMatches.filter((match) => match.stage !== "group"),
@@ -351,16 +523,16 @@ export default function PublicTournamentPage() {
   const hasFilteredPlayoffs = filteredPlayoffMatches.length > 0;
 
   useEffect(() => {
-    if (hasPlayoffs) setShowGroups(false);
-  }, [hasPlayoffs]);
+    if (hasPlayoffs) setShowGroups(hasOnlyScheduledPlayoffs);
+  }, [hasPlayoffs, hasOnlyScheduledPlayoffs]);
 
   useEffect(() => {
     if (hasPlayoffs) {
-      setActiveSection("playoffs");
+      setActiveSection(hasOnlyScheduledPlayoffs ? "matches" : "playoffs");
       return;
     }
     setActiveSection("groups");
-  }, [hasPlayoffs]);
+  }, [hasPlayoffs, hasOnlyScheduledPlayoffs]);
 
   const sortedMatches = useMemo(() => {
     return [...filteredMatches].sort((a, b) => {
@@ -377,6 +549,18 @@ export default function PublicTournamentPage() {
   const playedMatches = useMemo(
     () => sortedMatches.filter((match) => match.status === "played"),
     [sortedMatches]
+  );
+  const groupStageMatches = useMemo(
+    () => sortedMatches.filter((match) => match.stage === "group"),
+    [sortedMatches]
+  );
+  const pendingGroupMatches = useMemo(
+    () => groupStageMatches.filter((match) => match.status === "pending"),
+    [groupStageMatches]
+  );
+  const playedGroupMatches = useMemo(
+    () => groupStageMatches.filter((match) => match.status === "played"),
+    [groupStageMatches]
   );
 
   function formatSets(sets: Match["sets"]) {
@@ -477,6 +661,45 @@ export default function PublicTournamentPage() {
       return next;
     });
   }, [query, activeStages, matchesByStage]);
+  const playoffSeedLabelByMatchId = useMemo(() => {
+    const map = new Map<number, SeedLabel>();
+    if (activeStages.length === 0) return map;
+
+    activeStages.forEach((stage, stageIdx) => {
+      const stageMatches = [...(matchesByStage.get(stage) ?? [])].sort((a, b) => a.id - b.id);
+      const expectedMatches = STAGE_TEAM_COUNTS[stage] / 2;
+      const prevStage = stageIdx > 0 ? activeStages[stageIdx - 1] : null;
+      const prevStageMatches = prevStage
+        ? [...(matchesByStage.get(prevStage) ?? [])].sort((a, b) => a.id - b.id)
+        : [];
+      const defaultSeedLabels = defaultSeedLabelsByStage.get(stage) ?? [];
+
+      const seededPlaceholders = Array.from({ length: expectedMatches }, (_, idx) => {
+        if (!prevStage) {
+          const defaultSeed = defaultSeedLabels[idx];
+          return {
+            seedA: defaultSeed?.seedA ?? "Por definir",
+            seedB: defaultSeed?.seedB ?? "Por definir",
+          };
+        }
+        const left = prevStageMatches[idx * 2];
+        const right = prevStageMatches[idx * 2 + 1];
+        const leftWinner = left?.winner_team_id ?? null;
+        const rightWinner = right?.winner_team_id ?? null;
+        return {
+          seedA: leftWinner ? getTeamLabel(leftWinner) : "Por definir",
+          seedB: rightWinner ? getTeamLabel(rightWinner) : "Por definir",
+        };
+      });
+
+      stageMatches.forEach((match, idx) => {
+        const seed = seededPlaceholders[idx];
+        if (seed) map.set(match.id, seed);
+      });
+    });
+
+    return map;
+  }, [activeStages, defaultSeedLabelsByStage, matchesByStage]);
 
   const finalWinner = useMemo(() => {
     const finals = matchesByStageAll.get("final") ?? [];
@@ -492,12 +715,28 @@ export default function PublicTournamentPage() {
 
   const playoffSectionVisible = hasPlayoffs;
   const showGroupsContent = showGroups || activeSection === "groups";
+  const showMatchesTab = true;
+  const showResultsTab = true;
+  const showGroupMatchesOnly = hasOnlyScheduledPlayoffs;
+  const showMatchesSectionDesktop = !hasPlayoffs || hasOnlyScheduledPlayoffs;
+  const pendingMatchesForSection = showGroupMatchesOnly ? pendingGroupMatches : pendingMatches;
+  const playedMatchesForSection = showGroupMatchesOnly ? playedGroupMatches : playedMatches;
+
+  function getMatchTeamLabel(match: Match, side: "a" | "b") {
+    const teamId = side === "a" ? match.team_a_id : match.team_b_id;
+    if (typeof teamId === "number") return getTeamLabel(teamId);
+    if (match.stage === "group") return "Por definir";
+    const seedLabel = playoffSeedLabelByMatchId.get(match.id);
+    if (!seedLabel) return "Por definir";
+    return side === "a" ? seedLabel.seedA : seedLabel.seedB;
+  }
 
   function renderMatchRow(match: Match) {
     const group = match.group_id ? groupsById.get(match.group_id) : null;
     const stage = match.stage === "group" ? group?.name ?? "Zona" : stageLabel(match.stage);
-    const teamALabel = getTeamLabel(match.team_a_id);
-    const teamBLabel = getTeamLabel(match.team_b_id);
+    const teamALabel = getMatchTeamLabel(match, "a");
+    const teamBLabel = getMatchTeamLabel(match, "b");
+    const hasTeams = hasDefinedTeams(match);
     const winnerId = match.winner_team_id;
     const schedule = formatSchedule(match.scheduled_date, match.scheduled_time);
     const court = formatCourt(match.court_number);
@@ -521,16 +760,16 @@ export default function PublicTournamentPage() {
           ) : null}
         </div>
         <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
-          <span className={winnerId === match.team_a_id ? "font-semibold text-emerald-700" : ""}>
+          <span className={hasTeams && winnerId === match.team_a_id ? "font-semibold text-emerald-700" : ""}>
             {teamALabel}
           </span>
           <span className="text-zinc-600">vs</span>
-          <span className={winnerId === match.team_b_id ? "font-semibold text-emerald-700" : ""}>
+          <span className={hasTeams && winnerId === match.team_b_id ? "font-semibold text-emerald-700" : ""}>
             {teamBLabel}
           </span>
           <span className="text-zinc-500">|</span>
           <span className="font-semibold text-zinc-700">
-            {match.status === "played" ? formatSets(match.sets) : "-"}
+            {match.status === "played" && hasTeams ? formatSets(match.sets) : "-"}
           </span>
         </div>
       </div>
@@ -671,20 +910,11 @@ export default function PublicTournamentPage() {
 
           <div className="sm:hidden">
             <div className="rounded-2xl border border-zinc-200 bg-white p-2 text-xs font-semibold text-zinc-500">
-              <div className="grid grid-cols-2 gap-2">
-                {playoffSectionVisible && (
-                  <button
-                    type="button"
-                    onClick={() => setActiveSection("playoffs")}
-                    className={`rounded-xl px-3 py-2 ${
-                      activeSection === "playoffs"
-                        ? "bg-emerald-100 text-emerald-800"
-                        : "bg-white text-zinc-500"
-                    }`}
-                  >
-                    Playoffs
-                  </button>
-                )}
+              <div
+                className={`grid gap-2 ${
+                  playoffSectionVisible ? "grid-cols-4" : "grid-cols-3"
+                }`}
+              >
                 <button
                   type="button"
                   onClick={() => setActiveSection("groups")}
@@ -696,7 +926,7 @@ export default function PublicTournamentPage() {
                 >
                   Zonas
                 </button>
-                {!playoffSectionVisible && (
+                {showMatchesTab && (
                   <button
                     type="button"
                     onClick={() => setActiveSection("matches")}
@@ -707,6 +937,32 @@ export default function PublicTournamentPage() {
                     }`}
                   >
                     Partidos
+                  </button>
+                )}
+                {showResultsTab && (
+                  <button
+                    type="button"
+                    onClick={() => setActiveSection("results")}
+                    className={`rounded-xl px-3 py-2 ${
+                      activeSection === "results"
+                        ? "bg-emerald-100 text-emerald-800"
+                        : "bg-white text-zinc-500"
+                    }`}
+                  >
+                    Resultados
+                  </button>
+                )}
+                {playoffSectionVisible && (
+                  <button
+                    type="button"
+                    onClick={() => setActiveSection("playoffs")}
+                    className={`rounded-xl px-3 py-2 ${
+                      activeSection === "playoffs"
+                        ? "bg-emerald-100 text-emerald-800"
+                        : "bg-white text-zinc-500"
+                    }`}
+                  >
+                    Playoffs
                   </button>
                 )}
               </div>
@@ -794,6 +1050,7 @@ export default function PublicTournamentPage() {
                             );
                             const expectedMatches = STAGE_TEAM_COUNTS[stage] / 2;
                             const prevStage = stageIdx > 0 ? activeStages[stageIdx - 1] : null;
+                            const defaultSeedLabels = defaultSeedLabelsByStage.get(stage) ?? [];
                             const prevStageMatches = prevStage
                               ? [...(matchesByStage.get(prevStage) ?? [])].sort(
                                   (a, b) => a.id - b.id
@@ -802,7 +1059,15 @@ export default function PublicTournamentPage() {
                             const seededPlaceholders = Array.from(
                               { length: expectedMatches },
                               (_, idx) => {
-                                if (!prevStage) return { type: "placeholder", key: `${stage}-${idx}` };
+                                if (!prevStage) {
+                                  const defaultSeed = defaultSeedLabels[idx];
+                                  return {
+                                    type: "placeholder",
+                                    key: `${stage}-${idx}`,
+                                    seedA: defaultSeed?.seedA ?? "Por definir",
+                                    seedB: defaultSeed?.seedB ?? "Por definir",
+                                  };
+                                }
                                 const left = prevStageMatches[idx * 2];
                                 const right = prevStageMatches[idx * 2 + 1];
                                 const leftWinner = left?.winner_team_id ?? null;
@@ -817,7 +1082,15 @@ export default function PublicTournamentPage() {
                             );
                             const items = Array.from({ length: expectedMatches }, (_, idx) => {
                               const match = stageMatches[idx];
-                              if (match) return { type: "match", match };
+                              if (match) {
+                                const seeded = seededPlaceholders[idx];
+                                return {
+                                  type: "match",
+                                  match,
+                                  seedA: seeded?.seedA ?? "Por definir",
+                                  seedB: seeded?.seedB ?? "Por definir",
+                                };
+                              }
                               return seededPlaceholders[idx];
                             });
                             const baseMatches = initialStage
@@ -858,10 +1131,6 @@ export default function PublicTournamentPage() {
                                     } as const;
 
                                     if (item.type === "placeholder") {
-                                      const seedA =
-                                        "seedA" in item ? item.seedA : "Por definir";
-                                      const seedB =
-                                        "seedB" in item ? item.seedB : "Por definir";
                                       return (
                                         <div
                                           key={`${stage}-placeholder-${idx}`}
@@ -872,11 +1141,11 @@ export default function PublicTournamentPage() {
                                             Por definir
                                           </div>
                                           <div className="mt-2 text-xs text-zinc-600 sm:text-sm">
-                                            {seedA}
+                                            {item.seedA}
                                           </div>
                                           <div className="text-xs text-zinc-400">vs</div>
                                           <div className="text-xs text-zinc-600 sm:text-sm">
-                                            {seedB}
+                                            {item.seedB}
                                           </div>
                                         </div>
                                       );
@@ -897,8 +1166,15 @@ export default function PublicTournamentPage() {
                                     const hasScheduleMeta = !!scheduleMeta;
                                     const scoreA = played ? formatSetLine(match.sets, "a") : "";
                                     const scoreB = played ? formatSetLine(match.sets, "b") : "";
-                                    const aWinner = match.winner_team_id === match.team_a_id;
-                                    const bWinner = match.winner_team_id === match.team_b_id;
+                                    const hasTeams = hasDefinedTeams(match);
+                                    const aWinner = hasTeams && match.winner_team_id === match.team_a_id;
+                                    const bWinner = hasTeams && match.winner_team_id === match.team_b_id;
+                                    const teamALabel = hasTeams
+                                      ? getTeamLabel(match.team_a_id)
+                                      : item.seedA;
+                                    const teamBLabel = hasTeams
+                                      ? getTeamLabel(match.team_b_id)
+                                      : item.seedB;
                                     return (
                                       <div
                                         key={match.id}
@@ -916,12 +1192,12 @@ export default function PublicTournamentPage() {
                                           <div className="flex items-center justify-between gap-2">
                                             <div
                                               className={`font-medium text-zinc-900 ${
-                                                match.winner_team_id === match.team_a_id
+                                                hasTeams && match.winner_team_id === match.team_a_id
                                                   ? "font-semibold"
                                                   : ""
                                               }`}
                                             >
-                                              {getTeamLabel(match.team_a_id)}
+                                              {teamALabel}
                                             </div>
                                             {played && (
                                               <div
@@ -938,12 +1214,12 @@ export default function PublicTournamentPage() {
                                           <div className="flex items-center justify-between gap-2">
                                             <div
                                               className={`font-medium text-zinc-900 ${
-                                                match.winner_team_id === match.team_b_id
+                                                hasTeams && match.winner_team_id === match.team_b_id
                                                   ? "font-semibold"
                                                   : ""
                                               }`}
                                             >
-                                              {getTeamLabel(match.team_b_id)}
+                                              {teamBLabel}
                                             </div>
                                             {played && (
                                               <div
@@ -1119,44 +1395,79 @@ export default function PublicTournamentPage() {
             )}
           </div>
 
-          {!hasPlayoffs && (
-            <div className={activeSection === "matches" ? "space-y-4" : "hidden space-y-4 sm:block"}>
-              <h2 className="text-lg font-semibold sm:text-xl">Partidos</h2>
+          <div
+            className={
+              activeSection === "matches" || activeSection === "results"
+                ? "space-y-4"
+                : showMatchesSectionDesktop
+                ? "hidden space-y-4 sm:block"
+                : "hidden space-y-4 sm:hidden"
+            }
+          >
+            <h2 className="text-lg font-semibold sm:text-xl">
+              {activeSection === "results"
+                ? "Resultados"
+                : showGroupMatchesOnly
+                ? "Partidos de zonas"
+                : "Partidos"}
+            </h2>
+
+            {activeSection === "matches" && (
               <div className="space-y-4 sm:hidden">
                 <Card>
                   <div className="space-y-3 p-4">
                     <div className="text-sm font-semibold text-zinc-800">Proximos</div>
-                    {pendingMatches.length === 0 ? (
-                      <div className="text-sm text-zinc-400">No hay partidos pendientes.</div>
-                    ) : (
-                      <div className="space-y-2">
-                        {pendingMatches.map(renderMatchRow)}
+                    {pendingMatchesForSection.length === 0 ? (
+                      <div className="text-sm text-zinc-400">
+                        {showGroupMatchesOnly
+                          ? "No hay partidos de zona pendientes."
+                          : "No hay partidos pendientes."}
                       </div>
-                    )}
-                  </div>
-                </Card>
-                <Card>
-                  <div className="space-y-3 p-4">
-                    <div className="text-sm font-semibold text-zinc-800">Resultados</div>
-                    {playedMatches.length === 0 ? (
-                      <div className="text-sm text-zinc-400">No hay resultados cargados.</div>
                     ) : (
                       <div className="space-y-2">
-                        {playedMatches.map(renderMatchRow)}
+                        {pendingMatchesForSection.map(renderMatchRow)}
                       </div>
                     )}
                   </div>
                 </Card>
               </div>
+            )}
+
+            {activeSection === "results" && (
+              <div className="space-y-4 sm:hidden">
+                <Card>
+                  <div className="space-y-3 p-4">
+                    <div className="text-sm font-semibold text-zinc-800">Resultados</div>
+                    {playedMatchesForSection.length === 0 ? (
+                      <div className="text-sm text-zinc-400">
+                        {showGroupMatchesOnly
+                          ? "No hay resultados de zona cargados."
+                          : "No hay resultados cargados."}
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        {playedMatchesForSection.map(renderMatchRow)}
+                      </div>
+                    )}
+                  </div>
+                </Card>
+              </div>
+            )}
+
+            {showMatchesSectionDesktop && (
               <div className="hidden gap-4 lg:grid lg:grid-cols-2 sm:grid">
                 <Card>
                   <div className="space-y-3 p-4 sm:p-5">
                     <div className="text-sm font-semibold text-zinc-800">Proximos</div>
-                    {pendingMatches.length === 0 ? (
-                      <div className="text-sm text-zinc-400">No hay partidos pendientes.</div>
+                    {pendingMatchesForSection.length === 0 ? (
+                      <div className="text-sm text-zinc-400">
+                        {showGroupMatchesOnly
+                          ? "No hay partidos de zona pendientes."
+                          : "No hay partidos pendientes."}
+                      </div>
                     ) : (
                       <div className="space-y-3">
-                        {pendingMatches.map(renderMatchRow)}
+                        {pendingMatchesForSection.map(renderMatchRow)}
                       </div>
                     )}
                   </div>
@@ -1164,18 +1475,22 @@ export default function PublicTournamentPage() {
                 <Card>
                   <div className="space-y-3 p-4 sm:p-5">
                     <div className="text-sm font-semibold text-zinc-800">Resultados</div>
-                    {playedMatches.length === 0 ? (
-                      <div className="text-sm text-zinc-400">No hay resultados cargados.</div>
+                    {playedMatchesForSection.length === 0 ? (
+                      <div className="text-sm text-zinc-400">
+                        {showGroupMatchesOnly
+                          ? "No hay resultados de zona cargados."
+                          : "No hay resultados cargados."}
+                      </div>
                     ) : (
                       <div className="space-y-3">
-                        {playedMatches.map(renderMatchRow)}
+                        {playedMatchesForSection.map(renderMatchRow)}
                       </div>
                     )}
                   </div>
                 </Card>
               </div>
-            </div>
-          )}
+            )}
+          </div>
         </>
       )}
     </div>

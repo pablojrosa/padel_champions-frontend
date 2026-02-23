@@ -51,6 +51,15 @@ type GroupRankingEntry = {
   gameDiff: number;
   teamId: number;
 };
+type SeedLabel = {
+  seedA: string;
+  seedB: string;
+};
+type SeedCandidate = {
+  groupName: string;
+  groupOrder: number;
+  position: number;
+};
 
 const DEFAULT_SETS: EditableSet[] = [
   { a: "", b: "" },
@@ -159,6 +168,118 @@ function assignWinnerSlotIndexes(
   return result;
 }
 
+function normalizeGroupSeedLabel(groupName: string) {
+  return groupName.replace(/^(group|grupo|zona)\s*/i, "Grupo ");
+}
+
+function formatSeedCandidate(seed: SeedCandidate) {
+  return `Pareja ${seed.position} ${normalizeGroupSeedLabel(seed.groupName)}`;
+}
+
+function rankSeedCandidate(seed: SeedCandidate) {
+  return [seed.position, seed.groupOrder] as const;
+}
+
+function pairSeedCandidatesRanked(seeds: SeedCandidate[]) {
+  const ordered = [...seeds].sort((a, b) => {
+    const [posA, orderA] = rankSeedCandidate(a);
+    const [posB, orderB] = rankSeedCandidate(b);
+    if (posA !== posB) return posA - posB;
+    return orderA - orderB;
+  });
+  const remaining = [...ordered];
+  const pairs: Array<[SeedCandidate, SeedCandidate]> = [];
+
+  while (remaining.length >= 2) {
+    const high = remaining.shift()!;
+    let opponentIdx = -1;
+    for (let idx = remaining.length - 1; idx >= 0; idx -= 1) {
+      if (remaining[idx].groupName !== high.groupName) {
+        opponentIdx = idx;
+        break;
+      }
+    }
+    if (opponentIdx === -1) opponentIdx = remaining.length - 1;
+    const low = remaining.splice(opponentIdx, 1)[0];
+    pairs.push([high, low]);
+  }
+
+  return pairs;
+}
+
+function buildDefaultSeedLabelsForStage(
+  stage: PlayoffStage,
+  groups: Array<{ name: string; teamCount: number }>
+): SeedLabel[] {
+  const targetTeamCount = STAGE_TEAM_COUNTS[stage];
+  if (targetTeamCount <= 0 || groups.length === 0) return [];
+
+  const allSeeds: SeedCandidate[] = [];
+  groups.forEach((group, idx) => {
+    if (group.teamCount >= 1) allSeeds.push({ groupName: group.name, groupOrder: idx, position: 1 });
+    if (group.teamCount >= 2) allSeeds.push({ groupName: group.name, groupOrder: idx, position: 2 });
+    if (group.teamCount >= 3) allSeeds.push({ groupName: group.name, groupOrder: idx, position: 3 });
+  });
+
+  const baseSeeds = allSeeds
+    .filter((seed) => seed.position <= 2)
+    .sort((a, b) => {
+      const [posA, orderA] = rankSeedCandidate(a);
+      const [posB, orderB] = rankSeedCandidate(b);
+      if (posA !== posB) return posA - posB;
+      return orderA - orderB;
+    });
+
+  let qualified = baseSeeds.slice(0, targetTeamCount);
+  if (qualified.length < targetTeamCount) {
+    const thirds = allSeeds
+      .filter((seed) => seed.position === 3)
+      .sort((a, b) => a.groupOrder - b.groupOrder);
+    qualified = [...qualified, ...thirds.slice(0, targetTeamCount - qualified.length)];
+  }
+
+  const grouped = new Map<string, Map<number, SeedCandidate>>();
+  const groupOrder: string[] = [];
+  qualified.forEach((seed) => {
+    if (!grouped.has(seed.groupName)) {
+      grouped.set(seed.groupName, new Map());
+      groupOrder.push(seed.groupName);
+    }
+    grouped.get(seed.groupName)!.set(seed.position, seed);
+  });
+
+  const used = new Set<string>();
+  const pairs: Array<[SeedCandidate, SeedCandidate]> = [];
+  for (let idx = 0; idx < groupOrder.length - 1; idx += 2) {
+    const a = grouped.get(groupOrder[idx]);
+    const b = grouped.get(groupOrder[idx + 1]);
+    const a1 = a?.get(1);
+    const a2 = a?.get(2);
+    const b1 = b?.get(1);
+    const b2 = b?.get(2);
+    if (!a1 || !a2 || !b1 || !b2) continue;
+    pairs.push([a1, b2]);
+    pairs.push([a2, b1]);
+    used.add(`${a1.groupName}:${a1.position}`);
+    used.add(`${a2.groupName}:${a2.position}`);
+    used.add(`${b1.groupName}:${b1.position}`);
+    used.add(`${b2.groupName}:${b2.position}`);
+  }
+
+  const remaining = qualified.filter(
+    (seed) => !used.has(`${seed.groupName}:${seed.position}`)
+  );
+  if (remaining.length > 0) {
+    pairs.push(...pairSeedCandidatesRanked(remaining));
+  }
+
+  const maxPairs = Math.floor(targetTeamCount / 2);
+  return pairs.slice(0, maxPairs).map(([seedA, seedB]) => ({
+    seedA: formatSeedCandidate(seedA),
+    seedB: formatSeedCandidate(seedB),
+  }));
+}
+
 export default function TournamentPlayoffsPage() {
   const router = useRouter();
   const params = useParams<IdParam>();
@@ -248,6 +369,23 @@ export default function TournamentPlayoffsPage() {
       })
       .filter((entry) => entry.teamIds.length > 0);
   }, [groups, categoryFilter, genderFilter, teamsById]);
+  const groupSeedCandidates = useMemo(
+    () =>
+      [...divisionGroups]
+        .sort((a, b) => a.group.name.localeCompare(b.group.name))
+        .map(({ group, teamIds }) => ({
+          name: group.name,
+          teamCount: teamIds.length,
+        })),
+    [divisionGroups]
+  );
+  const defaultSeedLabelsByStage = useMemo(() => {
+    const map = new Map<PlayoffStage, SeedLabel[]>();
+    PLAYOFF_STAGES.forEach((stage) => {
+      map.set(stage, buildDefaultSeedLabelsForStage(stage, groupSeedCandidates));
+    });
+    return map;
+  }, [groupSeedCandidates]);
 
   const rankedTeamsByGroup = useMemo(() => {
     if (categoryFilter === "all" || genderFilter === "all") return [];
@@ -283,11 +421,14 @@ export default function TournamentPlayoffsPage() {
           && match.group_id === group.id
           && match.status === "played"
           && !!match.sets
+          && match.team_a_id !== null
+          && match.team_b_id !== null
           && groupTeamIds.has(match.team_a_id)
           && groupTeamIds.has(match.team_b_id)
       );
 
       groupMatches.forEach((match) => {
+        if (!hasDefinedTeams(match)) return;
         let setsWonA = 0;
         let setsWonB = 0;
         let gamesA = 0;
@@ -417,16 +558,38 @@ export default function TournamentPlayoffsPage() {
   }, [teams, categoryFilter, genderFilter, overallRankingByTeam]);
 
   const matchesByStage = useMemo(() => {
+    const matchCategory = (match: Match) => {
+      if (match.category) return match.category;
+      if (typeof match.team_a_id === "number") {
+        const category = teamsById.get(match.team_a_id)?.players?.[0]?.category ?? null;
+        if (category) return category;
+      }
+      if (typeof match.team_b_id === "number") {
+        return teamsById.get(match.team_b_id)?.players?.[0]?.category ?? null;
+      }
+      return null;
+    };
+    const matchGender = (match: Match) => {
+      if (match.gender) return match.gender;
+      if (typeof match.team_a_id === "number") {
+        const gender = teamsById.get(match.team_a_id)?.players?.[0]?.gender ?? null;
+        if (gender) return gender;
+      }
+      if (typeof match.team_b_id === "number") {
+        return teamsById.get(match.team_b_id)?.players?.[0]?.gender ?? null;
+      }
+      return null;
+    };
     const map = new Map<PlayoffStage, Match[]>();
     PLAYOFF_STAGES.forEach((stage) => map.set(stage, []));
     matches.forEach((match) => {
       if (match.stage === "group") return;
       if (categoryFilter !== "all") {
-        const category = teamsById.get(match.team_a_id)?.players?.[0]?.category ?? null;
+        const category = matchCategory(match);
         if (category !== categoryFilter) return;
       }
       if (genderFilter !== "all") {
-        const gender = teamsById.get(match.team_a_id)?.players?.[0]?.gender ?? null;
+        const gender = matchGender(match);
         if (gender !== genderFilter) return;
       }
       map.get(match.stage)?.push(match);
@@ -453,10 +616,31 @@ export default function TournamentPlayoffsPage() {
   }, [matchesByStage]);
 
   const categoryFilteredMatches = useMemo(() => {
+    const matchCategory = (match: Match) => {
+      if (match.category) return match.category;
+      if (typeof match.team_a_id === "number") {
+        const category = teamsById.get(match.team_a_id)?.players?.[0]?.category ?? null;
+        if (category) return category;
+      }
+      if (typeof match.team_b_id === "number") {
+        return teamsById.get(match.team_b_id)?.players?.[0]?.category ?? null;
+      }
+      return null;
+    };
+    const matchGender = (match: Match) => {
+      if (match.gender) return match.gender;
+      if (typeof match.team_a_id === "number") {
+        const gender = teamsById.get(match.team_a_id)?.players?.[0]?.gender ?? null;
+        if (gender) return gender;
+      }
+      if (typeof match.team_b_id === "number") {
+        return teamsById.get(match.team_b_id)?.players?.[0]?.gender ?? null;
+      }
+      return null;
+    };
     return matches.filter((match) => {
-      const team = teamsById.get(match.team_a_id);
-      const category = team?.players?.[0]?.category ?? null;
-      const gender = team?.players?.[0]?.gender ?? null;
+      const category = matchCategory(match);
+      const gender = matchGender(match);
       const categoryMatch = categoryFilter === "all" || category === categoryFilter;
       const genderMatch = genderFilter === "all" || gender === genderFilter;
       return categoryMatch && genderMatch;
@@ -532,6 +716,8 @@ export default function TournamentPlayoffsPage() {
         (match) =>
           match.stage === "group"
           && match.group_id === group.id
+          && match.team_a_id !== null
+          && match.team_b_id !== null
           && divisionTeamIds.has(match.team_a_id)
           && divisionTeamIds.has(match.team_b_id)
       );
@@ -588,16 +774,27 @@ export default function TournamentPlayoffsPage() {
       (match) => match.status === "played" && match.winner_team_id
     );
   }, [latestStage, nextStage, matchesByStage]);
+  const stagePendingAutomaticAssignment = useMemo(() => {
+    for (const stage of PLAYOFF_STAGES) {
+      const stageMatches = matchesByStage.get(stage) ?? [];
+      if (stageMatches.length === 0) continue;
+      const hasAnyDefined = stageMatches.some((match) => hasDefinedTeams(match));
+      const hasPending = stageMatches.some((match) => !hasDefinedTeams(match));
+      if (hasPending && !hasAnyDefined) return stage;
+    }
+    return null;
+  }, [matchesByStage]);
 
   const availableStages = useMemo(() => {
     if (categoryFilter === "all" || genderFilter === "all") return [];
     if (matchesByStage.size === 0) return [];
+    if (stagePendingAutomaticAssignment) {
+      return groupStageComplete ? [stagePendingAutomaticAssignment] : [];
+    }
     if (latestStage) {
       if (!nextStage || !canGenerateNextStage) return [];
       return [nextStage];
     }
-
-    if (!groupStageComplete) return [];
 
     if (divisionGroups.length === 0) return [];
 
@@ -616,6 +813,7 @@ export default function TournamentPlayoffsPage() {
     );
   }, [
     matchesByStage,
+    stagePendingAutomaticAssignment,
     latestStage,
     nextStage,
     canGenerateNextStage,
@@ -627,9 +825,9 @@ export default function TournamentPlayoffsPage() {
 
   const manualStageOptions = useMemo(() => {
     if (categoryFilter === "all" || genderFilter === "all") return [];
-    if (!groupStageComplete) return [];
+    if (divisionGroups.length === 0) return [];
     return PLAYOFF_STAGES;
-  }, [groupStageComplete, categoryFilter, genderFilter]);
+  }, [divisionGroups.length, categoryFilter, genderFilter]);
 
   const manualInitialTeamOptions = useMemo(() => {
     if (!manualStage) return [];
@@ -760,6 +958,99 @@ export default function TournamentPlayoffsPage() {
 
     return map;
   }, [manualSlotValues, teamsById]);
+  const playoffSeedLabelByMatchId = useMemo(() => {
+    const map = new Map<number, SeedLabel>();
+    if (activeStages.length === 0) return map;
+
+    activeStages.forEach((stage, stageIdx) => {
+      const stageMatchesRaw = [...(matchesByStage.get(stage) ?? [])].sort(
+        (a, b) => a.id - b.id
+      );
+      const nextStageForOrdering =
+        stageIdx < activeStages.length - 1 ? activeStages[stageIdx + 1] : null;
+      const nextStageMatchCountForOrdering = nextStageForOrdering
+        ? Math.max(1, Math.floor(STAGE_TEAM_COUNTS[nextStageForOrdering] / 2))
+        : 0;
+      const winnerSlotByCurrentStageMatchIdx =
+        nextStageMatchCountForOrdering > 0
+          ? assignWinnerSlotIndexes(
+              stageMatchesRaw.length,
+              nextStageMatchCountForOrdering
+            )
+          : new Map<number, number>();
+      const destinationByCurrentStageMatchIdx = new Map<number, number>();
+      winnerSlotByCurrentStageMatchIdx.forEach((winnerIdx, slotIdx) => {
+        destinationByCurrentStageMatchIdx.set(winnerIdx, Math.floor(slotIdx / 2));
+      });
+      const stageMatches = stageMatchesRaw
+        .map((stageMatch, idx) => ({
+          stageMatch,
+          idx,
+          destination: destinationByCurrentStageMatchIdx.get(idx) ?? idx,
+        }))
+        .sort((a, b) => a.destination - b.destination || a.idx - b.idx)
+        .map((item) => item.stageMatch);
+
+      const defaultSeedLabels = defaultSeedLabelsByStage.get(stage) ?? [];
+      const prevStage = stageIdx > 0 ? activeStages[stageIdx - 1] : null;
+      const prevStageMatches = prevStage
+        ? [...(matchesByStage.get(prevStage) ?? [])].sort((a, b) => a.id - b.id)
+        : [];
+      const expectedMatches = Math.max(
+        stageMatches.length,
+        prevStage ? Math.ceil(prevStageMatches.length / 2) : stageMatches.length
+      );
+
+      const winnerBySlotIndex = new Map<number, number>();
+      if (prevStage) {
+        const winnerSlotIndexes = assignWinnerSlotIndexes(
+          prevStageMatches.length,
+          expectedMatches
+        );
+        winnerSlotIndexes.forEach((winnerIdx, slotIdx) => {
+          const winnerTeamId = prevStageMatches[winnerIdx]?.winner_team_id ?? null;
+          if (winnerTeamId) {
+            winnerBySlotIndex.set(slotIdx, winnerTeamId);
+          }
+        });
+      }
+
+      const seededPlaceholders = Array.from({ length: expectedMatches }, (_, idx) => {
+        const manualSeedA = manualPreviewLabelBySlotKey.get(
+          manualSlotKey(stage, idx, "a")
+        );
+        const manualSeedB = manualPreviewLabelBySlotKey.get(
+          manualSlotKey(stage, idx, "b")
+        );
+
+        if (!prevStage) {
+          const defaultSeed = defaultSeedLabels[idx];
+          return {
+            seedA: manualSeedA ?? defaultSeed?.seedA ?? "Por definir",
+            seedB: manualSeedB ?? defaultSeed?.seedB ?? "Por definir",
+          };
+        }
+
+        const slotA = idx * 2;
+        const slotB = idx * 2 + 1;
+        const mappedWinnerA = winnerBySlotIndex.get(slotA) ?? null;
+        const mappedWinnerB = winnerBySlotIndex.get(slotB) ?? null;
+        return {
+          seedA:
+            manualSeedA ?? (mappedWinnerA ? getTeamLabel(mappedWinnerA) : "Por definir"),
+          seedB:
+            manualSeedB ?? (mappedWinnerB ? getTeamLabel(mappedWinnerB) : "Por definir"),
+        };
+      });
+
+      stageMatches.forEach((match, idx) => {
+        const seed = seededPlaceholders[idx];
+        if (seed) map.set(match.id, seed);
+      });
+    });
+
+    return map;
+  }, [activeStages, defaultSeedLabelsByStage, manualPreviewLabelBySlotKey, matchesByStage]);
 
   const loadManualSeeds = useCallback(async () => {
     if (!Number.isFinite(tournamentId)) return;
@@ -891,13 +1182,22 @@ export default function TournamentPlayoffsPage() {
     }
   }, [categories, genders, categoryFilter, genderFilter]);
 
-  function getTeamLabel(teamId: number) {
+  function getTeamLabel(teamId?: number | null) {
+    if (typeof teamId !== "number") return "Por definir";
     const team = teamsById.get(teamId);
     if (!team) return `Team #${teamId}`;
 
     const names = team.players?.map((player) => player.name).filter(Boolean) ?? [];
     if (names.length === 0) return `Team #${teamId}`;
     return names.join(" / ");
+  }
+  function getMatchTeamLabel(match: Match, side: "a" | "b") {
+    const teamId = side === "a" ? match.team_a_id : match.team_b_id;
+    if (typeof teamId === "number") return getTeamLabel(teamId);
+    if (match.stage === "group") return "Por definir";
+    const seedLabel = playoffSeedLabelByMatchId.get(match.id);
+    if (!seedLabel) return "Por definir";
+    return side === "a" ? seedLabel.seedA : seedLabel.seedB;
   }
   function getTeamLabelWithGroupRank(teamId: number) {
     const ranking = groupRankingByTeam.get(teamId);
@@ -910,6 +1210,9 @@ export default function TournamentPlayoffsPage() {
       return `${getTeamLabel(teamId)} (${ranking.position}° ${ranking.groupName})`;
     }
     return `${getTeamLabel(teamId)} (${overallRank}° gral · ${ranking.position}° ${ranking.groupName})`;
+  }
+  function hasDefinedTeams(match: Match): match is Match & { team_a_id: number; team_b_id: number } {
+    return typeof match.team_a_id === "number" && typeof match.team_b_id === "number";
   }
   function getMatchCode(match: Match) {
     return match.match_code ?? String(match.id);
@@ -1088,6 +1391,10 @@ export default function TournamentPlayoffsPage() {
 
   async function saveResult() {
     if (!selectedMatch) return;
+    if (!hasDefinedTeams(selectedMatch)) {
+      setFormError("Todavia no estan definidas las parejas para este partido.");
+      return;
+    }
 
     const payloadSets = buildPayloadSets();
     if (!payloadSets) return;
@@ -1193,6 +1500,7 @@ export default function TournamentPlayoffsPage() {
       const existingPairs = new Set<string>();
 
       existingStageMatches.forEach((match) => {
+        if (!hasDefinedTeams(match)) return;
         occupiedTeamIds.add(match.team_a_id);
         occupiedTeamIds.add(match.team_b_id);
         const key = [match.team_a_id, match.team_b_id].sort((a, b) => a - b).join("-");
@@ -1419,7 +1727,7 @@ export default function TournamentPlayoffsPage() {
             </div>
           )}
 
-          {!hasPlayoffs && (
+          {(!hasPlayoffs || availableStages.length > 0 || !!actionError) && (
             <Card className="bg-white/95">
               <div className="p-6 space-y-4">
                 <div className="flex flex-col gap-2">
@@ -1427,7 +1735,7 @@ export default function TournamentPlayoffsPage() {
                   {availableStages.length === 0 ? (
                     <div className="text-sm text-zinc-600">
                       {!groupStageComplete && !latestStage
-                        ? "Tenes que completar los resultados de grupos para esta categoria y genero."
+                        ? "Podes crear el cuadro vacio para programar horarios. Las parejas se completan cuando terminen grupos."
                         : latestStage && !canGenerateNextStage
                         ? `Completa los resultados de ${STAGE_LABELS[latestStage]} para avanzar.`
                         : "No hay instancias disponibles para generar ahora."}
@@ -1459,12 +1767,11 @@ export default function TournamentPlayoffsPage() {
           <Card className="bg-white/95">
                 <div className="p-6 space-y-4">
                   <div className="text-sm font-semibold text-zinc-800">Armado manual por instancia</div>
+                  <div className="text-xs text-zinc-500">
+                    Podes armar y programar playoffs aun sin resultados de grupos.
+                  </div>
 
-                  {!groupStageComplete ? (
-                    <div className="text-sm text-zinc-600">
-                      Completa los resultados de grupos de esta categoria y genero para habilitar el armado manual.
-                    </div>
-                  ) : manualStageOptions.length === 0 ? (
+                  {manualStageOptions.length === 0 ? (
                     <div className="text-sm text-zinc-600">
                       No hay instancias habilitadas para armar manualmente.
                     </div>
@@ -1692,6 +1999,7 @@ export default function TournamentPlayoffsPage() {
                         )
                         .map((item) => item.stageMatch);
                       const prevStage = stageIdx > 0 ? activeStages[stageIdx - 1] : null;
+                      const defaultSeedLabels = defaultSeedLabelsByStage.get(stage) ?? [];
                       const prevStageMatches = prevStage
                         ? [...(matchesByStage.get(prevStage) ?? [])].sort(
                             (a, b) => a.id - b.id
@@ -1719,6 +2027,7 @@ export default function TournamentPlayoffsPage() {
                         { length: expectedMatches },
                         (_, idx) => {
                           if (!prevStage) {
+                            const defaultSeed = defaultSeedLabels[idx];
                             const manualSeedA = manualPreviewLabelBySlotKey.get(
                               manualSlotKey(stage, idx, "a")
                             );
@@ -1728,8 +2037,8 @@ export default function TournamentPlayoffsPage() {
                             return {
                               type: "placeholder",
                               key: `${stage}-${idx}`,
-                              seedA: manualSeedA ?? "Por definir",
-                              seedB: manualSeedB ?? "Por definir",
+                              seedA: manualSeedA ?? defaultSeed?.seedA ?? "Por definir",
+                              seedB: manualSeedB ?? defaultSeed?.seedB ?? "Por definir",
                             };
                           }
                           const slotA = idx * 2;
@@ -1752,7 +2061,15 @@ export default function TournamentPlayoffsPage() {
                       );
                       const items = Array.from({ length: expectedMatches }, (_, idx) => {
                         const match = stageMatches[idx];
-                        if (match) return { type: "match", match };
+                        if (match) {
+                          const seeded = seededPlaceholders[idx];
+                          return {
+                            type: "match",
+                            match,
+                            seedA: seeded?.seedA ?? "Por definir",
+                            seedB: seeded?.seedB ?? "Por definir",
+                          };
+                        }
                         return seededPlaceholders[idx];
                       });
                       const baseMatches = initialStage
@@ -1790,10 +2107,6 @@ export default function TournamentPlayoffsPage() {
                               } as const;
 
                               if (!("match" in item)) {
-                                const seedA =
-                                  "seedA" in item ? item.seedA : "Por definir";
-                                const seedB =
-                                  "seedB" in item ? item.seedB : "Por definir";
                                 return (
                                   <div
                                     key={`${stage}-placeholder-${idx}`}
@@ -1804,11 +2117,11 @@ export default function TournamentPlayoffsPage() {
                                       Por definir
                                     </div>
                                     <div className="mt-2 text-sm text-zinc-600">
-                                      {seedA}
+                                      {item.seedA}
                                     </div>
                                     <div className="text-xs text-zinc-400">vs</div>
                                     <div className="text-sm text-zinc-600">
-                                      {seedB}
+                                      {item.seedB}
                                     </div>
                                   </div>
                                 );
@@ -1816,8 +2129,15 @@ export default function TournamentPlayoffsPage() {
 
                               const match = item.match;
                               const played = match.status === "played";
+                              const hasTeams = hasDefinedTeams(match);
+                              const teamALabel = hasTeams
+                                ? getTeamLabel(match.team_a_id)
+                                : item.seedA;
+                              const teamBLabel = hasTeams
+                                ? getTeamLabel(match.team_b_id)
+                                : item.seedB;
                               const canSchedule = !played;
-                              const canLoadResult = !played && !!match.scheduled_time;
+                              const canLoadResult = !played && hasTeams && !!match.scheduled_time;
                               const scheduleLabel = formatSchedule(
                                 match.scheduled_date,
                                 match.scheduled_time
@@ -1846,7 +2166,7 @@ export default function TournamentPlayoffsPage() {
                                             : ""
                                         }`}
                                       >
-                                        {getTeamLabel(match.team_a_id)}
+                                        {teamALabel}
                                       </div>
                                       {played && (
                                         <div
@@ -1868,7 +2188,7 @@ export default function TournamentPlayoffsPage() {
                                             : ""
                                         }`}
                                       >
-                                        {getTeamLabel(match.team_b_id)}
+                                        {teamBLabel}
                                       </div>
                                       {played && (
                                         <div
@@ -2017,9 +2337,10 @@ export default function TournamentPlayoffsPage() {
         >
           <div className="text-sm text-zinc-600">
             {scheduleMatch
-              ? `Partido ${getMatchCode(scheduleMatch)} · ${getTeamLabel(
-                  scheduleMatch.team_a_id
-                )} vs ${getTeamLabel(scheduleMatch.team_b_id)}`
+              ? `Partido ${getMatchCode(scheduleMatch)} · ${getMatchTeamLabel(
+                  scheduleMatch,
+                  "a"
+                )} vs ${getMatchTeamLabel(scheduleMatch, "b")}`
               : null}
           </div>
 
@@ -2125,7 +2446,7 @@ export default function TournamentPlayoffsPage() {
                 <div className="space-y-0.5">
                   <div className="text-xs font-semibold text-zinc-500">Pareja 1</div>
                   <div className="text-sm text-zinc-700">
-                    {selectedMatch ? getTeamLabel(selectedMatch.team_a_id) : "-"}
+                    {selectedMatch ? getMatchTeamLabel(selectedMatch, "a") : "-"}
                   </div>
                 </div>
                 {setsInput.map((setScore, idx) => (
@@ -2144,7 +2465,7 @@ export default function TournamentPlayoffsPage() {
                 <div className="space-y-0.5">
                   <div className="text-xs font-semibold text-zinc-500">Pareja 2</div>
                   <div className="text-sm text-zinc-700">
-                    {selectedMatch ? getTeamLabel(selectedMatch.team_b_id) : "-"}
+                    {selectedMatch ? getMatchTeamLabel(selectedMatch, "b") : "-"}
                   </div>
                 </div>
                 {setsInput.map((setScore, idx) => (
@@ -2278,7 +2599,7 @@ export default function TournamentPlayoffsPage() {
                                       </span>
                                     </div>
                                     <div className="mt-2 text-sm font-medium text-zinc-900">
-                                      {getTeamLabel(match.team_a_id)} vs {getTeamLabel(match.team_b_id)}
+                                      {getMatchTeamLabel(match, "a")} vs {getMatchTeamLabel(match, "b")}
                                     </div>
                                   </button>
                                 ))}
@@ -2309,7 +2630,7 @@ export default function TournamentPlayoffsPage() {
                 {getStageLabel(gridMatch)} · Partido {getMatchCode(gridMatch)}
               </div>
               <div className="text-base font-semibold text-zinc-900">
-                {getTeamLabel(gridMatch.team_a_id)} vs {getTeamLabel(gridMatch.team_b_id)}
+                {getMatchTeamLabel(gridMatch, "a")} vs {getMatchTeamLabel(gridMatch, "b")}
               </div>
               <div className="text-sm text-zinc-600">
                 {gridMatch.scheduled_date ? `Fecha: ${gridMatch.scheduled_date} · ` : ""}
