@@ -143,6 +143,25 @@ function rankSeedCandidate(seed: SeedCandidate) {
   return [seed.position, seed.groupOrder] as const;
 }
 
+function isPowerOfTwo(value: number) {
+  return value > 0 && (value & (value - 1)) === 0;
+}
+
+function standardBracketSeedOrder(size: number) {
+  if (!isPowerOfTwo(size)) return [];
+  let order = [1];
+  while (order.length < size) {
+    const currentSize = order.length * 2;
+    const next: number[] = [];
+    order.forEach((seed) => {
+      next.push(seed);
+      next.push(currentSize + 1 - seed);
+    });
+    order = next;
+  }
+  return order.map((seed) => seed - 1);
+}
+
 function pairSeedCandidatesRanked(seeds: SeedCandidate[]) {
   const ordered = [...seeds].sort((a, b) => {
     const [posA, orderA] = rankSeedCandidate(a);
@@ -213,20 +232,75 @@ function buildDefaultSeedLabelsForStage(
 
   const used = new Set<string>();
   const pairs: Array<[SeedCandidate, SeedCandidate]> = [];
-  for (let idx = 0; idx < groupOrder.length - 1; idx += 2) {
-    const a = grouped.get(groupOrder[idx]);
-    const b = grouped.get(groupOrder[idx + 1]);
-    const a1 = a?.get(1);
-    const a2 = a?.get(2);
-    const b1 = b?.get(1);
-    const b2 = b?.get(2);
-    if (!a1 || !a2 || !b1 || !b2) continue;
-    pairs.push([a1, b2]);
-    pairs.push([a2, b1]);
-    used.add(`${a1.groupName}:${a1.position}`);
-    used.add(`${a2.groupName}:${a2.position}`);
-    used.add(`${b1.groupName}:${b1.position}`);
-    used.add(`${b2.groupName}:${b2.position}`);
+
+  const fullGroupNames = groupOrder.filter((name) => {
+    const seedsForGroup = grouped.get(name);
+    return !!seedsForGroup?.get(1) && !!seedsForGroup?.get(2);
+  });
+
+  if (fullGroupNames.length >= 2 && isPowerOfTwo(fullGroupNames.length)) {
+    const bracketOrderIndexes = standardBracketSeedOrder(fullGroupNames.length);
+    const firstGroupOrder = bracketOrderIndexes.map((idx) => fullGroupNames[idx]);
+    const firstPosition = new Map<string, number>();
+    firstGroupOrder.forEach((groupName, idx) => firstPosition.set(groupName, idx));
+
+    let bestShift = 1;
+    let bestScore: [number, number] | null = null;
+    for (let shift = 1; shift < fullGroupNames.length; shift += 1) {
+      const secondGroupOrder = firstGroupOrder.map(
+        (_, idx) => fullGroupNames[(idx + shift) % fullGroupNames.length]
+      );
+      const hasCollision = secondGroupOrder.some(
+        (groupName, idx) => groupName === firstGroupOrder[idx]
+      );
+      if (hasCollision) continue;
+
+      const secondPosition = new Map<string, number>();
+      secondGroupOrder.forEach((groupName, idx) => secondPosition.set(groupName, idx));
+      const distances = fullGroupNames.map((groupName) =>
+        Math.abs((firstPosition.get(groupName) ?? 0) - (secondPosition.get(groupName) ?? 0))
+      );
+      const score: [number, number] = [
+        Math.min(...distances),
+        distances.reduce((sum, value) => sum + value, 0),
+      ];
+      if (
+        !bestScore
+        || score[0] > bestScore[0]
+        || (score[0] === bestScore[0] && score[1] > bestScore[1])
+      ) {
+        bestScore = score;
+        bestShift = shift;
+      }
+    }
+
+    const secondGroupOrder = firstGroupOrder.map(
+      (_, idx) => fullGroupNames[(idx + bestShift) % fullGroupNames.length]
+    );
+    firstGroupOrder.forEach((groupName, idx) => {
+      const firstSeed = grouped.get(groupName)?.get(1);
+      const secondSeed = grouped.get(secondGroupOrder[idx])?.get(2);
+      if (!firstSeed || !secondSeed) return;
+      pairs.push([firstSeed, secondSeed]);
+      used.add(`${firstSeed.groupName}:${firstSeed.position}`);
+      used.add(`${secondSeed.groupName}:${secondSeed.position}`);
+    });
+  } else {
+    for (let idx = 0; idx < groupOrder.length - 1; idx += 2) {
+      const a = grouped.get(groupOrder[idx]);
+      const b = grouped.get(groupOrder[idx + 1]);
+      const a1 = a?.get(1);
+      const a2 = a?.get(2);
+      const b1 = b?.get(1);
+      const b2 = b?.get(2);
+      if (!a1 || !a2 || !b1 || !b2) continue;
+      pairs.push([a1, b2]);
+      pairs.push([a2, b1]);
+      used.add(`${a1.groupName}:${a1.position}`);
+      used.add(`${a2.groupName}:${a2.position}`);
+      used.add(`${b1.groupName}:${b1.position}`);
+      used.add(`${b2.groupName}:${b2.position}`);
+    }
   }
 
   const remaining = qualified.filter(

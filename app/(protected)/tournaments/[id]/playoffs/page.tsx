@@ -16,6 +16,7 @@ import type {
   PlayoffManualSeedsUpsertRequest,
   PlayoffStage,
   Team,
+  Tournament,
   TournamentGroupOut,
   TournamentStatus,
   TournamentStatusResponse,
@@ -119,6 +120,20 @@ function manualSlotKey(stage: PlayoffStage, matchIndex: number, side: ManualSlot
   return `${stage}:${matchIndex}:${side}`;
 }
 
+function toLocalIsoDate(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function resolveGridDefaultDate(startDateRaw: string | null, todayIsoDate: string) {
+  const startDate = startDateRaw?.slice(0, 10) ?? "";
+  const isValidIsoDate = /^\d{4}-\d{2}-\d{2}$/.test(startDate);
+  if (!isValidIsoDate) return todayIsoDate;
+  return todayIsoDate < startDate ? startDate : todayIsoDate;
+}
+
 function parseManualSlotKey(
   value: string
 ): { stage: PlayoffStage; matchIndex: number; side: ManualSlotSide } | null {
@@ -178,6 +193,25 @@ function formatSeedCandidate(seed: SeedCandidate) {
 
 function rankSeedCandidate(seed: SeedCandidate) {
   return [seed.position, seed.groupOrder] as const;
+}
+
+function isPowerOfTwo(value: number) {
+  return value > 0 && (value & (value - 1)) === 0;
+}
+
+function standardBracketSeedOrder(size: number) {
+  if (!isPowerOfTwo(size)) return [];
+  let order = [1];
+  while (order.length < size) {
+    const currentSize = order.length * 2;
+    const next: number[] = [];
+    order.forEach((seed) => {
+      next.push(seed);
+      next.push(currentSize + 1 - seed);
+    });
+    order = next;
+  }
+  return order.map((seed) => seed - 1);
 }
 
 function pairSeedCandidatesRanked(seeds: SeedCandidate[]) {
@@ -250,20 +284,75 @@ function buildDefaultSeedLabelsForStage(
 
   const used = new Set<string>();
   const pairs: Array<[SeedCandidate, SeedCandidate]> = [];
-  for (let idx = 0; idx < groupOrder.length - 1; idx += 2) {
-    const a = grouped.get(groupOrder[idx]);
-    const b = grouped.get(groupOrder[idx + 1]);
-    const a1 = a?.get(1);
-    const a2 = a?.get(2);
-    const b1 = b?.get(1);
-    const b2 = b?.get(2);
-    if (!a1 || !a2 || !b1 || !b2) continue;
-    pairs.push([a1, b2]);
-    pairs.push([a2, b1]);
-    used.add(`${a1.groupName}:${a1.position}`);
-    used.add(`${a2.groupName}:${a2.position}`);
-    used.add(`${b1.groupName}:${b1.position}`);
-    used.add(`${b2.groupName}:${b2.position}`);
+
+  const fullGroupNames = groupOrder.filter((name) => {
+    const seedsForGroup = grouped.get(name);
+    return !!seedsForGroup?.get(1) && !!seedsForGroup?.get(2);
+  });
+
+  if (fullGroupNames.length >= 2 && isPowerOfTwo(fullGroupNames.length)) {
+    const bracketOrderIndexes = standardBracketSeedOrder(fullGroupNames.length);
+    const firstGroupOrder = bracketOrderIndexes.map((idx) => fullGroupNames[idx]);
+    const firstPosition = new Map<string, number>();
+    firstGroupOrder.forEach((groupName, idx) => firstPosition.set(groupName, idx));
+
+    let bestShift = 1;
+    let bestScore: [number, number] | null = null;
+    for (let shift = 1; shift < fullGroupNames.length; shift += 1) {
+      const secondGroupOrder = firstGroupOrder.map(
+        (_, idx) => fullGroupNames[(idx + shift) % fullGroupNames.length]
+      );
+      const hasCollision = secondGroupOrder.some(
+        (groupName, idx) => groupName === firstGroupOrder[idx]
+      );
+      if (hasCollision) continue;
+
+      const secondPosition = new Map<string, number>();
+      secondGroupOrder.forEach((groupName, idx) => secondPosition.set(groupName, idx));
+      const distances = fullGroupNames.map((groupName) =>
+        Math.abs((firstPosition.get(groupName) ?? 0) - (secondPosition.get(groupName) ?? 0))
+      );
+      const score: [number, number] = [
+        Math.min(...distances),
+        distances.reduce((sum, value) => sum + value, 0),
+      ];
+      if (
+        !bestScore
+        || score[0] > bestScore[0]
+        || (score[0] === bestScore[0] && score[1] > bestScore[1])
+      ) {
+        bestScore = score;
+        bestShift = shift;
+      }
+    }
+
+    const secondGroupOrder = firstGroupOrder.map(
+      (_, idx) => fullGroupNames[(idx + bestShift) % fullGroupNames.length]
+    );
+    firstGroupOrder.forEach((groupName, idx) => {
+      const firstSeed = grouped.get(groupName)?.get(1);
+      const secondSeed = grouped.get(secondGroupOrder[idx])?.get(2);
+      if (!firstSeed || !secondSeed) return;
+      pairs.push([firstSeed, secondSeed]);
+      used.add(`${firstSeed.groupName}:${firstSeed.position}`);
+      used.add(`${secondSeed.groupName}:${secondSeed.position}`);
+    });
+  } else {
+    for (let idx = 0; idx < groupOrder.length - 1; idx += 2) {
+      const a = grouped.get(groupOrder[idx]);
+      const b = grouped.get(groupOrder[idx + 1]);
+      const a1 = a?.get(1);
+      const a2 = a?.get(2);
+      const b1 = b?.get(1);
+      const b2 = b?.get(2);
+      if (!a1 || !a2 || !b1 || !b2) continue;
+      pairs.push([a1, b2]);
+      pairs.push([a2, b1]);
+      used.add(`${a1.groupName}:${a1.position}`);
+      used.add(`${a2.groupName}:${a2.position}`);
+      used.add(`${b1.groupName}:${b1.position}`);
+      used.add(`${b2.groupName}:${b2.position}`);
+    }
   }
 
   const remaining = qualified.filter(
@@ -288,6 +377,7 @@ export default function TournamentPlayoffsPage() {
   const [matches, setMatches] = useState<Match[]>([]);
   const [teams, setTeams] = useState<Team[]>([]);
   const [groups, setGroups] = useState<TournamentGroupOut[]>([]);
+  const [tournamentStartDate, setTournamentStartDate] = useState<string | null>(null);
   const [status, setStatus] = useState<TournamentStatus>("upcoming");
   const [categoryFilter, setCategoryFilter] = useState<string | "all">("all");
   const [genderFilter, setGenderFilter] = useState<string | "all">("all");
@@ -314,6 +404,7 @@ export default function TournamentPlayoffsPage() {
   const [scheduling, setScheduling] = useState(false);
   const [gridOpen, setGridOpen] = useState(false);
   const [gridMatch, setGridMatch] = useState<Match | null>(null);
+  const [gridDateFilter, setGridDateFilter] = useState("");
 
   const [manualStage, setManualStage] = useState<PlayoffStage | null>(null);
   const [manualSlotValues, setManualSlotValues] = useState<Record<string, number | "">>({});
@@ -653,43 +744,82 @@ export default function TournamentPlayoffsPage() {
       ),
     [categoryFilteredMatches]
   );
-  const gridData = useMemo(() => {
+  const todayIsoDate = useMemo(() => toLocalIsoDate(new Date()), []);
+  const defaultGridDate = useMemo(() => {
+    return resolveGridDefaultDate(tournamentStartDate, todayIsoDate);
+  }, [tournamentStartDate, todayIsoDate]);
+  const gridAvailableDates = useMemo(() => {
     const dates = Array.from(
       new Set(scheduledMatches.map((match) => match.scheduled_date as string))
     ).sort();
+    if (!dates.includes(defaultGridDate)) {
+      dates.push(defaultGridDate);
+      dates.sort();
+    }
+    return dates;
+  }, [scheduledMatches, defaultGridDate]);
+  const gridMatchesForDate = useMemo(
+    () =>
+      scheduledMatches.filter(
+        (match) => (match.scheduled_date ?? "") === gridDateFilter
+      ),
+    [scheduledMatches, gridDateFilter]
+  );
+  const gridData = useMemo(() => {
     const times = Array.from(
       new Set(
-        scheduledMatches
+        gridMatchesForDate
           .map((match) => normalizeTime(match.scheduled_time))
           .filter(Boolean)
       )
     ).sort();
+    const courtValues = Array.from(
+      new Set(gridMatchesForDate.map((match) => match.court_number ?? -1))
+    ).sort((a, b) => {
+      if (a === -1 && b === -1) return 0;
+      if (a === -1) return 1;
+      if (b === -1) return -1;
+      return a - b;
+    });
+    const courts = courtValues.map((court) => ({
+      key: String(court),
+      label: court === -1 ? "Sin cancha" : `Cancha ${court}`,
+    }));
     const map = new Map<string, Map<string, Match[]>>();
 
-    scheduledMatches.forEach((match) => {
-      const dateKey = match.scheduled_date as string;
+    gridMatchesForDate.forEach((match) => {
       const timeKey = normalizeTime(match.scheduled_time);
+      const courtKey = String(match.court_number ?? -1);
       if (!timeKey) return;
-      if (!map.has(dateKey)) {
-        map.set(dateKey, new Map());
+      if (!map.has(timeKey)) {
+        map.set(timeKey, new Map());
       }
-      const timeMap = map.get(dateKey)!;
-      if (!timeMap.has(timeKey)) {
-        timeMap.set(timeKey, []);
+      const courtMap = map.get(timeKey)!;
+      if (!courtMap.has(courtKey)) {
+        courtMap.set(courtKey, []);
       }
-      timeMap.get(timeKey)!.push(match);
+      courtMap.get(courtKey)!.push(match);
     });
 
-    map.forEach((timeMap) => {
-      timeMap.forEach((matchesInCell) => {
-        matchesInCell.sort(
-          (a, b) => (a.court_number ?? 0) - (b.court_number ?? 0)
-        );
+    map.forEach((courtMap) => {
+      courtMap.forEach((matchesInCell) => {
+        matchesInCell.sort((a, b) => a.id - b.id);
       });
     });
 
-    return { dates, times, map };
-  }, [scheduledMatches]);
+    return { times, courts, map };
+  }, [gridMatchesForDate]);
+  useEffect(() => {
+    setGridDateFilter((prev) => {
+      if (prev && gridAvailableDates.includes(prev)) return prev;
+      if (gridAvailableDates.includes(defaultGridDate)) return defaultGridDate;
+      return gridAvailableDates[0] ?? defaultGridDate;
+    });
+  }, [gridAvailableDates, defaultGridDate]);
+  useEffect(() => {
+    if (!gridOpen) return;
+    setGridDateFilter(defaultGridDate);
+  }, [gridOpen, defaultGridDate]);
 
   const finalWinner = useMemo(() => {
     const finals = matchesByStage.get("final") ?? [];
@@ -1113,13 +1243,15 @@ export default function TournamentPlayoffsPage() {
     setError(null);
 
     try {
-      const [matchesRes, teamsRes, groupsRes, statusRes] = await Promise.all([
+      const [tournamentRes, matchesRes, teamsRes, groupsRes, statusRes] = await Promise.all([
+        api<Tournament>(`/public/tournaments/${tournamentId}`, { auth: false }),
         api<Match[]>(`/tournaments/${tournamentId}/matches`),
         api<Team[]>(`/tournaments/${tournamentId}/teams`),
         api<TournamentGroupOut[]>(`/tournaments/${tournamentId}/groups`),
         api<TournamentStatusResponse>(`/tournaments/${tournamentId}/status`),
       ]);
 
+      setTournamentStartDate(tournamentRes.start_date ?? null);
       setMatches(matchesRes);
       setTeams(teamsRes);
       setGroups(groupsRes);
@@ -1181,6 +1313,12 @@ export default function TournamentPlayoffsPage() {
       hasDefaultedFilters.current = true;
     }
   }, [categories, genders, categoryFilter, genderFilter]);
+  useEffect(() => {
+    if (!hasPlayoffs) return;
+    setManualStage(null);
+    setManualError(null);
+    setManualStageOpen(false);
+  }, [hasPlayoffs]);
 
   function getTeamLabel(teamId?: number | null) {
     if (typeof teamId !== "number") return "Por definir";
@@ -1764,7 +1902,8 @@ export default function TournamentPlayoffsPage() {
             </Card>
           )}
 
-          <Card className="bg-white/95">
+          {!hasPlayoffs && (
+            <Card className="bg-white/95">
                 <div className="p-6 space-y-4">
                   <div className="text-sm font-semibold text-zinc-800">Armado manual por instancia</div>
                   <div className="text-xs text-zinc-500">
@@ -1936,7 +2075,8 @@ export default function TournamentPlayoffsPage() {
                     </div>
                   )}
                 </div>
-              </Card>
+            </Card>
+          )}
 
           {finalWinner && (
             <Card className="bg-white/95">
@@ -2521,98 +2661,111 @@ export default function TournamentPlayoffsPage() {
         closeOnEscape={!gridMatch}
       >
         <div className="space-y-4">
-          {gridData.dates.length === 0 ? (
+          {scheduledMatches.length === 0 ? (
             <div className="text-sm text-zinc-600">
               No hay partidos programados para mostrar.
             </div>
           ) : (
             <>
-              <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-zinc-500">
-                <span>
-                  {gridData.dates.length} dias · {gridData.times.length} turnos
-                </span>
-                <span>Click en un partido para ver el detalle.</span>
-              </div>
-              <div className="max-h-[70vh] overflow-auto rounded-2xl border border-zinc-200 bg-white">
-                <div
-                  className="grid gap-2 p-3"
-                  style={{
-                    gridTemplateColumns: `110px repeat(${gridData.dates.length}, minmax(240px, 1fr))`,
-                  }}
-                >
-                  <div className="sticky top-0 z-10 rounded-lg bg-white/95 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-zinc-400">
-                    Hora
+              <div className="flex flex-wrap items-end justify-between gap-3 text-xs text-zinc-500">
+                <div className="space-y-1">
+                  <div>
+                    {gridData.courts.length} canchas · {gridData.times.length} turnos
                   </div>
-                  {gridData.dates.map((date) => (
-                    <div
-                      key={`head-${date}`}
-                      className="sticky top-0 z-10 rounded-lg bg-white/95 py-2 text-xs font-semibold text-zinc-700"
-                    >
-                      {formatShortDate(date)}
-                    </div>
-                  ))}
-
-                  {gridData.times.map((slotTime, rowIdx) => {
-                    const rowClass = rowIdx % 2 === 0 ? "bg-white" : "bg-zinc-100";
-                    return (
-                    <Fragment key={`row-${slotTime}`}>
-                      <div
-                        className={`rounded-lg px-2 py-1 text-sm font-medium text-zinc-700 ${rowClass}`}
-                      >
-                        {slotTime}
-                      </div>
-                      {gridData.dates.map((date) => {
-                        const matchesInCell =
-                          gridData.map.get(date)?.get(slotTime) ?? [];
-                        return (
-                          <div
-                            key={`cell-${date}-${slotTime}`}
-                            className={`min-h-[92px] rounded-2xl border border-zinc-200 p-2 ${rowClass}`}
-                          >
-                            {matchesInCell.length === 0 ? (
-                              <div className="flex h-full items-center justify-center rounded-xl border border-dashed border-zinc-200 text-xs text-zinc-400">
-                                Sin partidos
-                              </div>
-                            ) : (
-                              <div className="grid gap-2 md:grid-cols-2">
-                                {matchesInCell.map((match) => (
-                                  <button
-                                    key={match.id}
-                                    type="button"
-                                    onClick={() => setGridMatch(match)}
-                                    className={`group rounded-xl border p-2 text-left text-xs shadow-sm transition hover:-translate-y-0.5 hover:shadow ${
-                                      match.status === "played"
-                                        ? "border-zinc-200 bg-zinc-100 text-zinc-500"
-                                        : "border-zinc-200 bg-white text-zinc-700 hover:border-zinc-300"
-                                    }`}
-                                  >
-                                    <div className="flex items-center justify-between text-[11px] text-zinc-500">
-                                      <span
-                                        className={`rounded-full px-2 py-0.5 font-semibold ${getCourtBadgeClass(
-                                          match.court_number
-                                        )}`}
-                                      >
-                                        Cancha {match.court_number ?? "—"}
-                                      </span>
-                                      <span className="text-[10px] uppercase tracking-wide text-zinc-400">
-                                        {getStageLabel(match)} · {getMatchCode(match)}
-                                      </span>
-                                    </div>
-                                    <div className="mt-2 text-sm font-medium text-zinc-900">
-                                      {getMatchTeamLabel(match, "a")} vs {getMatchTeamLabel(match, "b")}
-                                    </div>
-                                  </button>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </Fragment>
-                  );
-                  })}
+                  <div>Click en un partido para ver el detalle.</div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <label htmlFor="grid-date-filter" className="font-semibold text-zinc-600">
+                    Fecha
+                  </label>
+                  <input
+                    id="grid-date-filter"
+                    type="date"
+                    value={gridDateFilter}
+                    onChange={(event) => setGridDateFilter(event.target.value)}
+                    min={gridAvailableDates[0]}
+                    max={gridAvailableDates[gridAvailableDates.length - 1]}
+                    className="rounded-xl border border-zinc-300 bg-white px-3 py-1.5 text-xs font-medium text-zinc-700 focus:border-zinc-500 focus:outline-none focus:ring-2 focus:ring-zinc-800/15"
+                  />
                 </div>
               </div>
+              {gridData.times.length === 0 || gridData.courts.length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-500">
+                  No hay partidos programados para la fecha {formatShortDate(gridDateFilter)}.
+                </div>
+              ) : (
+                <div className="max-h-[70vh] overflow-auto rounded-2xl border border-zinc-200 bg-white">
+                  <div
+                    className="grid gap-2 p-3"
+                    style={{
+                      gridTemplateColumns: `110px repeat(${gridData.courts.length}, minmax(240px, 1fr))`,
+                    }}
+                  >
+                    <div className="sticky top-0 z-10 rounded-lg bg-white/95 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-zinc-400">
+                      Hora
+                    </div>
+                    {gridData.courts.map((court) => (
+                      <div
+                        key={`head-${court.key}`}
+                        className="sticky top-0 z-10 rounded-lg bg-white/95 py-2 text-xs font-semibold text-zinc-700"
+                      >
+                        {court.label}
+                      </div>
+                    ))}
+
+                    {gridData.times.map((slotTime, rowIdx) => {
+                      const rowClass = rowIdx % 2 === 0 ? "bg-white" : "bg-zinc-100";
+                      return (
+                        <Fragment key={`row-${slotTime}`}>
+                          <div
+                            className={`rounded-lg px-2 py-1 text-sm font-medium text-zinc-700 ${rowClass}`}
+                          >
+                            {slotTime}
+                          </div>
+                          {gridData.courts.map((court) => {
+                            const matchesInCell =
+                              gridData.map.get(slotTime)?.get(court.key) ?? [];
+                            return (
+                              <div
+                                key={`cell-${slotTime}-${court.key}`}
+                                className={`min-h-[92px] rounded-2xl border border-zinc-200 p-2 ${rowClass}`}
+                              >
+                                {matchesInCell.length === 0 ? (
+                                  <div className="flex h-full items-center justify-center rounded-xl border border-dashed border-zinc-200 text-xs text-zinc-400">
+                                    Sin partidos
+                                  </div>
+                                ) : (
+                                  <div className="space-y-2">
+                                    {matchesInCell.map((match) => (
+                                      <button
+                                        key={match.id}
+                                        type="button"
+                                        onClick={() => setGridMatch(match)}
+                                        className={`group w-full rounded-xl border p-2 text-left text-xs shadow-sm transition hover:-translate-y-0.5 hover:shadow ${
+                                          match.status === "played"
+                                            ? "border-zinc-200 bg-zinc-100 text-zinc-500"
+                                            : "border-zinc-200 bg-white text-zinc-700 hover:border-zinc-300"
+                                        }`}
+                                      >
+                                        <div className="text-[10px] uppercase tracking-wide text-zinc-400">
+                                          {getStageLabel(match)} · {getMatchCode(match)}
+                                        </div>
+                                        <div className="mt-2 text-sm font-medium text-zinc-900">
+                                          {getMatchTeamLabel(match, "a")} vs {getMatchTeamLabel(match, "b")}
+                                        </div>
+                                      </button>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </Fragment>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </>
           )}
         </div>
