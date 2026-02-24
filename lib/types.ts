@@ -191,8 +191,10 @@ export type Match = {
   tournament_id: number;
   group_id: number | null;
   stage: MatchStage;
-  team_a_id: number;
-  team_b_id: number;
+  category?: string | null;
+  gender?: string | null;
+  team_a_id: number | null;
+  team_b_id: number | null;
   sets: MatchSet[] | null;
   winner_team_id: number | null;
   played_at: string | null;
@@ -203,9 +205,15 @@ export type Match = {
 };
 
 export type PlayoffStage = Exclude<MatchStage, "group">;
+export type PlayoffAutoMode =
+  | "balanced"
+  | "top_two_per_group"
+  | "best_to_semi_quarter"
+  | "play_in_lowest_ranked";
 
 export type PlayoffGenerateRequest = {
   stage: PlayoffStage;
+  auto_mode?: PlayoffAutoMode;
   manual_pairs?: { team_a_id: number; team_b_id: number }[];
   category?: string;
   gender?: string;
