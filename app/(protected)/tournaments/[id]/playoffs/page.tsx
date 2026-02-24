@@ -11,6 +11,7 @@ import { clearToken } from "@/lib/auth";
 import type {
   Match,
   MatchSet,
+  PlayoffAutoMode,
   PlayoffGenerateRequest,
   PlayoffManualSeed,
   PlayoffManualSeedsUpsertRequest,
@@ -60,6 +61,24 @@ type SeedCandidate = {
   groupName: string;
   groupOrder: number;
   position: number;
+};
+type AutoModeOption = {
+  mode: PlayoffAutoMode;
+  label: string;
+  description: string;
+  enabled: boolean;
+};
+type BulkScheduleStageConfig = {
+  enabled: boolean;
+  date: string;
+  hour: string;
+  minute: string;
+  firstCourt: string;
+  courtsCount: string;
+};
+type PendingPlayoffStage = {
+  stage: PlayoffStage;
+  matches: Match[];
 };
 
 const DEFAULT_SETS: EditableSet[] = [
@@ -115,6 +134,54 @@ const STAGE_LABELS: Record<PlayoffStage, string> = {
   semi: "Semifinal",
   final: "Final",
 };
+
+const DEFAULT_AUTO_MODE: PlayoffAutoMode = "balanced";
+const DEFAULT_BULK_MATCH_DURATION_MINUTES = "90";
+
+function createBulkScheduleConfigMap(): Record<PlayoffStage, BulkScheduleStageConfig> {
+  return {
+    round_of_32: {
+      enabled: false,
+      date: "",
+      hour: "",
+      minute: "00",
+      firstCourt: "1",
+      courtsCount: "1",
+    },
+    round_of_16: {
+      enabled: false,
+      date: "",
+      hour: "",
+      minute: "00",
+      firstCourt: "1",
+      courtsCount: "1",
+    },
+    quarter: {
+      enabled: false,
+      date: "",
+      hour: "",
+      minute: "00",
+      firstCourt: "1",
+      courtsCount: "1",
+    },
+    semi: {
+      enabled: false,
+      date: "",
+      hour: "",
+      minute: "00",
+      firstCourt: "1",
+      courtsCount: "1",
+    },
+    final: {
+      enabled: false,
+      date: "",
+      hour: "",
+      minute: "00",
+      firstCourt: "1",
+      courtsCount: "1",
+    },
+  };
+}
 
 function manualSlotKey(stage: PlayoffStage, matchIndex: number, side: ManualSlotSide) {
   return `${stage}:${matchIndex}:${side}`;
@@ -386,6 +453,7 @@ export default function TournamentPlayoffsPage() {
   const [error, setError] = useState<string | null>(null);
 
   const [confirmStage, setConfirmStage] = useState<PlayoffStage | null>(null);
+  const [confirmAutoMode, setConfirmAutoMode] = useState<PlayoffAutoMode>(DEFAULT_AUTO_MODE);
   const [generating, setGenerating] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
 
@@ -402,6 +470,15 @@ export default function TournamentPlayoffsPage() {
   const [scheduleCourt, setScheduleCourt] = useState("1");
   const [scheduleError, setScheduleError] = useState<string | null>(null);
   const [scheduling, setScheduling] = useState(false);
+  const [bulkScheduleOpen, setBulkScheduleOpen] = useState(false);
+  const [bulkScheduleDurationMinutes, setBulkScheduleDurationMinutes] = useState(
+    DEFAULT_BULK_MATCH_DURATION_MINUTES
+  );
+  const [bulkScheduleByStage, setBulkScheduleByStage] =
+    useState<Record<PlayoffStage, BulkScheduleStageConfig>>(createBulkScheduleConfigMap);
+  const [bulkScheduling, setBulkScheduling] = useState(false);
+  const [bulkScheduleError, setBulkScheduleError] = useState<string | null>(null);
+  const [bulkScheduleMessage, setBulkScheduleMessage] = useState<string | null>(null);
   const [gridOpen, setGridOpen] = useState(false);
   const [gridMatch, setGridMatch] = useState<Match | null>(null);
   const [gridDateFilter, setGridDateFilter] = useState("");
@@ -691,6 +768,23 @@ export default function TournamentPlayoffsPage() {
     () => Array.from(matchesByStage.values()).some((items) => items.length > 0),
     [matchesByStage]
   );
+  const hasDefinedPlayoffTeams = useMemo(
+    () =>
+      Array.from(matchesByStage.values()).some((stageMatches) =>
+        stageMatches.some((match) => hasDefinedTeams(match))
+      ),
+    [matchesByStage]
+  );
+  const pendingPlayoffStages = useMemo<PendingPlayoffStage[]>(
+    () =>
+      PLAYOFF_STAGES.map((stage) => ({
+        stage,
+        matches: [...(matchesByStage.get(stage) ?? [])]
+          .filter((match) => match.status === "pending")
+          .sort((a, b) => a.id - b.id),
+      })).filter((entry) => entry.matches.length > 0),
+    [matchesByStage]
+  );
   const winnerByStageIndex = useMemo(() => {
     const map = new Map<PlayoffStage, Map<number, number>>();
     PLAYOFF_STAGES.forEach((stage) => {
@@ -937,9 +1031,23 @@ export default function TournamentPlayoffsPage() {
       0
     );
     const maxQualified = baseQualified + thirdsAvailable;
+    const divisionTeamCount = divisionGroups.reduce(
+      (sum, entry) => sum + entry.teamIds.length,
+      0
+    );
+    const allGroupsHaveAtLeastTwo = divisionGroups.every(
+      (entry) => entry.teamIds.length >= 2
+    );
+    const qualifiedTopTwoCount = baseQualified;
+    const hasQuarterAlternativeFormat =
+      (allGroupsHaveAtLeastTwo && qualifiedTopTwoCount >= 5 && qualifiedTopTwoCount <= 8)
+      || divisionTeamCount === 7
+      || divisionTeamCount === 9;
 
     return PLAYOFF_STAGES.filter(
-      (stage) => STAGE_TEAM_COUNTS[stage] <= maxQualified
+      (stage) =>
+        STAGE_TEAM_COUNTS[stage] <= maxQualified
+        || (stage === "quarter" && hasQuarterAlternativeFormat)
     );
   }, [
     matchesByStage,
@@ -951,6 +1059,157 @@ export default function TournamentPlayoffsPage() {
     divisionGroups,
     categoryFilter,
     genderFilter,
+  ]);
+  const divisionTeamCount = useMemo(
+    () => divisionGroups.reduce((sum, entry) => sum + entry.teamIds.length, 0),
+    [divisionGroups]
+  );
+  const autoModeOptionsByStage = useMemo(() => {
+    const map = new Map<PlayoffStage, AutoModeOption[]>();
+    const isFirstAssignmentPhase = !hasDefinedPlayoffTeams;
+    const allGroupsHaveAtLeastTwo = divisionGroups.every(
+      (entry) => entry.teamIds.length >= 2
+    );
+    const baseQualified = divisionGroups.reduce(
+      (sum, entry) => sum + Math.min(2, entry.teamIds.length),
+      0
+    );
+    const thirdsAvailable = divisionGroups.reduce(
+      (sum, entry) => sum + (entry.teamIds.length >= 3 ? 1 : 0),
+      0
+    );
+    const maxQualified = baseQualified + thirdsAvailable;
+    const qualifiedTopTwoCount = baseQualified;
+    const quarterTopTwoPossible =
+      allGroupsHaveAtLeastTwo
+      && qualifiedTopTwoCount >= 5
+      && qualifiedTopTwoCount <= 8;
+    const quarterBestPossible = divisionTeamCount === 7;
+    const quarterPlayInPossible = divisionTeamCount === 9;
+    const pendingStage = stagePendingAutomaticAssignment;
+    const pendingMatchCount = pendingStage
+      ? (matchesByStage.get(pendingStage) ?? []).length
+      : 0;
+    const isStructureOnlyPhase =
+      hasPlayoffs && isFirstAssignmentPhase && !!pendingStage;
+
+    const isModeCompatibleForPending = (
+      mode: PlayoffAutoMode,
+      stage: PlayoffStage
+    ) => {
+      if (!isStructureOnlyPhase || !pendingStage) return true;
+      if (stage !== pendingStage) return false;
+
+      if (mode === "balanced") {
+        return pendingMatchCount === Math.max(1, STAGE_TEAM_COUNTS[stage] / 2);
+      }
+
+      if (mode === "top_two_per_group") {
+        return (
+          stage === "quarter"
+          && quarterTopTwoPossible
+          && pendingMatchCount === Math.max(1, qualifiedTopTwoCount - 4)
+        );
+      }
+
+      if (mode === "best_to_semi_quarter") {
+        return stage === "quarter" && quarterBestPossible && pendingMatchCount === 3;
+      }
+
+      if (mode === "play_in_lowest_ranked") {
+        return stage === "round_of_16" && quarterPlayInPossible && pendingMatchCount === 1;
+      }
+
+      return false;
+    };
+
+    availableStages.forEach((stage) => {
+      const isQuarterStage = stage === "quarter";
+      const balancedEnabled =
+        !isFirstAssignmentPhase || STAGE_TEAM_COUNTS[stage] <= maxQualified;
+
+      const options: AutoModeOption[] = [];
+      if (balancedEnabled && isModeCompatibleForPending("balanced", stage)) {
+        options.push({
+          mode: "balanced",
+          label: "Clasificacion por tabla general",
+          description:
+            "Arma el cuadro segun el ranking total: entran 1eros, 2dos y, si faltan cupos, los mejores 3eros.",
+          enabled: true,
+        });
+      }
+
+      if (isQuarterStage) {
+        const topTwoEnabled =
+          isFirstAssignmentPhase
+          && quarterTopTwoPossible
+          && isModeCompatibleForPending("top_two_per_group", stage);
+        if (topTwoEnabled) {
+          options.push({
+            mode: "top_two_per_group",
+            label: "Solo pasan 2 por zona",
+            description:
+              "Clasifican solo el 1ero y 2do de cada zona. Si faltan resultados, se crea el cuadro con lugares Por definir.",
+            enabled: true,
+          });
+        }
+
+        const bestToSemiEnabled =
+          isFirstAssignmentPhase
+          && quarterBestPossible
+          && isModeCompatibleForPending("best_to_semi_quarter", stage);
+        if (bestToSemiEnabled) {
+          options.push({
+            mode: "best_to_semi_quarter",
+            label: "La mejor pasa directo a semifinal",
+            description:
+              "La pareja mejor ubicada no juega cuartos y espera en semifinal. El resto arranca en cuartos.",
+            enabled: true,
+          });
+        }
+
+        const playInEnabled =
+          isFirstAssignmentPhase
+          && quarterPlayInPossible
+          && isModeCompatibleForPending("play_in_lowest_ranked", "round_of_16");
+        if (playInEnabled) {
+          options.push({
+            mode: "play_in_lowest_ranked",
+            label: "Partido previo entre 8° y 9°",
+            description:
+              "Se juega un partido previo entre 8° y 9°. El ganador entra a cuartos para jugar contra el 1°.",
+            enabled: true,
+          });
+        }
+      }
+
+      if (
+        stage === "round_of_16"
+        && isFirstAssignmentPhase
+        && quarterPlayInPossible
+        && isModeCompatibleForPending("play_in_lowest_ranked", stage)
+      ) {
+        options.push({
+          mode: "play_in_lowest_ranked",
+          label: "Partido previo entre 8° y 9°",
+          description:
+            "Primero se programa 8° vs 9°. Cuando se carga ese resultado, se completa automaticamente su cruce de cuartos.",
+          enabled: true,
+        });
+      }
+
+      map.set(stage, options);
+    });
+
+    return map;
+  }, [
+    availableStages,
+    hasDefinedPlayoffTeams,
+    hasPlayoffs,
+    matchesByStage,
+    stagePendingAutomaticAssignment,
+    divisionTeamCount,
+    divisionGroups,
   ]);
 
   const manualStageOptions = useMemo(() => {
@@ -1444,6 +1703,193 @@ export default function TournamentPlayoffsPage() {
     setScheduleError(null);
   }
 
+  function openBulkScheduleModal() {
+    const baseStartByStage: Record<PlayoffStage, string> = {
+      round_of_32: "09",
+      round_of_16: "11",
+      quarter: "13",
+      semi: "15",
+      final: "17",
+    };
+    const next = createBulkScheduleConfigMap();
+    pendingPlayoffStages.forEach(({ stage, matches }) => {
+      next[stage] = {
+        enabled: true,
+        date: defaultGridDate,
+        hour: baseStartByStage[stage],
+        minute: "00",
+        firstCourt: "1",
+        courtsCount: String(Math.max(1, Math.min(matches.length, 2))),
+      };
+    });
+    setBulkScheduleByStage(next);
+    setBulkScheduleDurationMinutes(DEFAULT_BULK_MATCH_DURATION_MINUTES);
+    setBulkScheduleError(null);
+    setBulkScheduleMessage(null);
+    setBulkScheduleOpen(true);
+  }
+
+  function closeBulkScheduleModal() {
+    setBulkScheduleOpen(false);
+    setBulkScheduleError(null);
+  }
+
+  function updateBulkStageConfig(
+    stage: PlayoffStage,
+    patch: Partial<BulkScheduleStageConfig>
+  ) {
+    setBulkScheduleByStage((prev) => ({
+      ...prev,
+      [stage]: {
+        ...prev[stage],
+        ...patch,
+      },
+    }));
+  }
+
+  async function saveBulkSchedule() {
+    if (pendingPlayoffStages.length === 0) {
+      setBulkScheduleError("No hay partidos pendientes para programar.");
+      return;
+    }
+
+    const durationMinutes = Number(bulkScheduleDurationMinutes);
+    if (!Number.isFinite(durationMinutes) || durationMinutes <= 0) {
+      setBulkScheduleError("La duracion por partido debe ser un numero mayor a 0.");
+      return;
+    }
+
+    const selectedStages = pendingPlayoffStages.filter(
+      ({ stage }) => bulkScheduleByStage[stage].enabled
+    );
+    if (selectedStages.length === 0) {
+      setBulkScheduleError("Selecciona al menos una instancia para programar.");
+      return;
+    }
+
+    const tasks: Array<{
+      match: Match;
+      stage: PlayoffStage;
+      scheduledDate: string;
+      scheduledTime: string;
+      courtNumber: number;
+    }> = [];
+
+    for (const { stage, matches } of selectedStages) {
+      const config = bulkScheduleByStage[stage];
+      if (!config.date || !config.hour || !config.minute) {
+        setBulkScheduleError(`Completa fecha y hora para ${STAGE_LABELS[stage]}.`);
+        return;
+      }
+
+      if (!MINUTES.includes(config.minute)) {
+        setBulkScheduleError(`Los minutos de ${STAGE_LABELS[stage]} no son validos.`);
+        return;
+      }
+
+      const firstCourt = Number(config.firstCourt);
+      const courtsCount = Number(config.courtsCount);
+      if (!Number.isFinite(firstCourt) || firstCourt <= 0) {
+        setBulkScheduleError(`La cancha inicial de ${STAGE_LABELS[stage]} no es valida.`);
+        return;
+      }
+      if (!Number.isFinite(courtsCount) || courtsCount <= 0) {
+        setBulkScheduleError(`La cantidad de canchas de ${STAGE_LABELS[stage]} no es valida.`);
+        return;
+      }
+
+      const startMinutes = Number(config.hour) * 60 + Number(config.minute);
+      if (!Number.isFinite(startMinutes) || startMinutes < 0 || startMinutes >= 24 * 60) {
+        setBulkScheduleError(`La hora de ${STAGE_LABELS[stage]} no es valida.`);
+        return;
+      }
+
+      matches.forEach((match, idx) => {
+        const slot = Math.floor(idx / courtsCount);
+        const slotMinutes = startMinutes + slot * durationMinutes;
+        if (slotMinutes >= 24 * 60) {
+          return;
+        }
+        const hour = String(Math.floor(slotMinutes / 60)).padStart(2, "0");
+        const minute = String(slotMinutes % 60).padStart(2, "0");
+        const courtNumber = firstCourt + (idx % courtsCount);
+
+        tasks.push({
+          match,
+          stage,
+          scheduledDate: config.date,
+          scheduledTime: `${hour}:${minute}`,
+          courtNumber,
+        });
+      });
+
+      const maxSlot = Math.floor((matches.length - 1) / courtsCount);
+      if (startMinutes + maxSlot * durationMinutes >= 24 * 60) {
+        setBulkScheduleError(
+          `${STAGE_LABELS[stage]} excede las 23:59 con la duracion/canchas elegidas.`
+        );
+        return;
+      }
+    }
+
+    setBulkScheduling(true);
+    setBulkScheduleError(null);
+    setBulkScheduleMessage(null);
+
+    try {
+      let okCount = 0;
+      const failures: string[] = [];
+
+      for (const task of tasks) {
+        try {
+          await api(`/matches/${task.match.id}/schedule`, {
+            method: "POST",
+            body: {
+              scheduled_date: task.scheduledDate,
+              scheduled_time: task.scheduledTime,
+              court_number: task.courtNumber,
+            },
+          });
+          okCount += 1;
+        } catch (err: unknown) {
+          const message =
+            err instanceof ApiError
+              ? err.message
+              : err instanceof Error
+              ? err.message
+              : "No se pudo programar";
+          failures.push(
+            `${STAGE_LABELS[task.stage]} · Partido ${getMatchCode(task.match)}: ${message}`
+          );
+        }
+      }
+
+      await reloadMatches();
+
+      if (failures.length > 0) {
+        setBulkScheduleError(
+          `Se programaron ${okCount} de ${tasks.length} partidos. ${failures[0]}${
+            failures.length > 1 ? ` (y ${failures.length - 1} error(es) mas)` : ""
+          }`
+        );
+        return;
+      }
+
+      setBulkScheduleMessage(`Se programaron ${okCount} partidos de llaves.`);
+      closeBulkScheduleModal();
+    } catch (err: unknown) {
+      const message =
+        err instanceof ApiError
+          ? err.message
+          : err instanceof Error
+          ? err.message
+          : "No se pudo completar la programacion masiva";
+      setBulkScheduleError(message);
+    } finally {
+      setBulkScheduling(false);
+    }
+  }
+
   async function saveSchedule() {
     if (!scheduleMatch) return;
 
@@ -1765,7 +2211,7 @@ export default function TournamentPlayoffsPage() {
     }
   }
 
-  async function handleGenerate(stage: PlayoffStage) {
+  async function handleGenerate(stage: PlayoffStage, autoMode: PlayoffAutoMode) {
     setGenerating(true);
     setActionError(null);
 
@@ -1777,6 +2223,7 @@ export default function TournamentPlayoffsPage() {
       }
       const payload: PlayoffGenerateRequest = {
         stage,
+        auto_mode: autoMode,
         category: categoryFilter,
         gender: genderFilter,
       };
@@ -1786,6 +2233,7 @@ export default function TournamentPlayoffsPage() {
       });
       setMatches((prev) => [...prev, ...created]);
       setConfirmStage(null);
+      setConfirmAutoMode(DEFAULT_AUTO_MODE);
     } catch (err: any) {
       setActionError(err?.message ?? "No se pudieron generar los cruces");
     } finally {
@@ -1794,6 +2242,28 @@ export default function TournamentPlayoffsPage() {
   }
 
   const canEdit = status === "ongoing" || status === "groups_finished";
+  const confirmStageAutoOptions = useMemo(() => {
+    if (!confirmStage) return [];
+    return autoModeOptionsByStage.get(confirmStage) ?? [];
+  }, [confirmStage, autoModeOptionsByStage]);
+  useEffect(() => {
+    if (!confirmStage) return;
+    const enabledOptions = confirmStageAutoOptions.filter((option) => option.enabled);
+    if (enabledOptions.length === 0) {
+      setConfirmAutoMode(DEFAULT_AUTO_MODE);
+      return;
+    }
+    if (
+      !enabledOptions.some((option) => option.mode === confirmAutoMode)
+    ) {
+      setConfirmAutoMode(enabledOptions[0].mode);
+    }
+  }, [confirmStage, confirmAutoMode, confirmStageAutoOptions]);
+  useEffect(() => {
+    if (hasPlayoffs && actionError) {
+      setActionError(null);
+    }
+  }, [hasPlayoffs, actionError]);
 
   return (
     <div className="space-y-8">
@@ -1865,37 +2335,72 @@ export default function TournamentPlayoffsPage() {
             </div>
           )}
 
-          {(!hasPlayoffs || availableStages.length > 0 || !!actionError) && (
+          {(
+            !hasPlayoffs
+            || pendingPlayoffStages.length > 0
+            || !!bulkScheduleMessage
+            || (!hasPlayoffs && !!actionError)
+          ) && (
             <Card className="bg-white/95">
               <div className="p-6 space-y-4">
-                <div className="flex flex-col gap-2">
-                  <div className="text-sm font-semibold text-zinc-800">Instancias disponibles (automatico)</div>
-                  {availableStages.length === 0 ? (
-                    <div className="text-sm text-zinc-600">
-                      {!groupStageComplete && !latestStage
-                        ? "Podes crear el cuadro vacio para programar horarios. Las parejas se completan cuando terminen grupos."
-                        : latestStage && !canGenerateNextStage
-                        ? `Completa los resultados de ${STAGE_LABELS[latestStage]} para avanzar.`
-                        : "No hay instancias disponibles para generar ahora."}
+                {!hasPlayoffs && (
+                  <>
+                    <div className="flex flex-col gap-2">
+                      <div className="text-sm font-semibold text-zinc-800">Instancias disponibles (automatico)</div>
+                      {availableStages.length === 0 ? (
+                        <div className="text-sm text-zinc-600">
+                          {!groupStageComplete && !latestStage
+                            ? "Podes crear el cuadro vacio para programar horarios. Las parejas se completan cuando terminen grupos."
+                            : latestStage && !canGenerateNextStage
+                            ? `Completa los resultados de ${STAGE_LABELS[latestStage]} para avanzar.`
+                            : "No hay instancias disponibles para generar ahora."}
+                        </div>
+                      ) : (
+                        <div className="flex flex-wrap gap-2">
+                          {availableStages.map((stage) => (
+                            <Button
+                              key={stage}
+                              onClick={() => {
+                                const options = autoModeOptionsByStage.get(stage) ?? [];
+                                const firstEnabled = options.find((option) => option.enabled);
+                                setConfirmAutoMode(firstEnabled?.mode ?? DEFAULT_AUTO_MODE);
+                                setConfirmStage(stage);
+                              }}
+                              disabled={generating}
+                            >
+                              Generar {STAGE_LABELS[stage]}
+                            </Button>
+                          ))}
+                        </div>
+                      )}
                     </div>
-                  ) : (
-                    <div className="flex flex-wrap gap-2">
-                      {availableStages.map((stage) => (
-                        <Button
-                          key={stage}
-                          onClick={() => setConfirmStage(stage)}
-                          disabled={generating}
-                        >
-                          Generar {STAGE_LABELS[stage]}
-                        </Button>
-                      ))}
-                    </div>
-                  )}
-                </div>
 
-                {actionError && (
-                  <div className="rounded-xl border border-red-300 bg-red-100 p-3 text-sm text-red-800">
-                    {actionError}
+                    {actionError && (
+                      <div className="rounded-xl border border-red-300 bg-red-100 p-3 text-sm text-red-800">
+                        {actionError}
+                      </div>
+                    )}
+                  </>
+                )}
+
+                {bulkScheduleMessage && (
+                  <div className="rounded-xl border border-emerald-300 bg-emerald-100 p-3 text-sm text-emerald-800">
+                    {bulkScheduleMessage}
+                  </div>
+                )}
+
+                {hasPlayoffs && pendingPlayoffStages.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button
+                      variant="secondary"
+                      onClick={openBulkScheduleModal}
+                      disabled={generating || bulkScheduling}
+                    >
+                      Programar horarios de llaves
+                    </Button>
+                    <div className="text-xs text-zinc-500">
+                      Carga en bloque 8vos, cuartos, semis y final.
+                    </div>
                   </div>
                 )}
               </div>
@@ -2277,7 +2782,8 @@ export default function TournamentPlayoffsPage() {
                                 ? getTeamLabel(match.team_b_id)
                                 : item.seedB;
                               const canSchedule = !played;
-                              const canLoadResult = !played && hasTeams && !!match.scheduled_time;
+                              const canLoadResult =
+                                !played && hasTeams && !!match.scheduled_time;
                               const scheduleLabel = formatSchedule(
                                 match.scheduled_date,
                                 match.scheduled_time
@@ -2406,19 +2912,72 @@ export default function TournamentPlayoffsPage() {
       <Modal
         open={!!confirmStage}
         title={confirmStage ? `Generar ${STAGE_LABELS[confirmStage]}` : "Generar playoffs"}
-        onClose={() => setConfirmStage(null)}
+        onClose={() => {
+          setConfirmStage(null);
+          setConfirmAutoMode(DEFAULT_AUTO_MODE);
+        }}
       >
         <div className="space-y-4">
+          {confirmStageAutoOptions.length > 0 && (
+            <div className="space-y-2">
+              <div className="text-xs font-semibold uppercase tracking-[0.14em] text-zinc-500">
+                Formato automatico
+              </div>
+              <div className="space-y-2">
+                {confirmStageAutoOptions.map((option) => (
+                  <label
+                    key={option.mode}
+                    className={`block rounded-xl border px-3 py-2 text-sm ${
+                      confirmAutoMode === option.mode
+                        ? "border-zinc-700 bg-zinc-100 text-zinc-900"
+                        : "border-zinc-200 bg-white text-zinc-700"
+                    } ${option.enabled ? "cursor-pointer" : "cursor-not-allowed opacity-70"}`}
+                  >
+                    <div className="flex items-start gap-2">
+                      <input
+                        type="radio"
+                        name="auto-mode"
+                        className="mt-1"
+                        checked={confirmAutoMode === option.mode}
+                        disabled={!option.enabled}
+                        onChange={() => {
+                          if (!option.enabled) return;
+                          setConfirmAutoMode(option.mode);
+                        }}
+                      />
+                      <div>
+                        <div className="font-semibold">{option.label}</div>
+                        <div className="text-xs text-zinc-500">{option.description}</div>
+                      </div>
+                    </div>
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
           <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
             Esta accion no se puede deshacer. ¿Confirmas generar los cruces?
           </div>
           <div className="flex justify-end gap-2">
-            <Button variant="secondary" onClick={() => setConfirmStage(null)}>
+            <Button
+              variant="secondary"
+              onClick={() => {
+                setConfirmStage(null);
+                setConfirmAutoMode(DEFAULT_AUTO_MODE);
+              }}
+            >
               Cancelar
             </Button>
             <Button
-              onClick={() => confirmStage && handleGenerate(confirmStage)}
-              disabled={generating}
+              onClick={() =>
+                confirmStage && handleGenerate(confirmStage, confirmAutoMode)
+              }
+              disabled={
+                generating
+                || !confirmStageAutoOptions.some(
+                  (option) => option.mode === confirmAutoMode && option.enabled
+                )
+              }
             >
               {generating ? "Generando..." : "Confirmar"}
             </Button>
@@ -2460,6 +3019,166 @@ export default function TournamentPlayoffsPage() {
             </Button>
           </div>
         </div>
+      </Modal>
+
+      <Modal
+        open={bulkScheduleOpen}
+        title="Programar horarios de llaves"
+        onClose={closeBulkScheduleModal}
+        className="max-w-5xl"
+      >
+        <form
+          className="space-y-4"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (bulkScheduling) return;
+            saveBulkSchedule();
+          }}
+        >
+          <div className="text-sm text-zinc-600">
+            Programa todos los partidos pendientes de llaves por instancia en una sola accion.
+          </div>
+
+          <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-3">
+            <label className="text-xs font-semibold text-zinc-600">
+              Duracion estimada por partido (minutos)
+            </label>
+            <Input
+              type="number"
+              min={1}
+              value={bulkScheduleDurationMinutes}
+              onChange={(e) => setBulkScheduleDurationMinutes(e.target.value)}
+              disabled={bulkScheduling}
+            />
+          </div>
+
+          <div className="space-y-3 max-h-[380px] overflow-y-auto pr-1">
+            {pendingPlayoffStages.map(({ stage, matches }) => {
+              const config = bulkScheduleByStage[stage];
+              const courtsCount = Math.max(1, Number(config.courtsCount) || 1);
+              const slotsCount = Math.ceil(matches.length / courtsCount);
+              return (
+                <div key={stage} className="rounded-xl border border-zinc-200 p-3 space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <label className="flex items-center gap-2 text-sm font-semibold text-zinc-800">
+                      <input
+                        type="checkbox"
+                        checked={config.enabled}
+                        onChange={(e) =>
+                          updateBulkStageConfig(stage, { enabled: e.target.checked })
+                        }
+                        disabled={bulkScheduling}
+                      />
+                      {STAGE_LABELS[stage]}
+                    </label>
+                    <div className="text-xs text-zinc-500">
+                      {matches.length} partido(s) pendiente(s) · {slotsCount} bloque(s) horario(s)
+                    </div>
+                  </div>
+
+                  <div className="grid gap-2 [grid-template-columns:repeat(auto-fit,minmax(150px,1fr))]">
+                    <div className="space-y-1">
+                      <div className="text-xs font-semibold text-zinc-500">
+                        Fecha
+                      </div>
+                      <Input
+                        type="date"
+                        value={config.date}
+                        onChange={(e) => updateBulkStageConfig(stage, { date: e.target.value })}
+                        disabled={!config.enabled || bulkScheduling}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <div className="text-xs font-semibold text-zinc-500">
+                        Hora
+                      </div>
+                      <select
+                        className="w-full rounded-xl border border-zinc-400 bg-white px-3 py-2 text-sm font-medium text-zinc-900 shadow-sm focus:border-zinc-700 focus:outline-none focus:ring-2 focus:ring-zinc-900/15"
+                        value={config.hour}
+                        onChange={(e) => updateBulkStageConfig(stage, { hour: e.target.value })}
+                        disabled={!config.enabled || bulkScheduling}
+                      >
+                        <option value="">Hora</option>
+                        {HOURS.map((hour) => (
+                          <option key={`${stage}-hour-${hour}`} value={hour}>
+                            {hour}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="space-y-1">
+                      <div className="text-xs font-semibold text-zinc-500">
+                        Minuto
+                      </div>
+                      <select
+                        className="w-full rounded-xl border border-zinc-400 bg-white px-3 py-2 text-sm font-medium text-zinc-900 shadow-sm focus:border-zinc-700 focus:outline-none focus:ring-2 focus:ring-zinc-900/15"
+                        value={config.minute}
+                        onChange={(e) => updateBulkStageConfig(stage, { minute: e.target.value })}
+                        disabled={!config.enabled || bulkScheduling}
+                      >
+                        {MINUTES.map((minute) => (
+                          <option key={`${stage}-minute-${minute}`} value={minute}>
+                            {minute}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="space-y-1">
+                      <div className="text-xs font-semibold text-zinc-500">
+                        Cancha inicial
+                      </div>
+                      <Input
+                        type="number"
+                        min={1}
+                        placeholder="Ej: 1"
+                        value={config.firstCourt}
+                        onChange={(e) =>
+                          updateBulkStageConfig(stage, { firstCourt: e.target.value })
+                        }
+                        disabled={!config.enabled || bulkScheduling}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <div className="text-xs font-semibold text-zinc-500">
+                        Canchas paralelas
+                      </div>
+                      <Input
+                        type="number"
+                        min={1}
+                        placeholder="Ej: 2"
+                        value={config.courtsCount}
+                        onChange={(e) =>
+                          updateBulkStageConfig(stage, { courtsCount: e.target.value })
+                        }
+                        disabled={!config.enabled || bulkScheduling}
+                      />
+                    </div>
+                  </div>
+                  <div className="text-xs text-zinc-500">
+                    Ejemplo: si pones <span className="font-semibold">Cancha desde 4</span> y{" "}
+                    <span className="font-semibold">Canchas en paralelo 1</span>, se programa todo
+                    en la cancha 4.
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {bulkScheduleError && (
+            <div className="rounded-xl border border-red-300 bg-red-100 p-3 text-sm text-red-800">
+              {bulkScheduleError}
+            </div>
+          )}
+
+          <div className="flex justify-end gap-2">
+            <Button variant="secondary" onClick={closeBulkScheduleModal} type="button">
+              Cancelar
+            </Button>
+            <Button type="submit" disabled={bulkScheduling}>
+              {bulkScheduling ? "Programando..." : "Programar todos"}
+            </Button>
+          </div>
+        </form>
       </Modal>
 
       <Modal

@@ -205,9 +205,15 @@ export type Match = {
 };
 
 export type PlayoffStage = Exclude<MatchStage, "group">;
+export type PlayoffAutoMode =
+  | "balanced"
+  | "top_two_per_group"
+  | "best_to_semi_quarter"
+  | "play_in_lowest_ranked";
 
 export type PlayoffGenerateRequest = {
   stage: PlayoffStage;
+  auto_mode?: PlayoffAutoMode;
   manual_pairs?: { team_a_id: number; team_b_id: number }[];
   category?: string;
   gender?: string;

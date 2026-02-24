@@ -25,25 +25,23 @@ import type {
 type IdParam = { id: string };
 
 const IMPORT_TEMPLATE_HEADERS = [
-  "Jugador 1 Nombre",
-  "Jugador 1 Apellido",
-  "Jugador 2 Nombre",
-  "Jugador 2 Apellido",
+  "Nombre Jugador 1",
+  "Nombre Jugador 2",
   "Categoria",
   "Genero",
   "Restricciones",
 ];
 const IMPORT_TEMPLATE_SAMPLE = [
   "Ana",
-  "Perez",
   "Carla",
-  "Gomez",
   "6",
   "Damas",
   "No puede viernes",
 ];
 
 const HEADER_FIELD_MAP: Record<string, string> = {
+  nombrejugador1: "p1_first_name",
+  nombrejugador2: "p2_first_name",
   jugador1nombre: "p1_first_name",
   jugador1apellido: "p1_last_name",
   jugador2nombre: "p2_first_name",
@@ -55,9 +53,9 @@ const HEADER_FIELD_MAP: Record<string, string> = {
   disponibilidad: "constraints",
 };
 const FIELD_LABELS: Record<string, string> = {
-  p1_first_name: "Jugador 1 Nombre",
+  p1_first_name: "Nombre Jugador 1",
   p1_last_name: "Jugador 1 Apellido",
-  p2_first_name: "Jugador 2 Nombre",
+  p2_first_name: "Nombre Jugador 2",
   p2_last_name: "Jugador 2 Apellido",
   category: "Categoria",
   gender: "Genero",
@@ -655,9 +653,7 @@ async function load(options?: { silent?: boolean }) {
         const genderRaw = parseCell(row, "gender");
         const gender = normalizeGender(genderRaw);
         const p1FirstName = parseCell(row, "p1_first_name");
-        const p1LastName = parseCell(row, "p1_last_name");
         const p2FirstName = parseCell(row, "p2_first_name");
-        const p2LastName = parseCell(row, "p2_last_name");
         const constraints = parseCell(row, "constraints");
 
         if (!p1FirstName || !p2FirstName || !category || !gender) {
@@ -668,17 +664,17 @@ async function load(options?: { silent?: boolean }) {
         pairs.push({
           player1: {
             first_name: p1FirstName,
-            last_name: p1LastName || "",
+            last_name: "",
             category,
             gender,
           },
           player2: {
             first_name: p2FirstName,
-            last_name: p2LastName || "",
+            last_name: "",
             category,
             gender,
           },
-          schedule_constraints: constraints ? constraints : null,
+          schedule_constraints: constraints ? constraints : "sin restricciones horarias",
         });
       });
 
