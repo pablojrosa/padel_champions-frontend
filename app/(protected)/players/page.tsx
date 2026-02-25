@@ -109,12 +109,17 @@ export default function PlayersPage() {
 
   return (
     <div className="space-y-8">
-      <div className="space-y-2">
-        <div className="text-xs uppercase tracking-[0.3em] text-zinc-400">
-          Base de datos
+      <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+        <div className="space-y-2">
+          <div className="text-xs uppercase tracking-[0.3em] text-zinc-400">
+            Base de datos
+          </div>
+          <h1 className="text-3xl font-semibold">Jugadores</h1>
+          <p className="text-sm text-zinc-300">Cargá y mantené tu lista de jugadores.</p>
         </div>
-        <h1 className="text-3xl font-semibold">Jugadores</h1>
-        <p className="text-sm text-zinc-300">Cargá y mantené tu lista de jugadores.</p>
+        <Button variant="secondary" onClick={() => router.push("/dashboard")}>
+          Volver al tablero
+        </Button>
       </div>
 
       <Card className="bg-white/95">

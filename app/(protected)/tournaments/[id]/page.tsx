@@ -946,6 +946,47 @@ async function load(options?: { silent?: boolean }) {
   const defaultEndTime = normalizeTime(tournament?.end_time, "23:00");
   const defaultMatchDurationMinutes = tournament?.match_duration_minutes ?? 90;
   const defaultCourtsCount = tournament?.courts_count ?? 1;
+  const canStartTournament =
+    status === "upcoming" && groups.length > 0 && teams.length >= 1;
+
+  function scrollToSection(sectionId: string) {
+    const section = document.getElementById(sectionId);
+    if (!section) return;
+    section.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  const readinessItems = [
+    {
+      key: "teams",
+      label: "Al menos 1 pareja cargada",
+      done: teams.length >= 1,
+      countInPending: true,
+      actionLabel: "Cargar pareja",
+      onAction: openPairModal,
+      secondaryActionLabel: "Importar parejas",
+      onSecondaryAction: () => importInputRef.current?.click(),
+      secondaryDisabled: status !== "upcoming" || importingPairs,
+    },
+    {
+      key: "groups",
+      label: "Zonas generadas",
+      done: groups.length > 0,
+      countInPending: true,
+      actionLabel: "Ir a zonas",
+      onAction: () => scrollToSection("groups-panel"),
+    },
+    {
+      key: "status",
+      label: "Estado listo para iniciar",
+      done: canStartTournament,
+      countInPending: false,
+      actionLabel: "Iniciar torneo",
+      onAction: startTournament,
+    },
+  ];
+  const pendingReadinessCount = readinessItems.filter(
+    (item) => item.countInPending !== false && !item.done
+  ).length;
 
   return (
     <div className="space-y-8">
@@ -958,24 +999,33 @@ async function load(options?: { silent?: boolean }) {
           <p className="text-sm text-zinc-300">Equipos, zonas y estado general.</p>
         </div>
 
-        <div className="flex flex-wrap gap-2">
-          <Button
-            variant="secondary"
-            onClick={() => router.push(`/tournaments/${tournamentId}/matches`)}
-          >
-            Partidos
-          </Button>
-          <Button
-            variant="secondary"
-            onClick={() => router.push(`/tournaments/${tournamentId}/playoffs`)}
-          >
-            Playoffs
-          </Button>
-          <Button
-            variant="secondary"
-            onClick={() => router.push("/tournaments")}
-          >
-            Volver
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="inline-flex rounded-xl border border-zinc-200 bg-white p-1">
+            <button
+              type="button"
+              aria-current="page"
+              disabled
+              className="rounded-lg bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white"
+            >
+              Resumen
+            </button>
+            <button
+              type="button"
+              onClick={() => router.push(`/tournaments/${tournamentId}/matches`)}
+              className="rounded-lg px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-100"
+            >
+              Partidos
+            </button>
+            <button
+              type="button"
+              onClick={() => router.push(`/tournaments/${tournamentId}/playoffs`)}
+              className="rounded-lg px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-100"
+            >
+              Playoffs
+            </button>
+          </div>
+          <Button variant="secondary" onClick={() => router.push("/tournaments")}>
+            Volver a torneos
           </Button>
         </div>
       </div>
@@ -1314,43 +1364,108 @@ async function load(options?: { silent?: boolean }) {
               </div>
             </div>
 
-              <div className="flex flex-col items-end gap-2">
-                <div className="flex flex-wrap items-center justify-end gap-2">
+              <div className="w-full max-w-sm space-y-3">
+                <div className="space-y-2">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                    Acciones del torneo
+                  </div>
+                  <div className="flex flex-wrap items-center justify-end gap-2">
                   <Button variant="secondary" onClick={openEditModal}>
                     Editar torneo
                   </Button>
-                <Button variant="secondary" onClick={copyPublicLink}>
-                  Copiar link publico
-                </Button>
-                <Button
-                  onClick={startTournament}
-                  disabled={startingTournament || status !== "upcoming" || groups.length === 0 || teams.length < 1}
-                  className="whitespace-nowrap"
-                >
-                  {startingTournament ? "Iniciando..." : "Iniciar torneo"}
-                </Button>
+                  <Button variant="secondary" onClick={copyPublicLink}>
+                    Copiar link publico
+                  </Button>
+                </div>
+                {copyMessage && (
+                  <div className="text-right text-xs text-zinc-500">{copyMessage}</div>
+                )}
+                </div>
               </div>
-              {copyMessage && (
-                <div className="text-xs text-zinc-500">{copyMessage}</div>
-              )}
-            </div>
-            </div>
-            <div className="flex justify-end">
-              <Button
-                variant="secondary"
-                onClick={deleteTournament}
-                disabled={deletingTournament}
-                className="!border-red-300 !bg-red-50 !text-red-700 font-semibold hover:!bg-red-100"
-              >
-                {deletingTournament ? "Eliminando..." : "Eliminar torneo"}
-              </Button>
             </div>
           </div>
           </Card>
 
+          {status === "upcoming" && (
+            <Card className="bg-white/95">
+              <div className="p-6 space-y-4">
+                <div className="space-y-1">
+                  <div className="text-sm font-semibold text-zinc-800">
+                    Checklist para iniciar torneo
+                  </div>
+                  <div className="text-xs text-zinc-600">
+                    {pendingReadinessCount === 0
+                      ? "Todo listo. Ya podes iniciar el torneo."
+                      : `Faltan ${pendingReadinessCount} requisito(s) para iniciar.`}
+                  </div>
+                </div>
+
+                <div className="grid gap-2 md:grid-cols-3">
+                  {readinessItems.map((item) => (
+                    <div
+                      key={item.key}
+                      className={`rounded-xl border px-3 py-2 ${
+                        item.done
+                          ? "border-emerald-200 bg-emerald-50"
+                          : "border-amber-200 bg-amber-50"
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="text-sm text-zinc-800">{item.label}</div>
+                        <span
+                          className={`text-xs font-semibold ${
+                            item.done ? "text-emerald-700" : "text-amber-700"
+                          }`}
+                        >
+                          {item.done ? "Listo" : "Pendiente"}
+                        </span>
+                      </div>
+                      {item.key === "status" ? (
+                        <div className="mt-2">
+                          <Button
+                            onClick={item.onAction}
+                            disabled={startingTournament || !canStartTournament}
+                            className="w-full sm:w-auto"
+                          >
+                            {startingTournament ? "Iniciando..." : item.actionLabel}
+                          </Button>
+                        </div>
+                      ) : !item.done && (
+                        <div className="mt-2">
+                          <div className="flex flex-wrap items-center gap-1 text-xs">
+                            <button
+                              type="button"
+                              onClick={item.onAction}
+                              className="text-xs font-semibold text-zinc-700 underline decoration-dotted hover:text-zinc-900"
+                            >
+                              {item.actionLabel}
+                            </button>
+                            {item.secondaryActionLabel && item.onSecondaryAction && (
+                              <>
+                                <span className="text-zinc-500">o</span>
+                                <button
+                                  type="button"
+                                  onClick={item.onSecondaryAction}
+                                  disabled={item.secondaryDisabled}
+                                  className="text-xs font-semibold text-zinc-700 underline decoration-dotted hover:text-zinc-900 disabled:cursor-not-allowed disabled:opacity-60"
+                                >
+                                  {item.secondaryActionLabel}
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </Card>
+          )}
+
           <div className="grid gap-4 md:grid-cols-2">
             {/* Create Team */}
-            <div className="md:col-span-2">
+            <div id="teams-section" className="md:col-span-2">
               <Card className="bg-white/95">
               <div className="p-6 space-y-4">
                 <div className="flex flex-wrap items-start justify-between gap-2">
@@ -1641,7 +1756,7 @@ async function load(options?: { silent?: boolean }) {
             </div>
 
             {/* Zonas / Grupos */}
-            <div className="md:col-span-2">
+            <div id="groups-panel" className="md:col-span-2">
             <GroupsPanel
               tournamentId={tournamentId}
               status={status}
@@ -1664,6 +1779,29 @@ async function load(options?: { silent?: boolean }) {
             </div>
             
           </div>
+
+          <Card className="bg-white/95">
+            <div className="p-6">
+              <div className="rounded-2xl border border-red-200 bg-red-50 p-4">
+                <div className="text-xs font-semibold uppercase tracking-wide text-red-700">
+                  Zona de peligro
+                </div>
+                <div className="mt-1 text-sm text-red-700">
+                  Esta accion elimina el torneo y sus datos asociados.
+                </div>
+                <div className="mt-4 flex justify-end">
+                  <Button
+                    variant="secondary"
+                    onClick={deleteTournament}
+                    disabled={deletingTournament}
+                    className="!border-red-300 !bg-red-50 !text-red-700 font-semibold hover:!bg-red-100"
+                  >
+                    {deletingTournament ? "Eliminando..." : "Eliminar torneo"}
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </Card>
         </>
       )}
     </div>

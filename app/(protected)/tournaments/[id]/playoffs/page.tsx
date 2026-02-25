@@ -2264,6 +2264,86 @@ export default function TournamentPlayoffsPage() {
       setActionError(null);
     }
   }, [hasPlayoffs, actionError]);
+  const showPlayoffSetupCard =
+    !hasPlayoffs ||
+    pendingPlayoffStages.length > 0 ||
+    !!bulkScheduleMessage ||
+    (!hasPlayoffs && !!actionError);
+  const hasPlayoffBracket = PLAYOFF_STAGES.some(
+    (stage) => (matchesByStage.get(stage) ?? []).length > 0
+  );
+  const hasActivePlayoffFilters = categoryFilter !== "all" || genderFilter !== "all";
+  const playoffFiltersToolbar = (
+    <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-3">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+        <div className="space-y-1">
+          <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+            Filtros
+          </div>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+            {categories.length > 0 && (
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-zinc-500">Categoria</label>
+                <select
+                  className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm sm:w-40"
+                  value={categoryFilter}
+                  onChange={(e) =>
+                    setCategoryFilter(e.target.value === "all" ? "all" : e.target.value)
+                  }
+                >
+                  <option value="all">Todas</option>
+                  {categories.map((category) => (
+                    <option key={category} value={category}>
+                      {category}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+            {genders.length > 0 && (
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-zinc-500">Genero</label>
+                <select
+                  className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm sm:w-40"
+                  value={genderFilter}
+                  onChange={(e) =>
+                    setGenderFilter(e.target.value === "all" ? "all" : e.target.value)
+                  }
+                >
+                  <option value="all">Todos</option>
+                  {genders.map((gender) => (
+                    <option key={gender} value={gender}>
+                      {gender === "damas" ? "Damas" : "Masculino"}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+          </div>
+        </div>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          <Button
+            variant="secondary"
+            onClick={() => setGridOpen(true)}
+            className="w-full sm:w-auto"
+          >
+            Grilla de partidos
+          </Button>
+          <button
+            type="button"
+            onClick={() => {
+              setCategoryFilter("all");
+              setGenderFilter("all");
+            }}
+            disabled={!hasActivePlayoffFilters}
+            className="text-xs font-semibold text-zinc-600 underline decoration-dotted hover:text-zinc-900 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Limpiar filtros
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 
   return (
     <div className="space-y-8">
@@ -2276,49 +2356,33 @@ export default function TournamentPlayoffsPage() {
           <p className="text-sm text-zinc-300">Generacion y cruces por instancia.</p>
         </div>
 
-          <div className="flex items-center gap-2">
-            {categories.length > 0 && (
-              <select
-                className="rounded-xl border border-zinc-500 bg-zinc-50 px-3 py-2 text-sm font-bold text-zinc-950 shadow-sm focus:border-zinc-800 focus:outline-none focus:ring-2 focus:ring-zinc-900/20"
-                value={categoryFilter}
-              onChange={(e) =>
-                setCategoryFilter(
-                  e.target.value === "all" ? "all" : e.target.value
-                )
-              }
-            >
-              <option value="all">Todas</option>
-              {categories.map((category) => (
-                <option key={category} value={category}>
-                  {category}
-                </option>
-                ))}
-              </select>
-            )}
-            {genders.length > 0 && (
-              <select
-                className="rounded-xl border border-zinc-500 bg-zinc-50 px-3 py-2 text-sm font-bold text-zinc-950 shadow-sm focus:border-zinc-800 focus:outline-none focus:ring-2 focus:ring-zinc-900/20"
-                value={genderFilter}
-                onChange={(e) =>
-                  setGenderFilter(e.target.value === "all" ? "all" : e.target.value)
-                }
-              >
-                <option value="all">Todos</option>
-                {genders.map((gender) => (
-                  <option key={gender} value={gender}>
-                    {gender === "damas" ? "Damas" : "Masculino"}
-                  </option>
-                ))}
-              </select>
-            )}
-            <Button variant="secondary" onClick={() => setGridOpen(true)}>
-              Grilla de partidos
-            </Button>
-            <Button
-              variant="secondary"
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="inline-flex rounded-xl border border-zinc-200 bg-white p-1">
+            <button
+              type="button"
               onClick={() => router.push(`/tournaments/${tournamentId}`)}
+              className="rounded-lg px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-100"
             >
-            Volver
+              Resumen
+            </button>
+            <button
+              type="button"
+              onClick={() => router.push(`/tournaments/${tournamentId}/matches`)}
+              className="rounded-lg px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-100"
+            >
+              Partidos
+            </button>
+            <button
+              type="button"
+              aria-current="page"
+              disabled
+              className="rounded-lg bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white"
+            >
+              Playoffs
+            </button>
+          </div>
+          <Button variant="secondary" onClick={() => router.push("/tournaments")}>
+            Volver a torneos
           </Button>
         </div>
       </div>
@@ -2335,14 +2399,10 @@ export default function TournamentPlayoffsPage() {
             </div>
           )}
 
-          {(
-            !hasPlayoffs
-            || pendingPlayoffStages.length > 0
-            || !!bulkScheduleMessage
-            || (!hasPlayoffs && !!actionError)
-          ) && (
+          {showPlayoffSetupCard && (
             <Card className="bg-white/95">
               <div className="p-6 space-y-4">
+                {playoffFiltersToolbar}
                 {!hasPlayoffs && (
                   <>
                     <div className="flex flex-col gap-2">
@@ -2597,12 +2657,13 @@ export default function TournamentPlayoffsPage() {
             </Card>
           )}
 
-          {PLAYOFF_STAGES.some((stage) => (matchesByStage.get(stage) ?? []).length > 0) && (
+          {hasPlayoffBracket && (
             <Card className="bg-white/95">
               <div className="p-6 space-y-4">
                 <div className="text-sm font-semibold text-zinc-800">
                   Cuadro de playoffs
                 </div>
+                {!showPlayoffSetupCard && playoffFiltersToolbar}
                 <div className="overflow-x-auto">
                   <div
                     className="grid w-full min-w-max gap-8 pb-2"

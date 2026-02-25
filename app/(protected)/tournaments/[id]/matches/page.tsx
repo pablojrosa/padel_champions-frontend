@@ -20,12 +20,35 @@ import type {
 type IdParam = { id: string };
 
 type EditableSet = { a: string; b: string };
+type ScheduleSuggestion = {
+  date: string;
+  hour: string;
+  minute: string;
+  court: string;
+  reason: string;
+};
 
 const DEFAULT_SETS: EditableSet[] = [
   { a: "", b: "" },
   { a: "", b: "" },
   { a: "", b: "" },
 ];
+const RESULT_PRESETS: Array<{ label: string; sets: EditableSet[] }> = [
+  {
+    label: "2-0 rapido",
+    sets: [{ a: "6", b: "3" }, { a: "6", b: "4" }],
+  },
+  {
+    label: "2-1 parejo",
+    sets: [{ a: "6", b: "4" }, { a: "3", b: "6" }, { a: "6", b: "3" }],
+  },
+  {
+    label: "Tie-break inicial",
+    sets: [{ a: "7", b: "6" }, { a: "6", b: "4" }],
+  },
+];
+const DEFAULT_SCHEDULE_HOUR = "18";
+const DEFAULT_SCHEDULE_MINUTE = "00";
 const HOURS = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, "0"));
 const MINUTES = Array.from({ length: 60 }, (_, i) => String(i).padStart(2, "0"));
 const COURT_BADGES = [
@@ -77,7 +100,9 @@ export default function TournamentMatchesPage() {
   const [scheduleHour, setScheduleHour] = useState("");
   const [scheduleMinute, setScheduleMinute] = useState("");
   const [scheduleCourt, setScheduleCourt] = useState("1");
+  const [scheduleSuggestion, setScheduleSuggestion] = useState<ScheduleSuggestion | null>(null);
   const [scheduleError, setScheduleError] = useState<string | null>(null);
+  const [scheduleMessage, setScheduleMessage] = useState<string | null>(null);
   const [scheduling, setScheduling] = useState(false);
   const [gridOpen, setGridOpen] = useState(false);
   const [gridMatch, setGridMatch] = useState<Match | null>(null);
@@ -234,14 +259,101 @@ export default function TournamentMatchesPage() {
     return `${year}-${month}-${day}`;
   }
 
+  function toMinutes(value: string) {
+    const [hourRaw, minuteRaw] = value.split(":");
+    const hour = Number(hourRaw);
+    const minute = Number(minuteRaw);
+    if (!Number.isFinite(hour) || !Number.isFinite(minute)) return null;
+    return hour * 60 + minute;
+  }
+
+  function buildScheduleSuggestion(match: Match): ScheduleSuggestion {
+    const today = toLocalIsoDate(new Date());
+    const scheduled = matches
+      .filter((item) => item.id !== match.id && !!item.scheduled_date && !!item.scheduled_time)
+      .map((item) => ({
+        date: item.scheduled_date as string,
+        time: normalizeTime(item.scheduled_time),
+        court: item.court_number && item.court_number > 0 ? item.court_number : 1,
+      }))
+      .filter((item) => !!item.time);
+
+    if (scheduled.length === 0) {
+      return {
+        date: today,
+        hour: DEFAULT_SCHEDULE_HOUR,
+        minute: DEFAULT_SCHEDULE_MINUTE,
+        court: "1",
+        reason: "Primer turno sugerido por defecto.",
+      };
+    }
+
+    const defaultTimes: string[] = [];
+    for (let hour = 18; hour <= 23; hour += 1) {
+      const hh = String(hour).padStart(2, "0");
+      defaultTimes.push(`${hh}:00`);
+      if (hour < 23) defaultTimes.push(`${hh}:30`);
+    }
+    const maxKnownCourt = Math.max(1, ...scheduled.map((item) => item.court));
+    const dates = Array.from(new Set([today, ...scheduled.map((item) => item.date)])).sort();
+
+    for (const date of dates) {
+      const times = Array.from(
+        new Set([
+          ...defaultTimes,
+          ...scheduled
+            .filter((item) => item.date === date)
+            .map((item) => item.time),
+        ])
+      ).sort((a, b) => (toMinutes(a) ?? 0) - (toMinutes(b) ?? 0));
+
+      for (const time of times) {
+        const occupiedCourts = new Set(
+          scheduled
+            .filter((item) => item.date === date && item.time === time)
+            .map((item) => item.court)
+        );
+        for (let court = 1; court <= maxKnownCourt + 1; court += 1) {
+          if (occupiedCourts.has(court)) continue;
+          const [hour = DEFAULT_SCHEDULE_HOUR, minute = DEFAULT_SCHEDULE_MINUTE] = time.split(":");
+          return {
+            date,
+            hour,
+            minute,
+            court: String(court),
+            reason: "Hueco libre sugerido automaticamente.",
+          };
+        }
+      }
+    }
+
+    return {
+      date: today,
+      hour: DEFAULT_SCHEDULE_HOUR,
+      minute: DEFAULT_SCHEDULE_MINUTE,
+      court: "1",
+      reason: "No se encontro hueco libre: se usa un horario base.",
+    };
+  }
+
   function openScheduleModal(match: Match) {
     setScheduleMatch(match);
-    setScheduleDate(match.scheduled_date ?? "");
     const normalized = normalizeTime(match.scheduled_time);
-    const [hour = "", minute = ""] = normalized.split(":");
-    setScheduleHour(hour);
-    setScheduleMinute(MINUTES.includes(minute) ? minute : "");
-    setScheduleCourt(match.court_number ? String(match.court_number) : "1");
+    if (match.scheduled_date && normalized && match.court_number) {
+      const [hour = "", minute = ""] = normalized.split(":");
+      setScheduleDate(match.scheduled_date);
+      setScheduleHour(hour);
+      setScheduleMinute(MINUTES.includes(minute) ? minute : "");
+      setScheduleCourt(String(match.court_number));
+      setScheduleSuggestion(null);
+    } else {
+      const suggestion = buildScheduleSuggestion(match);
+      setScheduleDate(suggestion.date);
+      setScheduleHour(suggestion.hour);
+      setScheduleMinute(suggestion.minute);
+      setScheduleCourt(suggestion.court);
+      setScheduleSuggestion(suggestion);
+    }
     setScheduleError(null);
   }
 
@@ -249,6 +361,7 @@ export default function TournamentMatchesPage() {
     setScheduleMatch(null);
     setScheduleHour("");
     setScheduleMinute("");
+    setScheduleSuggestion(null);
     setScheduleError(null);
   }
 
@@ -379,12 +492,27 @@ export default function TournamentMatchesPage() {
           return match;
         })
       );
+      if (res.swapped) {
+        setScheduleMessage(
+          `Horario actualizado. El partido ${getMatchCode(res.swapped)} se reubico para evitar conflicto.`
+        );
+      } else {
+        setScheduleMessage(
+          `Partido ${getMatchCode(res.updated)} programado para ${scheduleDate} ${scheduleTime} en cancha ${courtNumber}.`
+        );
+      }
       closeScheduleModal();
     } catch (err: any) {
       setScheduleError(err?.message ?? "No se pudo programar el partido");
     } finally {
       setScheduling(false);
     }
+  }
+
+  function applyResultPreset(sets: EditableSet[]) {
+    const mapped = sets.map((setScore) => ({ a: setScore.a, b: setScore.b }));
+    setSetsInput([...mapped, ...DEFAULT_SETS].slice(0, 3));
+    setFormError(null);
   }
 
   const canSchedule = tournamentStatus !== "finished";
@@ -510,6 +638,61 @@ export default function TournamentMatchesPage() {
 
     return { times, courts, map };
   }, [gridMatchesForDate]);
+  const scheduleTimeValue =
+    scheduleHour && scheduleMinute ? `${scheduleHour}:${scheduleMinute}` : "";
+  const scheduleConflictMatch = useMemo(() => {
+    if (!scheduleMatch || !scheduleDate || !scheduleTimeValue) return null;
+    const courtNumber = Number(scheduleCourt);
+    if (!Number.isFinite(courtNumber) || courtNumber <= 0) return null;
+    return (
+      matches.find(
+        (match) =>
+          match.id !== scheduleMatch.id &&
+          (match.scheduled_date ?? "") === scheduleDate &&
+          normalizeTime(match.scheduled_time) === scheduleTimeValue &&
+          (match.court_number ?? -1) === courtNumber
+      ) ?? null
+    );
+  }, [matches, scheduleMatch, scheduleDate, scheduleTimeValue, scheduleCourt]);
+  const scheduleSuggestionApplied =
+    !!scheduleSuggestion &&
+    scheduleDate === scheduleSuggestion.date &&
+    scheduleHour === scheduleSuggestion.hour &&
+    scheduleMinute === scheduleSuggestion.minute &&
+    scheduleCourt === scheduleSuggestion.court;
+  const resultPreviewMessage = useMemo(() => {
+    if (!selectedMatch || !hasDefinedTeams(selectedMatch)) return null;
+    let winsA = 0;
+    let winsB = 0;
+    let validSets = 0;
+    const teamALabel =
+      teamsById.get(selectedMatch.team_a_id)?.players?.map((player) => player.name).join(" / ") ||
+      `Team #${selectedMatch.team_a_id}`;
+    const teamBLabel =
+      teamsById.get(selectedMatch.team_b_id)?.players?.map((player) => player.name).join(" / ") ||
+      `Team #${selectedMatch.team_b_id}`;
+
+    for (const setScore of setsInput) {
+      const hasA = setScore.a !== "";
+      const hasB = setScore.b !== "";
+      if (!hasA && !hasB) continue;
+      if (!hasA || !hasB) return "Hay sets incompletos.";
+      const a = Number(setScore.a);
+      const b = Number(setScore.b);
+      if (!Number.isFinite(a) || !Number.isFinite(b) || a < 0 || b < 0 || a === b) {
+        return "Revisa los sets: no puede haber empates ni valores invalidos.";
+      }
+      validSets += 1;
+      if (a > b) winsA += 1;
+      if (b > a) winsB += 1;
+    }
+
+    if (validSets === 0) return null;
+    if (winsA >= 2 || winsB >= 2) {
+      return `Ganador estimado: ${winsA > winsB ? teamALabel : teamBLabel}.`;
+    }
+    return `Parcial: ${winsA}-${winsB} en sets.`;
+  }, [selectedMatch, setsInput, teamsById]);
   useEffect(() => {
     setGridDateFilter((prev) => {
       if (prev && gridAvailableDates.includes(prev)) return prev;
@@ -521,6 +704,11 @@ export default function TournamentMatchesPage() {
     if (!gridOpen) return;
     setGridDateFilter(defaultGridDate);
   }, [gridOpen, defaultGridDate]);
+  useEffect(() => {
+    if (!scheduleMessage) return;
+    const timeoutId = window.setTimeout(() => setScheduleMessage(null), 4500);
+    return () => window.clearTimeout(timeoutId);
+  }, [scheduleMessage]);
   const matchesForTab =
     activeTab === "unscheduled"
       ? unscheduledMatches
@@ -545,9 +733,35 @@ export default function TournamentMatchesPage() {
           <p className="text-sm text-zinc-300">Resultados y estado por fase.</p>
         </div>
 
-        <Button variant="secondary" onClick={() => router.push(`/tournaments/${tournamentId}`)}>
-          Volver
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="inline-flex rounded-xl border border-zinc-200 bg-white p-1">
+            <button
+              type="button"
+              onClick={() => router.push(`/tournaments/${tournamentId}`)}
+              className="rounded-lg px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-100"
+            >
+              Resumen
+            </button>
+            <button
+              type="button"
+              aria-current="page"
+              disabled
+              className="rounded-lg bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white"
+            >
+              Partidos
+            </button>
+            <button
+              type="button"
+              onClick={() => router.push(`/tournaments/${tournamentId}/playoffs`)}
+              className="rounded-lg px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-100"
+            >
+              Playoffs
+            </button>
+          </div>
+          <Button variant="secondary" onClick={() => router.push("/tournaments")}>
+            Volver a torneos
+          </Button>
+        </div>
       </div>
 
       {loading ? (
@@ -559,6 +773,11 @@ export default function TournamentMatchesPage() {
           {error && (
             <div className="rounded-xl border border-red-300 bg-red-100 p-3 text-sm text-red-800">
               {error}
+            </div>
+          )}
+          {scheduleMessage && (
+            <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">
+              {scheduleMessage}
             </div>
           )}
 
@@ -735,6 +954,29 @@ export default function TournamentMatchesPage() {
                 )} vs ${getTeamLabel(scheduleMatch.team_b_id)}`
               : null}
           </div>
+          {scheduleSuggestion && (
+            <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-3 text-xs text-zinc-600">
+              <div>
+                Sugerencia: {formatShortDate(scheduleSuggestion.date)} {scheduleSuggestion.hour}:
+                {scheduleSuggestion.minute} · Cancha {scheduleSuggestion.court}.
+              </div>
+              <div>{scheduleSuggestion.reason}</div>
+              {!scheduleSuggestionApplied && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setScheduleDate(scheduleSuggestion.date);
+                    setScheduleHour(scheduleSuggestion.hour);
+                    setScheduleMinute(scheduleSuggestion.minute);
+                    setScheduleCourt(scheduleSuggestion.court);
+                  }}
+                  className="mt-2 font-semibold text-zinc-700 underline decoration-dotted hover:text-zinc-900"
+                >
+                  Volver a aplicar sugerencia
+                </button>
+              )}
+            </div>
+          )}
 
           <div className="grid gap-2 md:grid-cols-2">
             <Input
@@ -786,6 +1028,12 @@ export default function TournamentMatchesPage() {
               {scheduleError}
             </div>
           )}
+          {scheduleConflictMatch && (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+              Conflicto detectado: ya existe un partido en la misma fecha, hora y cancha
+              (Partido {getMatchCode(scheduleConflictMatch)}).
+            </div>
+          )}
 
           <div className="flex justify-end gap-2">
             <Button variant="secondary" onClick={closeScheduleModal} type="button">
@@ -811,6 +1059,21 @@ export default function TournamentMatchesPage() {
             saveResult();
           }}
         >
+          <div className="flex flex-wrap items-center gap-2 rounded-xl border border-zinc-200 bg-zinc-50 p-2">
+            <span className="text-xs font-semibold text-zinc-600">Carga rapida:</span>
+            {RESULT_PRESETS.map((preset) => (
+              <button
+                key={preset.label}
+                type="button"
+                onClick={() => applyResultPreset(preset.sets)}
+                disabled={!canResult}
+                className="rounded-lg border border-zinc-200 bg-white px-2 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {preset.label}
+              </button>
+            ))}
+          </div>
+
           <div className="space-y-3">
             <div className="overflow-x-auto">
               <div
@@ -870,6 +1133,14 @@ export default function TournamentMatchesPage() {
                 ))}
               </div>
             </div>
+            <div className="text-xs text-zinc-500">
+              Carga minima: 2 sets completos, sin empates.
+            </div>
+            {resultPreviewMessage && (
+              <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-3 text-sm text-zinc-700">
+                {resultPreviewMessage}
+              </div>
+            )}
           </div>
 
           {formError && (
