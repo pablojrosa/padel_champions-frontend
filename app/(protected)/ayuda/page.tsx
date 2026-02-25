@@ -3,23 +3,9 @@
 import { useState } from "react";
 import Link from "next/link";
 import Card from "@/components/ui/Card";
+import TournamentFlowDemo from "@/components/help/TournamentFlowDemo";
 
 const faqs: { question: string; answer: React.ReactNode[] }[] = [
-  {
-    question: "¿Cual es el flujo recomendado para gestionar un torneo?",
-    answer: [
-      <>
-        1) Entrá a{" "}
-        <Link className="text-zinc-900 underline" href="/tournaments">
-          Torneos
-        </Link>{" "}
-        y creá tu torneo.
-      </>,
-      "2) En Resumen completá el checklist: parejas, zonas y estado listo para iniciar.",
-      "3) Organizá partidos en la pestaña Partidos y luego seguí con Playoffs.",
-      "4) Compartí el link publico con jugadores y espectadores.",
-    ],
-  },
   {
     question: "¿Como uso la navegacion Resumen / Partidos / Playoffs?",
     answer: [
@@ -157,6 +143,10 @@ export default function HelpPage() {
             </div>
           </div>
         </Card>
+
+        <div className="mt-6">
+          <TournamentFlowDemo />
+        </div>
 
         <div className="mt-8 space-y-3">
           {faqs.map((faq, index) => {
