@@ -33,20 +33,6 @@ const DEFAULT_SETS: EditableSet[] = [
   { a: "", b: "" },
   { a: "", b: "" },
 ];
-const RESULT_PRESETS: Array<{ label: string; sets: EditableSet[] }> = [
-  {
-    label: "2-0 rapido",
-    sets: [{ a: "6", b: "3" }, { a: "6", b: "4" }],
-  },
-  {
-    label: "2-1 parejo",
-    sets: [{ a: "6", b: "4" }, { a: "3", b: "6" }, { a: "6", b: "3" }],
-  },
-  {
-    label: "Tie-break inicial",
-    sets: [{ a: "7", b: "6" }, { a: "6", b: "4" }],
-  },
-];
 const DEFAULT_SCHEDULE_HOUR = "18";
 const DEFAULT_SCHEDULE_MINUTE = "00";
 const HOURS = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, "0"));
@@ -257,6 +243,12 @@ export default function TournamentMatchesPage() {
     const month = String(date.getMonth() + 1).padStart(2, "0");
     const day = String(date.getDate()).padStart(2, "0");
     return `${year}-${month}-${day}`;
+  }
+  function resolveGridDefaultDate(startDateRaw: string | null, todayIsoDate: string) {
+    const startDate = startDateRaw?.slice(0, 10) ?? "";
+    const isValidIsoDate = /^\d{4}-\d{2}-\d{2}$/.test(startDate);
+    if (!isValidIsoDate) return todayIsoDate;
+    return todayIsoDate < startDate ? startDate : todayIsoDate;
   }
 
   function toMinutes(value: string) {
@@ -509,12 +501,6 @@ export default function TournamentMatchesPage() {
     }
   }
 
-  function applyResultPreset(sets: EditableSet[]) {
-    const mapped = sets.map((setScore) => ({ a: setScore.a, b: setScore.b }));
-    setSetsInput([...mapped, ...DEFAULT_SETS].slice(0, 3));
-    setFormError(null);
-  }
-
   const canSchedule = tournamentStatus !== "finished";
   const canResult = tournamentStatus === "ongoing" || tournamentStatus === "groups_finished";
   const categoryFilteredMatches = useMemo(() => {
@@ -572,24 +558,33 @@ export default function TournamentMatchesPage() {
     return true;
   }, [groups, matches]);
   const todayIsoDate = useMemo(() => toLocalIsoDate(new Date()), []);
+  const gridStartDate = useMemo(() => {
+    const dates = Array.from(
+      new Set(
+        categoryFilteredMatches
+          .map((match) => (match.scheduled_date ?? "").slice(0, 10))
+          .filter((date): date is string => /^\d{4}-\d{2}-\d{2}$/.test(date))
+      )
+    ).sort();
+    return dates[0] ?? null;
+  }, [categoryFilteredMatches]);
+  const defaultGridDate = useMemo(() => {
+    return resolveGridDefaultDate(gridStartDate, todayIsoDate);
+  }, [gridStartDate, todayIsoDate]);
   const gridAvailableDates = useMemo(() => {
     const dates = Array.from(
       new Set(
         scheduledMatches
-          .map((match) => match.scheduled_date as string | null)
-          .filter((date): date is string => Boolean(date))
+          .map((match) => (match.scheduled_date ?? "").slice(0, 10))
+          .filter((date): date is string => /^\d{4}-\d{2}-\d{2}$/.test(date))
       )
     ).sort();
-    if (!dates.includes(todayIsoDate)) {
-      dates.push(todayIsoDate);
+    if (!dates.includes(defaultGridDate)) {
+      dates.push(defaultGridDate);
       dates.sort();
     }
     return dates;
-  }, [scheduledMatches, todayIsoDate]);
-  const defaultGridDate = useMemo(() => {
-    if (gridAvailableDates.includes(todayIsoDate)) return todayIsoDate;
-    return gridAvailableDates[0] ?? todayIsoDate;
-  }, [gridAvailableDates, todayIsoDate]);
+  }, [scheduledMatches, defaultGridDate]);
   const gridMatchesForDate = useMemo(
     () =>
       scheduledMatches.filter(
@@ -1059,21 +1054,6 @@ export default function TournamentMatchesPage() {
             saveResult();
           }}
         >
-          <div className="flex flex-wrap items-center gap-2 rounded-xl border border-zinc-200 bg-zinc-50 p-2">
-            <span className="text-xs font-semibold text-zinc-600">Carga rapida:</span>
-            {RESULT_PRESETS.map((preset) => (
-              <button
-                key={preset.label}
-                type="button"
-                onClick={() => applyResultPreset(preset.sets)}
-                disabled={!canResult}
-                className="rounded-lg border border-zinc-200 bg-white px-2 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {preset.label}
-              </button>
-            ))}
-          </div>
-
           <div className="space-y-3">
             <div className="overflow-x-auto">
               <div

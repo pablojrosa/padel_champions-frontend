@@ -482,7 +482,6 @@ export default function TournamentPlayoffsPage() {
   const [matches, setMatches] = useState<Match[]>([]);
   const [teams, setTeams] = useState<Team[]>([]);
   const [groups, setGroups] = useState<TournamentGroupOut[]>([]);
-  const [tournamentStartDate, setTournamentStartDate] = useState<string | null>(null);
   const [tournamentMatchDurationMinutes, setTournamentMatchDurationMinutes] = useState(
     DEFAULT_MATCH_DURATION_MINUTES
   );
@@ -913,10 +912,20 @@ export default function TournamentPlayoffsPage() {
       ),
     [categoryFilteredMatches]
   );
+  const gridStartDate = useMemo(() => {
+    const dates = Array.from(
+      new Set(
+        scheduledMatches
+          .map((match) => (match.scheduled_date ?? "").slice(0, 10))
+          .filter((date): date is string => /^\d{4}-\d{2}-\d{2}$/.test(date))
+      )
+    ).sort();
+    return dates[0] ?? null;
+  }, [scheduledMatches]);
   const todayIsoDate = useMemo(() => toLocalIsoDate(new Date()), []);
   const defaultGridDate = useMemo(() => {
-    return resolveGridDefaultDate(tournamentStartDate, todayIsoDate);
-  }, [tournamentStartDate, todayIsoDate]);
+    return resolveGridDefaultDate(gridStartDate, todayIsoDate);
+  }, [gridStartDate, todayIsoDate]);
   const gridAvailableDates = useMemo(() => {
     const dates = Array.from(
       new Set(scheduledMatches.map((match) => match.scheduled_date as string))
@@ -1585,7 +1594,6 @@ export default function TournamentPlayoffsPage() {
         api<TournamentStatusResponse>(`/tournaments/${tournamentId}/status`),
       ]);
 
-      setTournamentStartDate(tournamentRes.start_date ?? null);
       setTournamentMatchDurationMinutes(
         Math.max(1, tournamentRes.match_duration_minutes ?? DEFAULT_MATCH_DURATION_MINUTES)
       );
@@ -3621,9 +3629,6 @@ export default function TournamentPlayoffsPage() {
                   ? Number(bulkScheduleBaseConfig.courtsCount)
                   : Number(config.courtsCount);
                 const slotsCount = Math.ceil(matches.length / Math.max(1, effectiveCourts || 1));
-                const configuredStartTime = config.useGlobal
-                  ? `${bulkScheduleBaseConfig.hour || "—"}:${bulkScheduleBaseConfig.minute}`
-                  : `${config.hour || "—"}:${config.minute}`;
                 return (
                   <div key={stage} className="rounded-xl border border-zinc-200 p-3 space-y-3">
                     <div className="flex flex-wrap items-center justify-between gap-2">
@@ -3640,7 +3645,7 @@ export default function TournamentPlayoffsPage() {
                       </label>
                       <div className="text-xs text-zinc-500">
                         {matches.length} partido(s) pendiente(s) · {slotsCount} bloque(s)
-                        {summary ? ` · inicio real ${summary.firstTime}` : ""}
+                        {summary ? ` · inicio ${summary.firstTime}` : ""}
                       </div>
                     </div>
 
@@ -3660,18 +3665,9 @@ export default function TournamentPlayoffsPage() {
 
                         {config.useGlobal ? (
                           <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-2 text-xs text-zinc-600">
-                            Config base: fecha {bulkScheduleBaseConfig.date || "—"} · inicio{" "}
-                            {configuredStartTime} · cancha{" "}
+                            Config base: fecha {bulkScheduleBaseConfig.date || "—"} · cancha{" "}
                             {bulkScheduleBaseConfig.firstCourt || "—"} ·{" "}
                             {bulkScheduleBaseConfig.courtsCount || "—"} canchas
-                            {summary && (
-                              <div className="mt-1 text-xs text-zinc-700">
-                                Inicio efectivo de {STAGE_LABELS[stage]}: {summary.firstTime}
-                                {summary.adjustedByMinutes > 0
-                                  ? ` (se movió +${summary.adjustedByMinutes} min por descanso o disponibilidad de canchas)`
-                                  : " (sin ajustes)"}
-                              </div>
-                            )}
                           </div>
                         ) : (
                           <div className="space-y-2">
@@ -3776,13 +3772,10 @@ export default function TournamentPlayoffsPage() {
                                 )}
                               </div>
                             </div>
-                            {summary && (
+                            {summary && summary.adjustedByMinutes > 0 && (
                               <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-2 text-xs text-zinc-700">
-                                Inicio configurado: {configuredStartTime} · Inicio efectivo:{" "}
-                                {summary.firstTime}
-                                {summary.adjustedByMinutes > 0
-                                  ? ` (ajustado +${summary.adjustedByMinutes} min por descanso o canchas ocupadas)`
-                                  : " (sin ajustes)"}
+                                Ajuste automático de inicio: +{summary.adjustedByMinutes} min por
+                                descanso entre instancias o disponibilidad de canchas.
                               </div>
                             )}
                           </div>

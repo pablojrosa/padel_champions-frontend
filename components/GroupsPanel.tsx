@@ -1234,7 +1234,7 @@ export default function GroupsPanel({
                 onChange={(e) => setTeamsPerGroup(Number(e.target.value))}
                 disabled={generating}
               >
-                {[2, 3, 4, 5, 6].map((n) => (
+                {[3, 4, 5, 6].map((n) => (
                   <option key={n} value={n}>
                     {n}
                   </option>
