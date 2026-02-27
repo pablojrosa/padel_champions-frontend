@@ -239,13 +239,27 @@ async function load(options?: { silent?: boolean }) {
     setTeams(hydratedTeams);
     setGroups(tGroups || []);
 
+    const persistedTeamsPerGroup =
+      found?.teams_per_group && found.teams_per_group > 1
+        ? found.teams_per_group
+        : null;
+    if (persistedTeamsPerGroup) {
+      setTeamsPerGroup(Math.max(3, persistedTeamsPerGroup));
+    } else if (tGroups && tGroups.length > 0) {
+      const inferredTeamsPerGroup = Math.max(
+        3,
+        ...tGroups.map((group) => group.teams.length || 0)
+      );
+      setTeamsPerGroup(inferredTeamsPerGroup);
+    }
+
   } catch (err: any) {
     if (err instanceof ApiError && err.status === 401) {
       clearToken();
       router.replace("/login");
       return;
     }
-    setError(err?.message ?? "Failed to load tournament");
+    setError(err?.message ?? "No se pudo cargar el torneo.");
   } finally {
     if (!silent) {
       setLoading(false);
@@ -325,7 +339,7 @@ async function load(options?: { silent?: boolean }) {
       // 🔹 eliminar solo el equipo (jugadores quedan libres)
       setTeams((prev) => prev.filter((t) => t.id !== teamId));
     } catch (err: any) {
-      setError(err?.message ?? "Failed to delete team");
+      setError(err?.message ?? "No se pudo eliminar la pareja.");
     } finally {
       setDeletingTeamId(null);
     }
@@ -540,7 +554,7 @@ async function load(options?: { silent?: boolean }) {
       setPlayers(tPlayers || []);
     } catch (err: any) {
       setTeams((prev) => prev.filter((team) => team.id !== tempId));
-      setError(err?.message ?? "Failed to create team");
+      setError(err?.message ?? "No se pudo crear la pareja.");
     } finally {
       setPairSaving(false);
     }
@@ -743,7 +757,7 @@ async function load(options?: { silent?: boolean }) {
     setError(null);
   
     try {
-      await api<GenerateGroupsResponse>(
+      const generation = await api<GenerateGroupsResponse>(
         `/tournaments/${tournamentId}/groups/generate`,
         {
           method: "POST",
@@ -755,11 +769,12 @@ async function load(options?: { silent?: boolean }) {
         `/tournaments/${tournamentId}/groups`
       );
       setGroups(tGroups);
+      return generation;
     } catch (err: unknown) {
       if (isAbortError(err)) {
         throw err;
       }
-      setError(err instanceof Error ? err.message : "Failed to generate groups");
+      setError(err instanceof Error ? err.message : "No se pudieron generar las zonas.");
       throw err;
     } finally {
       if (aiGenerateAbortRef.current === controller) {
@@ -793,7 +808,11 @@ async function load(options?: { silent?: boolean }) {
       );
       setGroups(tGroups);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Failed to generate groups manually");
+      setError(
+        err instanceof Error
+          ? err.message
+          : "No se pudieron guardar las zonas manuales."
+      );
       throw err;
     } finally {
       setGeneratingGroups(false);
@@ -819,7 +838,7 @@ async function load(options?: { silent?: boolean }) {
       setStartSuccessModalOpen(true);
       setStartSuccessCopyMessage(null);
     } catch (err: any) {
-      setError(err?.message ?? "Failed to start tournament");
+      setError(err?.message ?? "No se pudo iniciar el torneo.");
     } finally {
       setStartingTournament(false);
     }
@@ -862,7 +881,7 @@ async function load(options?: { silent?: boolean }) {
       // volver al listado
       router.replace("/tournaments");
     } catch (err: any) {
-      setError(err?.message ?? "Failed to delete tournament");
+      setError(err?.message ?? "No se pudo eliminar el torneo.");
     } finally {
       setDeletingTournament(false);
     }
@@ -902,7 +921,7 @@ async function load(options?: { silent?: boolean }) {
       setTournament(updated);
       setEditOpen(false);
     } catch (err: any) {
-      setEditError(err?.message ?? "Failed to update tournament");
+      setEditError(err?.message ?? "No se pudo actualizar el torneo.");
     } finally {
       setSavingEdit(false);
     }

@@ -42,7 +42,7 @@ export default function PlayersPage() {
         router.replace("/login");
         return;
       }
-      setError(err?.message ?? "Failed to load players");
+      setError(err?.message ?? "No se pudieron cargar los jugadores.");
     } finally {
       setLoading(false);
     }
@@ -64,7 +64,7 @@ export default function PlayersPage() {
       setLastName("");
       setCategory("");
     } catch (err: any) {
-      setError(err?.message ?? "Failed to create player");
+      setError(err?.message ?? "No se pudo crear el jugador.");
     } finally {
       setCreating(false);
     }
@@ -88,7 +88,7 @@ export default function PlayersPage() {
       setEditLastName("");
       setEditCategory("");
     } catch (err: any) {
-      setError(err?.message ?? "Failed to update player");
+      setError(err?.message ?? "No se pudo actualizar el jugador.");
     } finally {
       setSavingId(null);
     }
@@ -103,7 +103,7 @@ export default function PlayersPage() {
       await api<void>(`/players/${id}`, { method: "DELETE" });
       setItems((prev) => prev.filter((p) => p.id !== id));
     } catch (err: any) {
-      setError(err?.message ?? "Failed to delete player");
+      setError(err?.message ?? "No se pudo eliminar el jugador.");
     }
   }
 

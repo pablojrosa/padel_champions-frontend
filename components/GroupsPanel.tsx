@@ -8,6 +8,7 @@ import Modal from "@/components/ui/Modal";
 import Input from "@/components/ui/Input";
 import { api } from "@/lib/api";
 import type {
+  GenerateGroupsResponse,
   Team,
   TournamentGroupOut,
   TournamentStatus,
@@ -18,6 +19,8 @@ type ManualZone = {
   name: string;
   teamIds: number[];
 };
+
+const TEAM_SIZE_OPTIONS = [3, 4, 5, 6] as const;
 
 function getTeamCategory(team: Team) {
   return team.players[0]?.category ?? null;
@@ -67,7 +70,7 @@ type Props = {
     }[];
     match_duration_minutes: number;
     courts_count: number;
-  }) => Promise<void>;
+  }) => Promise<GenerateGroupsResponse>;
   onCancelGenerateWithAi: () => void;
   onGenerateManual: (payload: {
     teams_per_group: number;
@@ -383,6 +386,12 @@ export default function GroupsPanel({
     defaultMatchDurationMinutes,
     defaultCourtsCount,
   ]);
+  useEffect(() => {
+    if (TEAM_SIZE_OPTIONS.some((value) => value === teamsPerGroup)) {
+      return;
+    }
+    setTeamsPerGroup(TEAM_SIZE_OPTIONS[0]);
+  }, [teamsPerGroup, setTeamsPerGroup]);
   useEffect(() => {
     if (!manualOpen) return;
     setManualZones([{ id: "manual-zone-1", name: "Grupo 1", teamIds: [] }]);
@@ -1234,7 +1243,7 @@ export default function GroupsPanel({
                 onChange={(e) => setTeamsPerGroup(Number(e.target.value))}
                 disabled={generating}
               >
-                {[3, 4, 5, 6].map((n) => (
+                {TEAM_SIZE_OPTIONS.map((n) => (
                   <option key={n} value={n}>
                     {n}
                   </option>

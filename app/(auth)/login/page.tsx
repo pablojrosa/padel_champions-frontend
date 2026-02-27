@@ -21,6 +21,18 @@ function LoginForm() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  function normalizeLoginError(message: string | null | undefined) {
+    const value = (message ?? "").trim();
+    if (!value) return "No se pudo iniciar sesion.";
+    if (/incorrect email or password/i.test(value)) {
+      return "Email o contrasena incorrectos.";
+    }
+    if (/login failed/i.test(value)) {
+      return "No se pudo iniciar sesion.";
+    }
+    return value;
+  }
+
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setSubmitting(true);
@@ -44,7 +56,7 @@ function LoginForm() {
   
       if (!res.ok) {
         const err = await res.json();
-        throw new Error(err.detail || "Login failed");
+        throw new Error(normalizeLoginError(err.detail || "No se pudo iniciar sesion."));
       }
   
       const data: LoginResponse = await res.json();
@@ -62,7 +74,7 @@ function LoginForm() {
 
       router.replace(target);
     } catch (err: any) {
-      setError(err.message ?? "Login failed");
+      setError(normalizeLoginError(err?.message));
     } finally {
       setSubmitting(false);
     }
