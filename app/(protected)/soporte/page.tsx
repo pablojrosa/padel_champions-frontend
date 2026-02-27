@@ -203,6 +203,9 @@ export default function SupportPage() {
             Creá tickets, revisá respuestas y seguí la conversación.
           </p>
         </div>
+        <Button variant="secondary" onClick={() => router.push("/dashboard")}>
+          Volver al tablero
+        </Button>
       </div>
 
       <Card className="bg-white/95">

@@ -14,6 +14,7 @@ export type Tournament = {
   category: string | null;
   start_date: string | null;
   end_date: string | null;
+  teams_per_group?: number | null;
   courts_count?: number | null;
   match_duration_minutes?: number | null;
   start_time?: string | null;
@@ -148,9 +149,33 @@ export type TournamentGroup = {
   teams: GroupTeamRef[];
 };
 
+export type GroupScheduleConflictItem = {
+  team_id: number | null;
+  team_a_id: number | null;
+  team_b_id: number | null;
+  scheduled_date: string | null;
+  scheduled_time: string | null;
+  court_number: number | null;
+  constraint?: string | null;
+  reason?: string | null;
+};
+
+export type GroupScheduleConflict = {
+  group_id: number;
+  group_name: string;
+  conflicts: GroupScheduleConflictItem[];
+};
+
 export type GenerateGroupsResponse = {
   message: string;
   groups: TournamentGroup[];
+  schedule_conflicts?: GroupScheduleConflict[];
+  generation_diagnostics?: {
+    strategy?: "llm" | "deterministic";
+    model?: string;
+    attempted_models?: string[];
+    last_error?: string | null;
+  };
 };
 
 export type StartTournamentResponse = {

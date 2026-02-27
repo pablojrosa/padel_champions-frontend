@@ -25,6 +25,7 @@ export default function DashboardPage() {
   const isAdmin = getIsAdmin();
   const [stats, setStats] = useState<DashboardStats>(emptyStats);
   const [loading, setLoading] = useState(true);
+  const [reloadKey, setReloadKey] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [expiringUsers, setExpiringUsers] = useState<AdminUser[]>([]);
   const [expiringLoading, setExpiringLoading] = useState(false);
@@ -118,7 +119,7 @@ export default function DashboardPage() {
     return () => {
       mounted = false;
     };
-  }, [router, isAdmin]);
+  }, [router, isAdmin, reloadKey]);
 
   const daysUntil = (dateString: string) => {
     const today = new Date();
@@ -149,6 +150,10 @@ export default function DashboardPage() {
     [stats]
   );
 
+  function retryLoad() {
+    setReloadKey((prev) => prev + 1);
+  }
+
   return (
     <div className="space-y-8">
       <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
@@ -166,19 +171,60 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      <Link href="/tournaments" className="block">
-        <Card className="bg-gradient-to-br from-amber-50 via-amber-100/70 to-amber-50 ring-amber-200/70 transition hover:-translate-y-0.5 hover:shadow-xl">
-          <div className="p-6 flex flex-col gap-2">
+      <Card className="bg-gradient-to-br from-amber-50 via-amber-100/70 to-amber-50 ring-amber-200/70">
+        <div className="p-6 space-y-4">
+          <div className="space-y-1">
             <div className="text-xs uppercase tracking-[0.28em] text-amber-700/70">
-              Acceso rápido
+              Acciones rápidas
             </div>
-            <div className="text-xl font-semibold text-zinc-900">Torneos</div>
             <div className="text-sm text-zinc-700">
-              Crear, organizar y administrar.
+              Entrá directo a las secciones clave de gestión.
             </div>
           </div>
-        </Card>
-      </Link>
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+            <Link
+              href="/tournaments"
+              className="rounded-xl border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold text-zinc-800 transition hover:-translate-y-0.5 hover:shadow-sm"
+            >
+              Torneos
+            </Link>
+            <Link
+              href="/players"
+              className="rounded-xl border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold text-zinc-800 transition hover:-translate-y-0.5 hover:shadow-sm"
+            >
+              Jugadores
+            </Link>
+            <Link
+              href="/soporte"
+              className="rounded-xl border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold text-zinc-800 transition hover:-translate-y-0.5 hover:shadow-sm"
+            >
+              Soporte
+            </Link>
+            <Link
+              href="/ayuda"
+              className="rounded-xl border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold text-zinc-800 transition hover:-translate-y-0.5 hover:shadow-sm"
+            >
+              Ayuda
+            </Link>
+            {isAdmin && (
+              <Link
+                href="/admin/users"
+                className="rounded-xl border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold text-zinc-800 transition hover:-translate-y-0.5 hover:shadow-sm"
+              >
+                Admin usuarios
+              </Link>
+            )}
+            {isAdmin && (
+              <Link
+                href="/admin/pagos"
+                className="rounded-xl border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold text-zinc-800 transition hover:-translate-y-0.5 hover:shadow-sm"
+              >
+                Admin pagos
+              </Link>
+            )}
+          </div>
+        </div>
+      </Card>
 
       <Card className="bg-white/95">
         <div className="p-6 space-y-5">
@@ -193,7 +239,16 @@ export default function DashboardPage() {
 
           {error && (
             <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-              {error}
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span>{error}</span>
+                <button
+                  type="button"
+                  onClick={retryLoad}
+                  className="text-xs font-semibold underline decoration-dotted hover:text-red-900"
+                >
+                  Reintentar
+                </button>
+              </div>
             </div>
           )}
 
@@ -206,9 +261,13 @@ export default function DashboardPage() {
                 <div className="text-xs uppercase tracking-[0.2em] text-zinc-500">
                   {item.label}
                 </div>
-                <div className="mt-2 text-2xl font-semibold text-zinc-900">
-                  {loading ? "..." : item.value}
-                </div>
+                {loading ? (
+                  <div className="mt-2 h-8 w-16 animate-pulse rounded-lg bg-zinc-200" />
+                ) : (
+                  <div className="mt-2 text-2xl font-semibold text-zinc-900">
+                    {item.value}
+                  </div>
+                )}
                 <div className="mt-1 text-xs text-zinc-500">{item.note}</div>
               </div>
             ))}
@@ -228,7 +287,16 @@ export default function DashboardPage() {
 
             {expiringError && (
               <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-                {expiringError}
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span>{expiringError}</span>
+                  <button
+                    type="button"
+                    onClick={retryLoad}
+                    className="text-xs font-semibold underline decoration-dotted hover:text-red-900"
+                  >
+                    Reintentar
+                  </button>
+                </div>
               </div>
             )}
 
@@ -243,12 +311,24 @@ export default function DashboardPage() {
                 {expiringUsers.map((user) => {
                   const expiresAt = user.last_payment_expires_at ?? "";
                   const daysLeft = daysUntil(expiresAt);
-                  const urgency =
+                  const urgencyText =
+                    daysLeft <= 0
+                      ? "Vence hoy"
+                      : daysLeft === 1
+                      ? "Vence mañana"
+                      : `Vence en ${daysLeft} dias`;
+                  const urgencyTextColor =
                     daysLeft <= 1
                       ? "text-red-600"
                       : daysLeft <= 3
                       ? "text-amber-600"
                       : "text-zinc-500";
+                  const urgencyBadge =
+                    daysLeft <= 1
+                      ? "border-red-200 bg-red-50 text-red-700"
+                      : daysLeft <= 3
+                      ? "border-amber-200 bg-amber-50 text-amber-700"
+                      : "border-zinc-200 bg-zinc-50 text-zinc-700";
 
                   return (
                     <div
@@ -261,13 +341,29 @@ export default function DashboardPage() {
                         </div>
                         <div className="text-xs text-zinc-500">{user.email}</div>
                       </div>
+                      <div className="flex items-center gap-2">
+                        <span
+                          className={`rounded-full border px-2 py-1 text-xs font-semibold ${urgencyBadge}`}
+                        >
+                          {urgencyText}
+                        </span>
+                      </div>
                       <div className="text-right">
                         <div className="text-sm font-semibold text-zinc-900">
                           {expiresAt}
                         </div>
-                        <div className={`text-xs ${urgency}`}>
-                          Vence en {daysLeft} día{daysLeft === 1 ? "" : "s"}
+                        <div className={`text-xs ${urgencyTextColor}`}>
+                          {urgencyText}
                         </div>
+                      </div>
+                      <div>
+                        <button
+                          type="button"
+                          onClick={() => router.push(`/admin/pagos?user=${user.id}`)}
+                          className="rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 transition hover:bg-zinc-100"
+                        >
+                          Gestionar pago
+                        </button>
                       </div>
                     </div>
                   );

@@ -62,8 +62,21 @@ const FIELD_LABELS: Record<string, string> = {
   constraints: "Restricciones",
 };
 
+const dateFormatter = new Intl.DateTimeFormat("es-AR", {
+  day: "2-digit",
+  month: "2-digit",
+  year: "numeric",
+});
+
 function isAbortError(err: unknown) {
   return err instanceof Error && err.name === "AbortError";
+}
+
+function formatDate(value: string | null | undefined) {
+  if (!value) return null;
+  const parsed = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return dateFormatter.format(parsed);
 }
 
 export default function TournamentDetailPage() {
@@ -118,12 +131,15 @@ export default function TournamentDetailPage() {
   const [teamsNameQuery, setTeamsNameQuery] = useState("");
 
   const [startingTournament, setStartingTournament] = useState(false);
+  const [startSuccessModalOpen, setStartSuccessModalOpen] = useState(false);
+  const [startSuccessCopyMessage, setStartSuccessCopyMessage] = useState<string | null>(null);
   const [copyMessage, setCopyMessage] = useState<string | null>(null);
   const [editOpen, setEditOpen] = useState(false);
   const aiGenerateAbortRef = useRef<AbortController | null>(null);
   const [editName, setEditName] = useState("");
   const [editDescription, setEditDescription] = useState("");
   const [editLocation, setEditLocation] = useState("");
+  const [descriptionExpanded, setDescriptionExpanded] = useState(false);
   const [editMatchDurationMinutes, setEditMatchDurationMinutes] = useState("90");
   const [editCourtsCount, setEditCourtsCount] = useState("1");
   const [savingEdit, setSavingEdit] = useState(false);
@@ -223,13 +239,27 @@ async function load(options?: { silent?: boolean }) {
     setTeams(hydratedTeams);
     setGroups(tGroups || []);
 
+    const persistedTeamsPerGroup =
+      found?.teams_per_group && found.teams_per_group > 1
+        ? found.teams_per_group
+        : null;
+    if (persistedTeamsPerGroup) {
+      setTeamsPerGroup(Math.max(3, persistedTeamsPerGroup));
+    } else if (tGroups && tGroups.length > 0) {
+      const inferredTeamsPerGroup = Math.max(
+        3,
+        ...tGroups.map((group) => group.teams.length || 0)
+      );
+      setTeamsPerGroup(inferredTeamsPerGroup);
+    }
+
   } catch (err: any) {
     if (err instanceof ApiError && err.status === 401) {
       clearToken();
       router.replace("/login");
       return;
     }
-    setError(err?.message ?? "Failed to load tournament");
+    setError(err?.message ?? "No se pudo cargar el torneo.");
   } finally {
     if (!silent) {
       setLoading(false);
@@ -239,6 +269,7 @@ async function load(options?: { silent?: boolean }) {
 
   useEffect(() => {
     if (!Number.isFinite(tournamentId)) return;
+    setDescriptionExpanded(false);
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tournamentId]);
@@ -308,7 +339,7 @@ async function load(options?: { silent?: boolean }) {
       // 🔹 eliminar solo el equipo (jugadores quedan libres)
       setTeams((prev) => prev.filter((t) => t.id !== teamId));
     } catch (err: any) {
-      setError(err?.message ?? "Failed to delete team");
+      setError(err?.message ?? "No se pudo eliminar la pareja.");
     } finally {
       setDeletingTeamId(null);
     }
@@ -523,7 +554,7 @@ async function load(options?: { silent?: boolean }) {
       setPlayers(tPlayers || []);
     } catch (err: any) {
       setTeams((prev) => prev.filter((team) => team.id !== tempId));
-      setError(err?.message ?? "Failed to create team");
+      setError(err?.message ?? "No se pudo crear la pareja.");
     } finally {
       setPairSaving(false);
     }
@@ -726,7 +757,7 @@ async function load(options?: { silent?: boolean }) {
     setError(null);
   
     try {
-      await api<GenerateGroupsResponse>(
+      const generation = await api<GenerateGroupsResponse>(
         `/tournaments/${tournamentId}/groups/generate`,
         {
           method: "POST",
@@ -738,11 +769,12 @@ async function load(options?: { silent?: boolean }) {
         `/tournaments/${tournamentId}/groups`
       );
       setGroups(tGroups);
+      return generation;
     } catch (err: unknown) {
       if (isAbortError(err)) {
         throw err;
       }
-      setError(err instanceof Error ? err.message : "Failed to generate groups");
+      setError(err instanceof Error ? err.message : "No se pudieron generar las zonas.");
       throw err;
     } finally {
       if (aiGenerateAbortRef.current === controller) {
@@ -776,7 +808,11 @@ async function load(options?: { silent?: boolean }) {
       );
       setGroups(tGroups);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Failed to generate groups manually");
+      setError(
+        err instanceof Error
+          ? err.message
+          : "No se pudieron guardar las zonas manuales."
+      );
       throw err;
     } finally {
       setGeneratingGroups(false);
@@ -799,12 +835,32 @@ async function load(options?: { silent?: boolean }) {
       });
   
       setStatus(res.status);
+      setStartSuccessModalOpen(true);
+      setStartSuccessCopyMessage(null);
     } catch (err: any) {
-      setError(err?.message ?? "Failed to start tournament");
+      setError(err?.message ?? "No se pudo iniciar el torneo.");
     } finally {
       setStartingTournament(false);
     }
   }  
+
+  function getPublicViewerLink() {
+    return `${window.location.origin}/viewer/tournaments/${tournamentId}`;
+  }
+
+  async function copyStartedTournamentLink() {
+    const url = getPublicViewerLink();
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(url);
+      } else {
+        window.prompt("Copiá este link público:", url);
+      }
+      setStartSuccessCopyMessage("Link público copiado. Ya podés compartirlo.");
+    } catch {
+      setStartSuccessCopyMessage("No se pudo copiar el link. Probá de nuevo.");
+    }
+  }
   
   async function deleteTournament() {
     const confirmed = window.confirm(
@@ -825,7 +881,7 @@ async function load(options?: { silent?: boolean }) {
       // volver al listado
       router.replace("/tournaments");
     } catch (err: any) {
-      setError(err?.message ?? "Failed to delete tournament");
+      setError(err?.message ?? "No se pudo eliminar el torneo.");
     } finally {
       setDeletingTournament(false);
     }
@@ -865,20 +921,27 @@ async function load(options?: { silent?: boolean }) {
       setTournament(updated);
       setEditOpen(false);
     } catch (err: any) {
-      setEditError(err?.message ?? "Failed to update tournament");
+      setEditError(err?.message ?? "No se pudo actualizar el torneo.");
     } finally {
       setSavingEdit(false);
     }
   }
 
+  const formattedStartDate = formatDate(tournament?.start_date);
+  const formattedEndDate = formatDate(tournament?.end_date);
   const tournamentDates =
-    tournament?.start_date && tournament?.end_date
-      ? `${tournament.start_date} - ${tournament.end_date}`
-      : tournament?.start_date || "—";
+    formattedStartDate && formattedEndDate
+      ? `${formattedStartDate} - ${formattedEndDate}`
+      : formattedStartDate || "Sin fecha definida";
   const locationLink =
     tournament?.location && tournament.location.startsWith("http")
       ? tournament.location
       : null;
+  const trimmedDescription = tournament?.description?.trim() ?? "";
+  const hasDescription = trimmedDescription.length > 0;
+  const descriptionLineCount = trimmedDescription.split("\n").filter(Boolean).length;
+  const hasLongDescription =
+    trimmedDescription.length > 280 || descriptionLineCount > 4;
   const getTeamGroup = (teamId: number) =>
     groups.find((g) => g.teams?.some((t) => t.id === teamId)) ?? null;
   const teamCategories = useMemo(() => {
@@ -946,36 +1009,94 @@ async function load(options?: { silent?: boolean }) {
   const defaultEndTime = normalizeTime(tournament?.end_time, "23:00");
   const defaultMatchDurationMinutes = tournament?.match_duration_minutes ?? 90;
   const defaultCourtsCount = tournament?.courts_count ?? 1;
+  const canStartTournament =
+    status === "upcoming" && groups.length > 0 && teams.length >= 1;
+
+  function scrollToSection(sectionId: string) {
+    const section = document.getElementById(sectionId);
+    if (!section) return;
+    section.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  const readinessItems = [
+    {
+      key: "teams",
+      label: "Al menos 1 pareja cargada",
+      done: teams.length >= 1,
+      countInPending: true,
+      actionLabel: "Cargar pareja",
+      onAction: openPairModal,
+      secondaryActionLabel: "Importar parejas",
+      onSecondaryAction: () => importInputRef.current?.click(),
+      secondaryDisabled: status !== "upcoming" || importingPairs,
+    },
+    {
+      key: "groups",
+      label: "Zonas generadas",
+      done: groups.length > 0,
+      countInPending: true,
+      actionLabel: "Ir a zonas",
+      onAction: () => scrollToSection("groups-panel"),
+    },
+    {
+      key: "status",
+      label: "Estado listo para iniciar",
+      done: canStartTournament,
+      countInPending: false,
+      actionLabel: "Iniciar torneo",
+      onAction: startTournament,
+    },
+  ];
+  const pendingReadinessCount = readinessItems.filter(
+    (item) => item.countInPending !== false && !item.done
+  ).length;
+  const readinessDoneCount = readinessItems.filter((item) => item.done).length;
+  const readinessProgress = Math.round(
+    (readinessDoneCount / readinessItems.length) * 100
+  );
+  const nextReadinessItem =
+    readinessItems.find((item) => !item.done && item.key !== "status") ??
+    readinessItems.find((item) => !item.done) ??
+    null;
 
   return (
     <div className="space-y-8">
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div className="space-y-2">
           <div className="text-xs uppercase tracking-[0.3em] text-zinc-400">
-            Gestion
+            Gestión
           </div>
           <h1 className="text-3xl font-semibold">Detalle del torneo</h1>
           <p className="text-sm text-zinc-300">Equipos, zonas y estado general.</p>
         </div>
 
-        <div className="flex flex-wrap gap-2">
-          <Button
-            variant="secondary"
-            onClick={() => router.push(`/tournaments/${tournamentId}/matches`)}
-          >
-            Partidos
-          </Button>
-          <Button
-            variant="secondary"
-            onClick={() => router.push(`/tournaments/${tournamentId}/playoffs`)}
-          >
-            Playoffs
-          </Button>
-          <Button
-            variant="secondary"
-            onClick={() => router.push("/tournaments")}
-          >
-            Volver
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="inline-flex rounded-xl border border-zinc-200 bg-white p-1">
+            <button
+              type="button"
+              aria-current="page"
+              disabled
+              className="rounded-lg bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white"
+            >
+              Resumen
+            </button>
+            <button
+              type="button"
+              onClick={() => router.push(`/tournaments/${tournamentId}/matches`)}
+              className="rounded-lg px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-100"
+            >
+              Partidos
+            </button>
+            <button
+              type="button"
+              onClick={() => router.push(`/tournaments/${tournamentId}/playoffs`)}
+              className="rounded-lg px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-100"
+            >
+              Playoffs
+            </button>
+          </div>
+          <Button variant="secondary" onClick={() => router.push("/tournaments")}>
+            Volver a torneos
           </Button>
         </div>
       </div>
@@ -1274,83 +1395,256 @@ async function load(options?: { silent?: boolean }) {
             </div>
           </Modal>
 
+          <Modal
+            open={startSuccessModalOpen}
+            title=""
+            onClose={() => setStartSuccessModalOpen(false)}
+            className="max-w-md"
+          >
+            <div className="space-y-4 text-center">
+              <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-emerald-500 text-white">
+                <span className="text-lg font-semibold">✓</span>
+              </div>
+              <div className="space-y-1">
+                <div className="text-lg font-semibold text-zinc-900">Torneo iniciado</div>
+                <p className="text-sm text-zinc-600">
+                  Felicitaciones, el torneo{" "}
+                  <span className="font-semibold text-zinc-900">
+                    {tournament?.name ?? `#${tournamentId}`}
+                  </span>{" "}
+                  fue iniciado de forma exitosa. Copiá el link y compartilo con los jugadores.
+                </p>
+              </div>
+              <div className="rounded-xl border border-zinc-300 bg-zinc-50 px-3 py-2 text-xs text-zinc-700 break-all text-left">
+                {getPublicViewerLink()}
+              </div>
+              {startSuccessCopyMessage && (
+                <div className="text-xs text-emerald-700">{startSuccessCopyMessage}</div>
+              )}
+              <div className="flex flex-col gap-2 sm:flex-row sm:justify-center">
+                <Button variant="secondary" onClick={() => setStartSuccessModalOpen(false)}>
+                  Cerrar
+                </Button>
+                <Button variant="secondary" onClick={copyStartedTournamentLink}>
+                  Copiar link público
+                </Button>
+                <Button
+                  onClick={() => {
+                    router.push(`/viewer/tournaments/${tournamentId}`);
+                    setStartSuccessModalOpen(false);
+                  }}
+                >
+                  Abrir vista pública
+                </Button>
+              </div>
+            </div>
+          </Modal>
+
           {error && (
             <div className="rounded-xl border border-red-300 bg-red-100 p-3 text-sm text-red-800">
               {error}
             </div>
           )}
 
-          <Card className="bg-white/95">
-          <div className="p-6 space-y-4">
-            <div className="flex items-start justify-between gap-3">
-              <div className="space-y-2">
-              <div className="text-xl font-semibold text-zinc-900">
-                {tournament?.name ?? `Torneo #${tournamentId}`}
-              </div>
-              <div className="text-sm text-zinc-600">{tournamentDates}</div>
-              {tournament?.location && (
-                <div className="text-sm text-zinc-600">
-                  {locationLink ? (
-                    <a
-                      href={locationLink}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-zinc-900 underline"
+          {status === "upcoming" && (
+            <Card className="bg-white/95">
+              <div className="p-6 space-y-4">
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                  <div className="flex-1 space-y-3">
+                    <div className="space-y-1">
+                      <div className="text-sm font-semibold text-zinc-800">
+                        Checklist para iniciar torneo
+                      </div>
+                      <div className="text-xs text-zinc-600">
+                        {pendingReadinessCount === 0
+                          ? "Todo listo. Ya podés iniciar el torneo."
+                          : `Faltan ${pendingReadinessCount} requisito(s) para iniciar.`}
+                      </div>
+                    </div>
+                    <div className="space-y-1">
+                      <div className="flex items-center justify-between text-xs text-zinc-500">
+                        <span>Progreso de inicio</span>
+                        <span>
+                          {readinessDoneCount}/{readinessItems.length}
+                        </span>
+                      </div>
+                      <div className="h-2 rounded-full bg-zinc-200">
+                        <div
+                          className="h-full rounded-full bg-emerald-500 transition-all"
+                          style={{ width: `${readinessProgress}%` }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="lg:pl-4">
+                    <Button
+                      onClick={startTournament}
+                      disabled={startingTournament || !canStartTournament}
+                      className="w-full lg:w-auto"
                     >
-                      Ver ubicacion
-                    </a>
-                  ) : (
-                    tournament.location
+                      {startingTournament ? "Iniciando..." : "Iniciar torneo"}
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="grid gap-2 md:grid-cols-3">
+                  {readinessItems.map((item) => {
+                    const isNextStep = nextReadinessItem?.key === item.key && !item.done;
+                    return (
+                      <div
+                        key={item.key}
+                        className={`rounded-xl border px-3 py-2 ${
+                          item.done
+                            ? "border-emerald-200 bg-emerald-50"
+                            : "border-amber-200 bg-amber-50"
+                        } ${isNextStep ? "ring-2 ring-amber-200" : ""}`}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="space-y-1">
+                            <div className="text-sm text-zinc-800">{item.label}</div>
+                            {isNextStep && (
+                              <span className="inline-flex rounded-full bg-amber-200 px-2 py-0.5 text-[11px] font-semibold text-amber-800">
+                                Siguiente paso
+                              </span>
+                            )}
+                          </div>
+                          <span
+                            className={`text-xs font-semibold ${
+                              item.done ? "text-emerald-700" : "text-amber-700"
+                            }`}
+                          >
+                            {item.done ? "Listo" : "Pendiente"}
+                          </span>
+                        </div>
+                        {item.key === "status" ? (
+                          <div className="mt-2 text-xs text-zinc-600">
+                            {canStartTournament
+                              ? "Inicio habilitado. Usá el botón principal."
+                              : "Completá los pasos anteriores para habilitarlo."}
+                          </div>
+                        ) : !item.done && (
+                          <div className="mt-2">
+                            <div className="flex flex-wrap items-center gap-1 text-xs">
+                              <button
+                                type="button"
+                                onClick={item.onAction}
+                                className="text-xs font-semibold text-zinc-700 underline decoration-dotted hover:text-zinc-900"
+                              >
+                                {item.actionLabel}
+                              </button>
+                              {item.secondaryActionLabel && item.onSecondaryAction && (
+                                <>
+                                  <span className="text-zinc-500">o</span>
+                                  <button
+                                    type="button"
+                                    onClick={item.onSecondaryAction}
+                                    disabled={item.secondaryDisabled}
+                                    className="text-xs font-semibold text-zinc-700 underline decoration-dotted hover:text-zinc-900 disabled:cursor-not-allowed disabled:opacity-60"
+                                  >
+                                    {item.secondaryActionLabel}
+                                  </button>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </Card>
+          )}
+
+          <Card className="bg-white/95">
+            <div className="p-6 space-y-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="space-y-3">
+                  <div className="text-xl font-semibold text-zinc-900">
+                    {tournament?.name ?? `Torneo #${tournamentId}`}
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    <StatusBadge status={status} />
+                    <span className="rounded-full border border-zinc-200 bg-zinc-50 px-2.5 py-1 text-xs font-medium text-zinc-600">
+                      {tournamentDates}
+                    </span>
+                    {tournament?.location && (
+                      <span className="rounded-full border border-zinc-200 bg-zinc-50 px-2.5 py-1 text-xs font-medium text-zinc-600">
+                        {locationLink ? (
+                          <a
+                            href={locationLink}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-zinc-700 underline"
+                          >
+                            Ver ubicación
+                          </a>
+                        ) : (
+                          tournament.location
+                        )}
+                      </span>
+                    )}
+                  </div>
+
+                  {hasDescription && (
+                    <div className="space-y-2">
+                      <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                        Descripción y reglas
+                      </div>
+                      <div className="relative rounded-xl border border-zinc-200 bg-zinc-50/70 p-3">
+                        <div
+                          className={`whitespace-pre-wrap text-sm text-zinc-600 ${
+                            hasLongDescription && !descriptionExpanded
+                              ? "max-h-28 overflow-hidden"
+                              : ""
+                          }`}
+                        >
+                          {trimmedDescription}
+                        </div>
+                        {hasLongDescription && !descriptionExpanded && (
+                          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-10 rounded-b-xl bg-gradient-to-t from-zinc-50/95 to-transparent" />
+                        )}
+                      </div>
+                      {hasLongDescription && (
+                        <button
+                          type="button"
+                          onClick={() => setDescriptionExpanded((prev) => !prev)}
+                          className="text-xs font-semibold text-zinc-700 underline decoration-dotted hover:text-zinc-900"
+                        >
+                          {descriptionExpanded ? "Ver menos" : "Ver descripción completa"}
+                        </button>
+                      )}
+                    </div>
                   )}
                 </div>
-              )}
-              {tournament?.description && (
-                <div className="whitespace-pre-wrap text-sm text-zinc-600">
-                  {tournament.description}
-                </div>
-              )}
-              <div className="pt-1">
-                <StatusBadge status={status} />
-              </div>
-            </div>
 
-              <div className="flex flex-col items-end gap-2">
-                <div className="flex flex-wrap items-center justify-end gap-2">
-                  <Button variant="secondary" onClick={openEditModal}>
-                    Editar torneo
-                  </Button>
-                <Button variant="secondary" onClick={copyPublicLink}>
-                  Copiar link publico
-                </Button>
-                <Button
-                  onClick={startTournament}
-                  disabled={startingTournament || status !== "upcoming" || groups.length === 0 || teams.length < 1}
-                  className="whitespace-nowrap"
-                >
-                  {startingTournament ? "Iniciando..." : "Iniciar torneo"}
-                </Button>
+                <div className="w-full max-w-sm space-y-3">
+                  <div className="space-y-2">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                      Acciones del torneo
+                    </div>
+                    <div className="flex flex-wrap items-center justify-end gap-2">
+                      <Button variant="secondary" onClick={openEditModal}>
+                        Editar torneo
+                      </Button>
+                      <Button variant="secondary" onClick={copyPublicLink}>
+                        Copiar link público
+                      </Button>
+                    </div>
+                    {copyMessage && (
+                      <div className="text-right text-xs text-zinc-500">{copyMessage}</div>
+                    )}
+                  </div>
+                </div>
               </div>
-              {copyMessage && (
-                <div className="text-xs text-zinc-500">{copyMessage}</div>
-              )}
             </div>
-            </div>
-            <div className="flex justify-end">
-              <Button
-                variant="secondary"
-                onClick={deleteTournament}
-                disabled={deletingTournament}
-                className="!border-red-300 !bg-red-50 !text-red-700 font-semibold hover:!bg-red-100"
-              >
-                {deletingTournament ? "Eliminando..." : "Eliminar torneo"}
-              </Button>
-            </div>
-          </div>
           </Card>
 
           <div className="grid gap-4 md:grid-cols-2">
             {/* Create Team */}
-            <div className="md:col-span-2">
+            <div id="teams-section" className="md:col-span-2">
               <Card className="bg-white/95">
               <div className="p-6 space-y-4">
                 <div className="flex flex-wrap items-start justify-between gap-2">
@@ -1641,7 +1935,7 @@ async function load(options?: { silent?: boolean }) {
             </div>
 
             {/* Zonas / Grupos */}
-            <div className="md:col-span-2">
+            <div id="groups-panel" className="md:col-span-2">
             <GroupsPanel
               tournamentId={tournamentId}
               status={status}
@@ -1664,6 +1958,29 @@ async function load(options?: { silent?: boolean }) {
             </div>
             
           </div>
+
+          <Card className="bg-white/95">
+            <div className="p-4">
+              <div className="rounded-2xl border border-red-200 bg-red-50 p-3">
+                <div className="text-xs font-semibold uppercase tracking-wide text-red-700">
+                  Zona de peligro
+                </div>
+                <div className="mt-1 text-sm text-red-700">
+                  Esta accion elimina el torneo y sus datos asociados.
+                </div>
+                <div className="mt-3 flex justify-end">
+                  <Button
+                    variant="secondary"
+                    onClick={deleteTournament}
+                    disabled={deletingTournament}
+                    className="!border-red-300 !bg-red-50 !text-red-700 font-semibold hover:!bg-red-100"
+                  >
+                    {deletingTournament ? "Eliminando..." : "Eliminar torneo"}
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </Card>
         </>
       )}
     </div>

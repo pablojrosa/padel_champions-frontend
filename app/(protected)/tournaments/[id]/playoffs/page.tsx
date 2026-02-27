@@ -68,8 +68,16 @@ type AutoModeOption = {
   description: string;
   enabled: boolean;
 };
+type BulkScheduleBaseConfig = {
+  date: string;
+  hour: string;
+  minute: string;
+  firstCourt: string;
+  courtsCount: string;
+};
 type BulkScheduleStageConfig = {
   enabled: boolean;
+  useGlobal: boolean;
   date: string;
   hour: string;
   minute: string;
@@ -79,6 +87,29 @@ type BulkScheduleStageConfig = {
 type PendingPlayoffStage = {
   stage: PlayoffStage;
   matches: Match[];
+};
+type BulkScheduleTask = {
+  match: Match;
+  stage: PlayoffStage;
+  scheduledDate: string;
+  scheduledTime: string;
+  courtNumber: number;
+};
+type BulkScheduleStageSummary = {
+  stage: PlayoffStage;
+  matchCount: number;
+  slotCount: number;
+  configuredStartTime: string;
+  firstTime: string;
+  lastTime: string;
+  firstCourt: number;
+  lastCourt: number;
+  adjustedByMinutes: number;
+};
+type BulkSchedulePlanResult = {
+  errors: Record<string, string>;
+  tasks: BulkScheduleTask[];
+  summaries: BulkScheduleStageSummary[];
 };
 
 const DEFAULT_SETS: EditableSet[] = [
@@ -136,12 +167,15 @@ const STAGE_LABELS: Record<PlayoffStage, string> = {
 };
 
 const DEFAULT_AUTO_MODE: PlayoffAutoMode = "balanced";
-const DEFAULT_BULK_MATCH_DURATION_MINUTES = "90";
+const DEFAULT_MATCH_DURATION_MINUTES = 90;
+const DEFAULT_BULK_STAGE_GAP_MINUTES = "30";
+const BULK_MINUTE_OPTIONS = ["00", "15", "30", "45"];
 
 function createBulkScheduleConfigMap(): Record<PlayoffStage, BulkScheduleStageConfig> {
   return {
     round_of_32: {
       enabled: false,
+      useGlobal: true,
       date: "",
       hour: "",
       minute: "00",
@@ -150,6 +184,7 @@ function createBulkScheduleConfigMap(): Record<PlayoffStage, BulkScheduleStageCo
     },
     round_of_16: {
       enabled: false,
+      useGlobal: true,
       date: "",
       hour: "",
       minute: "00",
@@ -158,6 +193,7 @@ function createBulkScheduleConfigMap(): Record<PlayoffStage, BulkScheduleStageCo
     },
     quarter: {
       enabled: false,
+      useGlobal: true,
       date: "",
       hour: "",
       minute: "00",
@@ -166,6 +202,7 @@ function createBulkScheduleConfigMap(): Record<PlayoffStage, BulkScheduleStageCo
     },
     semi: {
       enabled: false,
+      useGlobal: true,
       date: "",
       hour: "",
       minute: "00",
@@ -174,6 +211,7 @@ function createBulkScheduleConfigMap(): Record<PlayoffStage, BulkScheduleStageCo
     },
     final: {
       enabled: false,
+      useGlobal: true,
       date: "",
       hour: "",
       minute: "00",
@@ -444,7 +482,9 @@ export default function TournamentPlayoffsPage() {
   const [matches, setMatches] = useState<Match[]>([]);
   const [teams, setTeams] = useState<Team[]>([]);
   const [groups, setGroups] = useState<TournamentGroupOut[]>([]);
-  const [tournamentStartDate, setTournamentStartDate] = useState<string | null>(null);
+  const [tournamentMatchDurationMinutes, setTournamentMatchDurationMinutes] = useState(
+    DEFAULT_MATCH_DURATION_MINUTES
+  );
   const [status, setStatus] = useState<TournamentStatus>("upcoming");
   const [categoryFilter, setCategoryFilter] = useState<string | "all">("all");
   const [genderFilter, setGenderFilter] = useState<string | "all">("all");
@@ -471,14 +511,32 @@ export default function TournamentPlayoffsPage() {
   const [scheduleError, setScheduleError] = useState<string | null>(null);
   const [scheduling, setScheduling] = useState(false);
   const [bulkScheduleOpen, setBulkScheduleOpen] = useState(false);
-  const [bulkScheduleDurationMinutes, setBulkScheduleDurationMinutes] = useState(
-    DEFAULT_BULK_MATCH_DURATION_MINUTES
+  const [bulkScheduleStep, setBulkScheduleStep] = useState<1 | 2 | 3>(1);
+  const [bulkScheduleBaseConfig, setBulkScheduleBaseConfig] = useState<BulkScheduleBaseConfig>(
+    {
+      date: "",
+      hour: "13",
+      minute: "00",
+      firstCourt: "1",
+      courtsCount: "1",
+    }
+  );
+  const [bulkStageGapMinutes, setBulkStageGapMinutes] = useState(
+    DEFAULT_BULK_STAGE_GAP_MINUTES
   );
   const [bulkScheduleByStage, setBulkScheduleByStage] =
     useState<Record<PlayoffStage, BulkScheduleStageConfig>>(createBulkScheduleConfigMap);
+  const [bulkScheduleFieldErrors, setBulkScheduleFieldErrors] = useState<
+    Record<string, string>
+  >({});
   const [bulkScheduling, setBulkScheduling] = useState(false);
   const [bulkScheduleError, setBulkScheduleError] = useState<string | null>(null);
   const [bulkScheduleMessage, setBulkScheduleMessage] = useState<string | null>(null);
+  const [bulkScheduleSuccess, setBulkScheduleSuccess] = useState<{
+    scheduledCount: number;
+    totalCount: number;
+    firstMatchId: number | null;
+  } | null>(null);
   const [gridOpen, setGridOpen] = useState(false);
   const [gridMatch, setGridMatch] = useState<Match | null>(null);
   const [gridDateFilter, setGridDateFilter] = useState("");
@@ -785,6 +843,22 @@ export default function TournamentPlayoffsPage() {
       })).filter((entry) => entry.matches.length > 0),
     [matchesByStage]
   );
+  const schedulablePlayoffStages = useMemo<PendingPlayoffStage[]>(
+    () =>
+      pendingPlayoffStages
+        .map(({ stage, matches: stageMatches }) => ({
+          stage,
+          matches: stageMatches.filter(
+            (match) =>
+              !match.scheduled_date
+              || !match.scheduled_time
+              || !match.court_number
+              || match.court_number <= 0
+          ),
+        }))
+        .filter((entry) => entry.matches.length > 0),
+    [pendingPlayoffStages]
+  );
   const winnerByStageIndex = useMemo(() => {
     const map = new Map<PlayoffStage, Map<number, number>>();
     PLAYOFF_STAGES.forEach((stage) => {
@@ -838,10 +912,20 @@ export default function TournamentPlayoffsPage() {
       ),
     [categoryFilteredMatches]
   );
+  const gridStartDate = useMemo(() => {
+    const dates = Array.from(
+      new Set(
+        scheduledMatches
+          .map((match) => (match.scheduled_date ?? "").slice(0, 10))
+          .filter((date): date is string => /^\d{4}-\d{2}-\d{2}$/.test(date))
+      )
+    ).sort();
+    return dates[0] ?? null;
+  }, [scheduledMatches]);
   const todayIsoDate = useMemo(() => toLocalIsoDate(new Date()), []);
   const defaultGridDate = useMemo(() => {
-    return resolveGridDefaultDate(tournamentStartDate, todayIsoDate);
-  }, [tournamentStartDate, todayIsoDate]);
+    return resolveGridDefaultDate(gridStartDate, todayIsoDate);
+  }, [gridStartDate, todayIsoDate]);
   const gridAvailableDates = useMemo(() => {
     const dates = Array.from(
       new Set(scheduledMatches.map((match) => match.scheduled_date as string))
@@ -1510,7 +1594,9 @@ export default function TournamentPlayoffsPage() {
         api<TournamentStatusResponse>(`/tournaments/${tournamentId}/status`),
       ]);
 
-      setTournamentStartDate(tournamentRes.start_date ?? null);
+      setTournamentMatchDurationMinutes(
+        Math.max(1, tournamentRes.match_duration_minutes ?? DEFAULT_MATCH_DURATION_MINUTES)
+      );
       setMatches(matchesRes);
       setTeams(teamsRes);
       setGroups(groupsRes);
@@ -1703,6 +1789,274 @@ export default function TournamentPlayoffsPage() {
     setScheduleError(null);
   }
 
+  function formatClockFromMinutes(totalMinutes: number) {
+    const normalized = ((totalMinutes % (24 * 60)) + 24 * 60) % (24 * 60);
+    const hour = String(Math.floor(normalized / 60)).padStart(2, "0");
+    const minute = String(normalized % 60).padStart(2, "0");
+    return `${hour}:${minute}`;
+  }
+
+  function clearBulkFieldErrors(keys: string[]) {
+    setBulkScheduleFieldErrors((prev) => {
+      const next = { ...prev };
+      let changed = false;
+      keys.forEach((key) => {
+        if (next[key]) {
+          delete next[key];
+          changed = true;
+        }
+      });
+      return changed ? next : prev;
+    });
+  }
+
+  function updateBulkStageGapMinutes(value: string) {
+    setBulkStageGapMinutes(value);
+    clearBulkFieldErrors(["base.gapMinutes"]);
+  }
+
+  const buildBulkSchedulePlan = useCallback((): BulkSchedulePlanResult => {
+    const errors: Record<string, string> = {};
+    const tasks: BulkScheduleTask[] = [];
+    const summaries: BulkScheduleStageSummary[] = [];
+    const durationMinutes = Math.max(1, tournamentMatchDurationMinutes || DEFAULT_MATCH_DURATION_MINUTES);
+    const stageGapMinutes = Number(bulkStageGapMinutes);
+    if (!Number.isFinite(stageGapMinutes) || stageGapMinutes < 0) {
+      errors["base.gapMinutes"] = "Ingresá un descanso válido (0 o mayor).";
+    }
+
+    const selectedStages = schedulablePlayoffStages.filter(
+      ({ stage }) => bulkScheduleByStage[stage].enabled
+    );
+    if (selectedStages.length === 0) {
+      errors.stages = "Seleccioná al menos una instancia para programar.";
+    }
+
+    const parseConfig = (
+      config: BulkScheduleBaseConfig,
+      prefix: string
+    ): {
+      date: string;
+      hour: string;
+      minute: string;
+      firstCourt: number;
+      courtsCount: number;
+      startMinutes: number;
+    } | null => {
+      let hasError = false;
+      if (!config.date) {
+        errors[`${prefix}.date`] = "Seleccioná una fecha.";
+        hasError = true;
+      }
+      if (!config.hour) {
+        errors[`${prefix}.hour`] = "Seleccioná una hora.";
+        hasError = true;
+      }
+      if (!BULK_MINUTE_OPTIONS.includes(config.minute)) {
+        errors[`${prefix}.minute`] = "Elegí un minuto válido.";
+        hasError = true;
+      }
+      const firstCourt = Number(config.firstCourt);
+      if (!Number.isFinite(firstCourt) || firstCourt <= 0) {
+        errors[`${prefix}.firstCourt`] = "Ingresá una cancha inicial válida.";
+        hasError = true;
+      }
+      const courtsCount = Number(config.courtsCount);
+      if (!Number.isFinite(courtsCount) || courtsCount <= 0) {
+        errors[`${prefix}.courtsCount`] = "Ingresá la cantidad de canchas.";
+        hasError = true;
+      }
+
+      const startMinutes = Number(config.hour) * 60 + Number(config.minute);
+      if (!Number.isFinite(startMinutes) || startMinutes < 0 || startMinutes >= 24 * 60) {
+        errors[`${prefix}.hour`] = "La hora no es válida.";
+        hasError = true;
+      }
+
+      if (hasError) return null;
+      return {
+        date: config.date,
+        hour: config.hour,
+        minute: config.minute,
+        firstCourt,
+        courtsCount,
+        startMinutes,
+      };
+    };
+
+    type OccupiedInterval = { start: number; end: number };
+    const intervalsByDateCourt = new Map<string, Map<number, OccupiedInterval[]>>();
+    const addOccupiedInterval = (date: string, court: number, start: number, end: number) => {
+      if (!intervalsByDateCourt.has(date)) intervalsByDateCourt.set(date, new Map());
+      const byCourt = intervalsByDateCourt.get(date)!;
+      if (!byCourt.has(court)) byCourt.set(court, []);
+      byCourt.get(court)!.push({ start, end });
+    };
+    const getCourtIntervals = (date: string, court: number): OccupiedInterval[] =>
+      intervalsByDateCourt.get(date)?.get(court) ?? [];
+    const hasCourtOverlap = (date: string, court: number, start: number, end: number) =>
+      getCourtIntervals(date, court).some(
+        (interval) => start < interval.end && end > interval.start
+      );
+    const parseTimeToMinutes = (value?: string | null): number | null => {
+      if (!value) return null;
+      const normalized = normalizeTime(value);
+      const [hoursRaw, minutesRaw] = normalized.split(":");
+      if (!hoursRaw || !minutesRaw) return null;
+      const hours = Number(hoursRaw);
+      const minutes = Number(minutesRaw);
+      if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null;
+      if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) return null;
+      return hours * 60 + minutes;
+    };
+
+    const selectedMatchIds = new Set<number>();
+    selectedStages.forEach(({ matches: stageMatches }) => {
+      stageMatches.forEach((match) => selectedMatchIds.add(match.id));
+    });
+    matches.forEach((existingMatch) => {
+      if (selectedMatchIds.has(existingMatch.id)) return;
+      if (!existingMatch.scheduled_date || !existingMatch.scheduled_time) return;
+      if (!existingMatch.court_number || existingMatch.court_number <= 0) return;
+      const start = parseTimeToMinutes(existingMatch.scheduled_time);
+      if (start === null) return;
+      const end = start + durationMinutes;
+      if (end > 24 * 60) return;
+      addOccupiedInterval(
+        existingMatch.scheduled_date,
+        existingMatch.court_number,
+        start,
+        end
+      );
+    });
+
+    const stageEndByDate = new Map<string, number>();
+
+    selectedStages.forEach(({ stage, matches: stageMatches }) => {
+      const config = bulkScheduleByStage[stage];
+      const useGlobal = config.useGlobal;
+      const sourceConfig = useGlobal ? bulkScheduleBaseConfig : config;
+      const configPrefix = useGlobal ? "base" : `stage.${stage}`;
+      const parsed = parseConfig(sourceConfig, configPrefix);
+      if (!parsed) {
+        errors[`stage.${stage}.__stage`] = "Completá la configuración de esta instancia.";
+        return;
+      }
+
+      const previousStageEnd = stageEndByDate.get(parsed.date);
+      const adjustedStartMinutes =
+        previousStageEnd !== undefined && Number.isFinite(stageGapMinutes)
+          ? Math.max(parsed.startMinutes, previousStageEnd + stageGapMinutes)
+          : parsed.startMinutes;
+      const availableCourts = Array.from(
+        { length: parsed.courtsCount },
+        (_, idx) => parsed.firstCourt + idx
+      );
+      const stageSlotStarts: number[] = [];
+      let cursor = adjustedStartMinutes;
+      let matchIndex = 0;
+
+      while (matchIndex < stageMatches.length) {
+        const slotEnd = cursor + durationMinutes;
+        if (slotEnd > 24 * 60) {
+          errors[`stage.${stage}.__stage`] =
+            "No hay bloques libres suficientes antes de las 23:59. Adelantá la hora o ajustá canchas.";
+          if (!useGlobal) {
+            errors[`stage.${stage}.hour`] = "Excede el fin del día.";
+          } else {
+            errors["base.hour"] = "Con la configuración base, alguna instancia excede 23:59.";
+          }
+          return;
+        }
+
+        const freeCourts = availableCourts.filter(
+          (court) => !hasCourtOverlap(parsed.date, court, cursor, slotEnd)
+        );
+
+        if (freeCourts.length === 0) {
+          const blockingEnds: number[] = [];
+          availableCourts.forEach((court) => {
+            getCourtIntervals(parsed.date, court).forEach((interval) => {
+              if (cursor < interval.end && slotEnd > interval.start) {
+                blockingEnds.push(interval.end);
+              }
+            });
+          });
+          if (blockingEnds.length === 0) {
+            cursor += 1;
+          } else {
+            const nextCursor = Math.min(...blockingEnds);
+            cursor = nextCursor > cursor ? nextCursor : cursor + 1;
+          }
+          continue;
+        }
+
+        stageSlotStarts.push(cursor);
+        const assignCount = Math.min(freeCourts.length, stageMatches.length - matchIndex);
+        for (let idx = 0; idx < assignCount; idx += 1) {
+          const match = stageMatches[matchIndex];
+          const courtNumber = freeCourts[idx];
+          tasks.push({
+            match,
+            stage,
+            scheduledDate: parsed.date,
+            scheduledTime: formatClockFromMinutes(cursor),
+            courtNumber,
+          });
+          addOccupiedInterval(parsed.date, courtNumber, cursor, slotEnd);
+          matchIndex += 1;
+        }
+        cursor = slotEnd;
+      }
+
+      const firstSlotStart = stageSlotStarts[0] ?? adjustedStartMinutes;
+      const lastSlotStart = stageSlotStarts[stageSlotStarts.length - 1] ?? adjustedStartMinutes;
+      const stageEndMinutes = lastSlotStart + durationMinutes;
+      const adjustedByMinutes = firstSlotStart - parsed.startMinutes;
+
+      summaries.push({
+        stage,
+        matchCount: stageMatches.length,
+        slotCount: stageSlotStarts.length,
+        configuredStartTime: formatClockFromMinutes(parsed.startMinutes),
+        firstTime: formatClockFromMinutes(firstSlotStart),
+        lastTime: formatClockFromMinutes(lastSlotStart),
+        firstCourt: parsed.firstCourt,
+        lastCourt: parsed.firstCourt + parsed.courtsCount - 1,
+        adjustedByMinutes,
+      });
+      stageEndByDate.set(parsed.date, stageEndMinutes);
+    });
+
+    return { errors, tasks, summaries };
+  }, [
+    matches,
+    schedulablePlayoffStages,
+    bulkScheduleByStage,
+    bulkScheduleBaseConfig,
+    bulkStageGapMinutes,
+    tournamentMatchDurationMinutes,
+  ]);
+
+  function validateBulkStep(step: 1 | 2 | 3) {
+    const plan = buildBulkSchedulePlan();
+    const scopedErrors: Record<string, string> = {};
+
+    if (step === 1) {
+      Object.entries(plan.errors).forEach(([key, message]) => {
+        if (key.startsWith("base.")) scopedErrors[key] = message;
+      });
+    } else {
+      Object.assign(scopedErrors, plan.errors);
+    }
+
+    setBulkScheduleFieldErrors(scopedErrors);
+    return {
+      ok: Object.keys(scopedErrors).length === 0,
+      plan,
+    };
+  }
+
   function openBulkScheduleModal() {
     const baseStartByStage: Record<PlayoffStage, string> = {
       round_of_32: "09",
@@ -1712,9 +2066,16 @@ export default function TournamentPlayoffsPage() {
       final: "17",
     };
     const next = createBulkScheduleConfigMap();
-    pendingPlayoffStages.forEach(({ stage, matches }) => {
+    const firstPendingStage = schedulablePlayoffStages[0];
+    const suggestedHour = firstPendingStage ? baseStartByStage[firstPendingStage.stage] : "13";
+    const suggestedCourts = firstPendingStage
+      ? String(Math.max(1, Math.min(firstPendingStage.matches.length, 2)))
+      : "1";
+
+    schedulablePlayoffStages.forEach(({ stage, matches }) => {
       next[stage] = {
         enabled: true,
+        useGlobal: true,
         date: defaultGridDate,
         hour: baseStartByStage[stage],
         minute: "00",
@@ -1723,15 +2084,42 @@ export default function TournamentPlayoffsPage() {
       };
     });
     setBulkScheduleByStage(next);
-    setBulkScheduleDurationMinutes(DEFAULT_BULK_MATCH_DURATION_MINUTES);
+    setBulkScheduleBaseConfig({
+      date: defaultGridDate,
+      hour: suggestedHour,
+      minute: "00",
+      firstCourt: "1",
+      courtsCount: suggestedCourts,
+    });
+    setBulkStageGapMinutes(DEFAULT_BULK_STAGE_GAP_MINUTES);
+    setBulkScheduleStep(1);
+    setBulkScheduleFieldErrors({});
     setBulkScheduleError(null);
     setBulkScheduleMessage(null);
+    setBulkScheduleSuccess(null);
     setBulkScheduleOpen(true);
   }
 
   function closeBulkScheduleModal() {
     setBulkScheduleOpen(false);
+    setBulkScheduleStep(1);
+    setBulkScheduleFieldErrors({});
     setBulkScheduleError(null);
+  }
+
+  function updateBulkBaseConfig(patch: Partial<BulkScheduleBaseConfig>) {
+    setBulkScheduleBaseConfig((prev) => ({
+      ...prev,
+      ...patch,
+    }));
+
+    const patchKeys = Object.keys(patch) as (keyof BulkScheduleBaseConfig)[];
+    if (patchKeys.length === 0) return;
+    const errorKeys = patchKeys.map((key) => `base.${key}`);
+    schedulablePlayoffStages
+      .filter(({ stage }) => bulkScheduleByStage[stage].enabled && bulkScheduleByStage[stage].useGlobal)
+      .forEach(({ stage }) => errorKeys.push(`stage.${stage}.__stage`));
+    clearBulkFieldErrors(errorKeys);
   }
 
   function updateBulkStageConfig(
@@ -1745,91 +2133,22 @@ export default function TournamentPlayoffsPage() {
         ...patch,
       },
     }));
+
+    const patchKeys = Object.keys(patch);
+    const errorKeys = patchKeys.map((key) => `stage.${stage}.${key}`);
+    errorKeys.push(`stage.${stage}.__stage`, "stages");
+    clearBulkFieldErrors(errorKeys);
   }
 
   async function saveBulkSchedule() {
-    if (pendingPlayoffStages.length === 0) {
+    const validation = validateBulkStep(3);
+    if (!validation.ok) {
+      return;
+    }
+    const tasks = validation.plan.tasks;
+    if (tasks.length === 0) {
       setBulkScheduleError("No hay partidos pendientes para programar.");
       return;
-    }
-
-    const durationMinutes = Number(bulkScheduleDurationMinutes);
-    if (!Number.isFinite(durationMinutes) || durationMinutes <= 0) {
-      setBulkScheduleError("La duracion por partido debe ser un numero mayor a 0.");
-      return;
-    }
-
-    const selectedStages = pendingPlayoffStages.filter(
-      ({ stage }) => bulkScheduleByStage[stage].enabled
-    );
-    if (selectedStages.length === 0) {
-      setBulkScheduleError("Selecciona al menos una instancia para programar.");
-      return;
-    }
-
-    const tasks: Array<{
-      match: Match;
-      stage: PlayoffStage;
-      scheduledDate: string;
-      scheduledTime: string;
-      courtNumber: number;
-    }> = [];
-
-    for (const { stage, matches } of selectedStages) {
-      const config = bulkScheduleByStage[stage];
-      if (!config.date || !config.hour || !config.minute) {
-        setBulkScheduleError(`Completa fecha y hora para ${STAGE_LABELS[stage]}.`);
-        return;
-      }
-
-      if (!MINUTES.includes(config.minute)) {
-        setBulkScheduleError(`Los minutos de ${STAGE_LABELS[stage]} no son validos.`);
-        return;
-      }
-
-      const firstCourt = Number(config.firstCourt);
-      const courtsCount = Number(config.courtsCount);
-      if (!Number.isFinite(firstCourt) || firstCourt <= 0) {
-        setBulkScheduleError(`La cancha inicial de ${STAGE_LABELS[stage]} no es valida.`);
-        return;
-      }
-      if (!Number.isFinite(courtsCount) || courtsCount <= 0) {
-        setBulkScheduleError(`La cantidad de canchas de ${STAGE_LABELS[stage]} no es valida.`);
-        return;
-      }
-
-      const startMinutes = Number(config.hour) * 60 + Number(config.minute);
-      if (!Number.isFinite(startMinutes) || startMinutes < 0 || startMinutes >= 24 * 60) {
-        setBulkScheduleError(`La hora de ${STAGE_LABELS[stage]} no es valida.`);
-        return;
-      }
-
-      matches.forEach((match, idx) => {
-        const slot = Math.floor(idx / courtsCount);
-        const slotMinutes = startMinutes + slot * durationMinutes;
-        if (slotMinutes >= 24 * 60) {
-          return;
-        }
-        const hour = String(Math.floor(slotMinutes / 60)).padStart(2, "0");
-        const minute = String(slotMinutes % 60).padStart(2, "0");
-        const courtNumber = firstCourt + (idx % courtsCount);
-
-        tasks.push({
-          match,
-          stage,
-          scheduledDate: config.date,
-          scheduledTime: `${hour}:${minute}`,
-          courtNumber,
-        });
-      });
-
-      const maxSlot = Math.floor((matches.length - 1) / courtsCount);
-      if (startMinutes + maxSlot * durationMinutes >= 24 * 60) {
-        setBulkScheduleError(
-          `${STAGE_LABELS[stage]} excede las 23:59 con la duracion/canchas elegidas.`
-        );
-        return;
-      }
     }
 
     setBulkScheduling(true);
@@ -1839,8 +2158,8 @@ export default function TournamentPlayoffsPage() {
     try {
       let okCount = 0;
       const failures: string[] = [];
-
-      for (const task of tasks) {
+      const retryQueue: BulkScheduleTask[] = [];
+      const scheduleTask = async (task: BulkScheduleTask) => {
         try {
           await api(`/matches/${task.match.id}/schedule`, {
             method: "POST",
@@ -1850,18 +2169,42 @@ export default function TournamentPlayoffsPage() {
               court_number: task.courtNumber,
             },
           });
-          okCount += 1;
+          return null;
         } catch (err: unknown) {
-          const message =
-            err instanceof ApiError
-              ? err.message
-              : err instanceof Error
-              ? err.message
-              : "No se pudo programar";
-          failures.push(
-            `${STAGE_LABELS[task.stage]} · Partido ${getMatchCode(task.match)}: ${message}`
-          );
+          if (err instanceof ApiError) return err.message;
+          if (err instanceof Error) return err.message;
+          return "No se pudo programar";
         }
+      };
+      const isCourtBusyError = (message: string) => {
+        const lower = message.toLowerCase();
+        return (
+          lower.includes("cancha ya esta ocupada")
+          || lower.includes("cancha ya está ocupada")
+          || lower.includes("ocupada en ese horario")
+        );
+      };
+
+      for (const task of tasks) {
+        const errorMessage = await scheduleTask(task);
+        if (!errorMessage) {
+          okCount += 1;
+          continue;
+        }
+        if (isCourtBusyError(errorMessage)) {
+          retryQueue.push(task);
+          continue;
+        }
+        failures.push(`${STAGE_LABELS[task.stage]} · Partido ${getMatchCode(task.match)}: ${errorMessage}`);
+      }
+
+      for (const task of retryQueue) {
+        const errorMessage = await scheduleTask(task);
+        if (!errorMessage) {
+          okCount += 1;
+          continue;
+        }
+        failures.push(`${STAGE_LABELS[task.stage]} · Partido ${getMatchCode(task.match)}: ${errorMessage}`);
       }
 
       await reloadMatches();
@@ -1876,6 +2219,11 @@ export default function TournamentPlayoffsPage() {
       }
 
       setBulkScheduleMessage(`Se programaron ${okCount} partidos de llaves.`);
+      setBulkScheduleSuccess({
+        scheduledCount: okCount,
+        totalCount: tasks.length,
+        firstMatchId: tasks[0]?.match.id ?? null,
+      });
       closeBulkScheduleModal();
     } catch (err: unknown) {
       const message =
@@ -1889,6 +2237,32 @@ export default function TournamentPlayoffsPage() {
       setBulkScheduling(false);
     }
   }
+
+  function goToNextBulkStep() {
+    const validation = validateBulkStep(bulkScheduleStep);
+    if (!validation.ok) return;
+    setBulkScheduleStep((prev) => {
+      if (prev === 1) return 2;
+      if (prev === 2) return 3;
+      return 3;
+    });
+  }
+
+  function goToPreviousBulkStep() {
+    setBulkScheduleStep((prev) => {
+      if (prev === 3) return 2;
+      return 1;
+    });
+  }
+
+  const bulkSchedulePlanPreview = useMemo(() => buildBulkSchedulePlan(), [buildBulkSchedulePlan]);
+  const bulkSummaryByStage = useMemo(() => {
+    const map = new Map<PlayoffStage, BulkScheduleStageSummary>();
+    bulkSchedulePlanPreview.summaries.forEach((summary) => {
+      map.set(summary.stage, summary);
+    });
+    return map;
+  }, [bulkSchedulePlanPreview]);
 
   async function saveSchedule() {
     if (!scheduleMatch) return;
@@ -2264,6 +2638,86 @@ export default function TournamentPlayoffsPage() {
       setActionError(null);
     }
   }, [hasPlayoffs, actionError]);
+  const showPlayoffSetupCard =
+    !hasPlayoffs ||
+    pendingPlayoffStages.length > 0 ||
+    !!bulkScheduleMessage ||
+    (!hasPlayoffs && !!actionError);
+  const hasPlayoffBracket = PLAYOFF_STAGES.some(
+    (stage) => (matchesByStage.get(stage) ?? []).length > 0
+  );
+  const hasActivePlayoffFilters = categoryFilter !== "all" || genderFilter !== "all";
+  const playoffFiltersToolbar = (
+    <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-3">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+        <div className="space-y-1">
+          <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+            Filtros
+          </div>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+            {categories.length > 0 && (
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-zinc-500">Categoria</label>
+                <select
+                  className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm sm:w-40"
+                  value={categoryFilter}
+                  onChange={(e) =>
+                    setCategoryFilter(e.target.value === "all" ? "all" : e.target.value)
+                  }
+                >
+                  <option value="all">Todas</option>
+                  {categories.map((category) => (
+                    <option key={category} value={category}>
+                      {category}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+            {genders.length > 0 && (
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-zinc-500">Genero</label>
+                <select
+                  className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm sm:w-40"
+                  value={genderFilter}
+                  onChange={(e) =>
+                    setGenderFilter(e.target.value === "all" ? "all" : e.target.value)
+                  }
+                >
+                  <option value="all">Todos</option>
+                  {genders.map((gender) => (
+                    <option key={gender} value={gender}>
+                      {gender === "damas" ? "Damas" : "Masculino"}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+          </div>
+        </div>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          <Button
+            variant="secondary"
+            onClick={() => setGridOpen(true)}
+            className="w-full sm:w-auto"
+          >
+            Grilla de partidos
+          </Button>
+          <button
+            type="button"
+            onClick={() => {
+              setCategoryFilter("all");
+              setGenderFilter("all");
+            }}
+            disabled={!hasActivePlayoffFilters}
+            className="text-xs font-semibold text-zinc-600 underline decoration-dotted hover:text-zinc-900 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Limpiar filtros
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 
   return (
     <div className="space-y-8">
@@ -2276,49 +2730,33 @@ export default function TournamentPlayoffsPage() {
           <p className="text-sm text-zinc-300">Generacion y cruces por instancia.</p>
         </div>
 
-          <div className="flex items-center gap-2">
-            {categories.length > 0 && (
-              <select
-                className="rounded-xl border border-zinc-500 bg-zinc-50 px-3 py-2 text-sm font-bold text-zinc-950 shadow-sm focus:border-zinc-800 focus:outline-none focus:ring-2 focus:ring-zinc-900/20"
-                value={categoryFilter}
-              onChange={(e) =>
-                setCategoryFilter(
-                  e.target.value === "all" ? "all" : e.target.value
-                )
-              }
-            >
-              <option value="all">Todas</option>
-              {categories.map((category) => (
-                <option key={category} value={category}>
-                  {category}
-                </option>
-                ))}
-              </select>
-            )}
-            {genders.length > 0 && (
-              <select
-                className="rounded-xl border border-zinc-500 bg-zinc-50 px-3 py-2 text-sm font-bold text-zinc-950 shadow-sm focus:border-zinc-800 focus:outline-none focus:ring-2 focus:ring-zinc-900/20"
-                value={genderFilter}
-                onChange={(e) =>
-                  setGenderFilter(e.target.value === "all" ? "all" : e.target.value)
-                }
-              >
-                <option value="all">Todos</option>
-                {genders.map((gender) => (
-                  <option key={gender} value={gender}>
-                    {gender === "damas" ? "Damas" : "Masculino"}
-                  </option>
-                ))}
-              </select>
-            )}
-            <Button variant="secondary" onClick={() => setGridOpen(true)}>
-              Grilla de partidos
-            </Button>
-            <Button
-              variant="secondary"
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="inline-flex rounded-xl border border-zinc-200 bg-white p-1">
+            <button
+              type="button"
               onClick={() => router.push(`/tournaments/${tournamentId}`)}
+              className="rounded-lg px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-100"
             >
-            Volver
+              Resumen
+            </button>
+            <button
+              type="button"
+              onClick={() => router.push(`/tournaments/${tournamentId}/matches`)}
+              className="rounded-lg px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-100"
+            >
+              Partidos
+            </button>
+            <button
+              type="button"
+              aria-current="page"
+              disabled
+              className="rounded-lg bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white"
+            >
+              Playoffs
+            </button>
+          </div>
+          <Button variant="secondary" onClick={() => router.push("/tournaments")}>
+            Volver a torneos
           </Button>
         </div>
       </div>
@@ -2335,14 +2773,10 @@ export default function TournamentPlayoffsPage() {
             </div>
           )}
 
-          {(
-            !hasPlayoffs
-            || pendingPlayoffStages.length > 0
-            || !!bulkScheduleMessage
-            || (!hasPlayoffs && !!actionError)
-          ) && (
+          {showPlayoffSetupCard && (
             <Card className="bg-white/95">
               <div className="p-6 space-y-4">
+                {playoffFiltersToolbar}
                 {!hasPlayoffs && (
                   <>
                     <div className="flex flex-col gap-2">
@@ -2389,7 +2823,7 @@ export default function TournamentPlayoffsPage() {
                   </div>
                 )}
 
-                {hasPlayoffs && pendingPlayoffStages.length > 0 && (
+                {hasPlayoffs && schedulablePlayoffStages.length > 0 && (
                   <div className="flex flex-wrap items-center gap-2">
                     <Button
                       variant="secondary"
@@ -2597,12 +3031,13 @@ export default function TournamentPlayoffsPage() {
             </Card>
           )}
 
-          {PLAYOFF_STAGES.some((stage) => (matchesByStage.get(stage) ?? []).length > 0) && (
+          {hasPlayoffBracket && (
             <Card className="bg-white/95">
               <div className="p-6 space-y-4">
                 <div className="text-sm font-semibold text-zinc-800">
                   Cuadro de playoffs
                 </div>
+                {!showPlayoffSetupCard && playoffFiltersToolbar}
                 <div className="overflow-x-auto">
                   <div
                     className="grid w-full min-w-max gap-8 pb-2"
@@ -3032,137 +3467,376 @@ export default function TournamentPlayoffsPage() {
           onSubmit={(event) => {
             event.preventDefault();
             if (bulkScheduling) return;
+            if (bulkScheduleStep < 3) {
+              goToNextBulkStep();
+              return;
+            }
             saveBulkSchedule();
           }}
         >
-          <div className="text-sm text-zinc-600">
-            Programa todos los partidos pendientes de llaves por instancia en una sola accion.
+          <div className="space-y-2">
+            <div className="flex items-center justify-between text-xs font-semibold uppercase tracking-wide text-zinc-500">
+              <span>Paso {bulkScheduleStep} de 3</span>
+              <span>
+                {bulkScheduleStep === 1
+                  ? "Configuración base"
+                  : bulkScheduleStep === 2
+                  ? "Instancias"
+                  : "Confirmación"}
+              </span>
+            </div>
+            <div className="h-2 rounded-full bg-zinc-200">
+              <div
+                className="h-full rounded-full bg-zinc-900 transition-all"
+                style={{ width: `${(bulkScheduleStep / 3) * 100}%` }}
+              />
+            </div>
+            <div className="text-sm text-zinc-600">
+              {bulkScheduleStep === 1
+                ? "Definí la configuración general de programación para playoffs."
+                : bulkScheduleStep === 2
+                ? "Elegí qué instancias programar y, si querés, sobrescribí la configuración base."
+                : "Revisá el resumen final antes de aplicar la programación."}
+            </div>
           </div>
 
-          <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-3">
-            <label className="text-xs font-semibold text-zinc-600">
-              Duracion estimada por partido (minutos)
-            </label>
-            <Input
-              type="number"
-              min={1}
-              value={bulkScheduleDurationMinutes}
-              onChange={(e) => setBulkScheduleDurationMinutes(e.target.value)}
-              disabled={bulkScheduling}
-            />
-          </div>
-
-          <div className="space-y-3 max-h-[380px] overflow-y-auto pr-1">
-            {pendingPlayoffStages.map(({ stage, matches }) => {
-              const config = bulkScheduleByStage[stage];
-              const courtsCount = Math.max(1, Number(config.courtsCount) || 1);
-              const slotsCount = Math.ceil(matches.length / courtsCount);
-              return (
-                <div key={stage} className="rounded-xl border border-zinc-200 p-3 space-y-3">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <label className="flex items-center gap-2 text-sm font-semibold text-zinc-800">
-                      <input
-                        type="checkbox"
-                        checked={config.enabled}
-                        onChange={(e) =>
-                          updateBulkStageConfig(stage, { enabled: e.target.checked })
-                        }
-                        disabled={bulkScheduling}
-                      />
-                      {STAGE_LABELS[stage]}
-                    </label>
-                    <div className="text-xs text-zinc-500">
-                      {matches.length} partido(s) pendiente(s) · {slotsCount} bloque(s) horario(s)
-                    </div>
-                  </div>
-
-                  <div className="grid gap-2 [grid-template-columns:repeat(auto-fit,minmax(150px,1fr))]">
-                    <div className="space-y-1">
-                      <div className="text-xs font-semibold text-zinc-500">
-                        Fecha
-                      </div>
-                      <Input
-                        type="date"
-                        value={config.date}
-                        onChange={(e) => updateBulkStageConfig(stage, { date: e.target.value })}
-                        disabled={!config.enabled || bulkScheduling}
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <div className="text-xs font-semibold text-zinc-500">
-                        Hora
-                      </div>
-                      <select
-                        className="w-full rounded-xl border border-zinc-400 bg-white px-3 py-2 text-sm font-medium text-zinc-900 shadow-sm focus:border-zinc-700 focus:outline-none focus:ring-2 focus:ring-zinc-900/15"
-                        value={config.hour}
-                        onChange={(e) => updateBulkStageConfig(stage, { hour: e.target.value })}
-                        disabled={!config.enabled || bulkScheduling}
-                      >
-                        <option value="">Hora</option>
-                        {HOURS.map((hour) => (
-                          <option key={`${stage}-hour-${hour}`} value={hour}>
-                            {hour}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div className="space-y-1">
-                      <div className="text-xs font-semibold text-zinc-500">
-                        Minuto
-                      </div>
-                      <select
-                        className="w-full rounded-xl border border-zinc-400 bg-white px-3 py-2 text-sm font-medium text-zinc-900 shadow-sm focus:border-zinc-700 focus:outline-none focus:ring-2 focus:ring-zinc-900/15"
-                        value={config.minute}
-                        onChange={(e) => updateBulkStageConfig(stage, { minute: e.target.value })}
-                        disabled={!config.enabled || bulkScheduling}
-                      >
-                        {MINUTES.map((minute) => (
-                          <option key={`${stage}-minute-${minute}`} value={minute}>
-                            {minute}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div className="space-y-1">
-                      <div className="text-xs font-semibold text-zinc-500">
-                        Cancha inicial
-                      </div>
-                      <Input
-                        type="number"
-                        min={1}
-                        placeholder="Ej: 1"
-                        value={config.firstCourt}
-                        onChange={(e) =>
-                          updateBulkStageConfig(stage, { firstCourt: e.target.value })
-                        }
-                        disabled={!config.enabled || bulkScheduling}
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <div className="text-xs font-semibold text-zinc-500">
-                        Canchas paralelas
-                      </div>
-                      <Input
-                        type="number"
-                        min={1}
-                        placeholder="Ej: 2"
-                        value={config.courtsCount}
-                        onChange={(e) =>
-                          updateBulkStageConfig(stage, { courtsCount: e.target.value })
-                        }
-                        disabled={!config.enabled || bulkScheduling}
-                      />
-                    </div>
-                  </div>
-                  <div className="text-xs text-zinc-500">
-                    Ejemplo: si pones <span className="font-semibold">Cancha desde 4</span> y{" "}
-                    <span className="font-semibold">Canchas en paralelo 1</span>, se programa todo
-                    en la cancha 4.
-                  </div>
+          {bulkScheduleStep === 1 && (
+            <div className="space-y-3">
+              <div className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2">
+                <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                  Duración por partido
                 </div>
-              );
-            })}
-          </div>
+                <div className="text-sm font-semibold text-zinc-800">
+                  {tournamentMatchDurationMinutes} minutos
+                </div>
+                <div className="text-xs text-zinc-500">
+                  Este valor se toma desde la configuración del torneo.
+                </div>
+              </div>
+
+              <div className="grid gap-2 [grid-template-columns:repeat(auto-fit,minmax(170px,1fr))]">
+                <div className="space-y-1">
+                  <div className="text-xs font-semibold text-zinc-500">Fecha</div>
+                  <Input
+                    type="date"
+                    value={bulkScheduleBaseConfig.date}
+                    onChange={(e) => updateBulkBaseConfig({ date: e.target.value })}
+                    disabled={bulkScheduling}
+                  />
+                  {bulkScheduleFieldErrors["base.date"] && (
+                    <div className="text-xs text-red-600">{bulkScheduleFieldErrors["base.date"]}</div>
+                  )}
+                </div>
+                <div className="space-y-1">
+                  <div className="text-xs font-semibold text-zinc-500">Hora</div>
+                  <select
+                    className="w-full rounded-xl border border-zinc-400 bg-white px-3 py-2 text-sm font-medium text-zinc-900 shadow-sm focus:border-zinc-700 focus:outline-none focus:ring-2 focus:ring-zinc-900/15"
+                    value={bulkScheduleBaseConfig.hour}
+                    onChange={(e) => updateBulkBaseConfig({ hour: e.target.value })}
+                    disabled={bulkScheduling}
+                  >
+                    <option value="">Hora</option>
+                    {HOURS.map((hour) => (
+                      <option key={`bulk-base-hour-${hour}`} value={hour}>
+                        {hour}
+                      </option>
+                    ))}
+                  </select>
+                  {bulkScheduleFieldErrors["base.hour"] && (
+                    <div className="text-xs text-red-600">{bulkScheduleFieldErrors["base.hour"]}</div>
+                  )}
+                </div>
+                <div className="space-y-1">
+                  <div className="text-xs font-semibold text-zinc-500">Minuto</div>
+                  <select
+                    className="w-full rounded-xl border border-zinc-400 bg-white px-3 py-2 text-sm font-medium text-zinc-900 shadow-sm focus:border-zinc-700 focus:outline-none focus:ring-2 focus:ring-zinc-900/15"
+                    value={bulkScheduleBaseConfig.minute}
+                    onChange={(e) => updateBulkBaseConfig({ minute: e.target.value })}
+                    disabled={bulkScheduling}
+                  >
+                    {BULK_MINUTE_OPTIONS.map((minute) => (
+                      <option key={`bulk-base-minute-${minute}`} value={minute}>
+                        {minute}
+                      </option>
+                    ))}
+                  </select>
+                  {bulkScheduleFieldErrors["base.minute"] && (
+                    <div className="text-xs text-red-600">{bulkScheduleFieldErrors["base.minute"]}</div>
+                  )}
+                </div>
+                <div className="space-y-1">
+                  <div className="text-xs font-semibold text-zinc-500">Cancha inicial</div>
+                  <Input
+                    type="number"
+                    min={1}
+                    value={bulkScheduleBaseConfig.firstCourt}
+                    onChange={(e) => updateBulkBaseConfig({ firstCourt: e.target.value })}
+                    disabled={bulkScheduling}
+                  />
+                  {bulkScheduleFieldErrors["base.firstCourt"] && (
+                    <div className="text-xs text-red-600">
+                      {bulkScheduleFieldErrors["base.firstCourt"]}
+                    </div>
+                  )}
+                </div>
+                <div className="space-y-1">
+                  <div className="text-xs font-semibold text-zinc-500">Canchas paralelas</div>
+                  <Input
+                    type="number"
+                    min={1}
+                    value={bulkScheduleBaseConfig.courtsCount}
+                    onChange={(e) => updateBulkBaseConfig({ courtsCount: e.target.value })}
+                    disabled={bulkScheduling}
+                  />
+                  {bulkScheduleFieldErrors["base.courtsCount"] && (
+                    <div className="text-xs text-red-600">
+                      {bulkScheduleFieldErrors["base.courtsCount"]}
+                    </div>
+                  )}
+                </div>
+                <div className="space-y-1">
+                  <div className="text-xs font-semibold text-zinc-500">
+                    Descanso entre instancias (min)
+                  </div>
+                  <Input
+                    type="number"
+                    min={0}
+                    value={bulkStageGapMinutes}
+                    onChange={(e) => updateBulkStageGapMinutes(e.target.value)}
+                    disabled={bulkScheduling}
+                  />
+                  {bulkScheduleFieldErrors["base.gapMinutes"] && (
+                    <div className="text-xs text-red-600">
+                      {bulkScheduleFieldErrors["base.gapMinutes"]}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {bulkScheduleStep === 2 && (
+            <div className="space-y-3 max-h-[420px] overflow-y-auto pr-1">
+              {bulkScheduleFieldErrors.stages && (
+                <div className="rounded-xl border border-red-300 bg-red-100 p-3 text-sm text-red-800">
+                  {bulkScheduleFieldErrors.stages}
+                </div>
+              )}
+              {schedulablePlayoffStages.map(({ stage, matches }) => {
+                const config = bulkScheduleByStage[stage];
+                const summary = bulkSummaryByStage.get(stage);
+                const effectiveCourts = config.useGlobal
+                  ? Number(bulkScheduleBaseConfig.courtsCount)
+                  : Number(config.courtsCount);
+                const slotsCount = Math.ceil(matches.length / Math.max(1, effectiveCourts || 1));
+                return (
+                  <div key={stage} className="rounded-xl border border-zinc-200 p-3 space-y-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <label className="flex items-center gap-2 text-sm font-semibold text-zinc-800">
+                        <input
+                          type="checkbox"
+                          checked={config.enabled}
+                          onChange={(e) =>
+                            updateBulkStageConfig(stage, { enabled: e.target.checked })
+                          }
+                          disabled={bulkScheduling}
+                        />
+                        {STAGE_LABELS[stage]}
+                      </label>
+                      <div className="text-xs text-zinc-500">
+                        {matches.length} partido(s) pendiente(s) · {slotsCount} bloque(s)
+                        {summary ? ` · inicio ${summary.firstTime}` : ""}
+                      </div>
+                    </div>
+
+                    {config.enabled && (
+                      <div className="space-y-3">
+                        <label className="inline-flex items-center gap-2 text-xs font-semibold text-zinc-700">
+                          <input
+                            type="checkbox"
+                            checked={config.useGlobal}
+                            onChange={(e) =>
+                              updateBulkStageConfig(stage, { useGlobal: e.target.checked })
+                            }
+                            disabled={bulkScheduling}
+                          />
+                          Usar configuración base
+                        </label>
+
+                        {config.useGlobal ? (
+                          <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-2 text-xs text-zinc-600">
+                            Config base: fecha {bulkScheduleBaseConfig.date || "—"} · cancha{" "}
+                            {bulkScheduleBaseConfig.firstCourt || "—"} ·{" "}
+                            {bulkScheduleBaseConfig.courtsCount || "—"} canchas
+                          </div>
+                        ) : (
+                          <div className="space-y-2">
+                            <div className="grid gap-2 [grid-template-columns:repeat(auto-fit,minmax(140px,1fr))]">
+                              <div className="space-y-1">
+                                <div className="text-xs font-semibold text-zinc-500">Fecha</div>
+                                <Input
+                                  type="date"
+                                  value={config.date}
+                                  onChange={(e) =>
+                                    updateBulkStageConfig(stage, { date: e.target.value })
+                                  }
+                                  disabled={bulkScheduling}
+                                />
+                                {bulkScheduleFieldErrors[`stage.${stage}.date`] && (
+                                  <div className="text-xs text-red-600">
+                                    {bulkScheduleFieldErrors[`stage.${stage}.date`]}
+                                  </div>
+                                )}
+                              </div>
+                              <div className="space-y-1">
+                                <div className="text-xs font-semibold text-zinc-500">Hora</div>
+                                <select
+                                  className="w-full rounded-xl border border-zinc-400 bg-white px-3 py-2 text-sm font-medium text-zinc-900 shadow-sm focus:border-zinc-700 focus:outline-none focus:ring-2 focus:ring-zinc-900/15"
+                                  value={config.hour}
+                                  onChange={(e) =>
+                                    updateBulkStageConfig(stage, { hour: e.target.value })
+                                  }
+                                  disabled={bulkScheduling}
+                                >
+                                  <option value="">Hora</option>
+                                  {HOURS.map((hour) => (
+                                    <option key={`${stage}-hour-${hour}`} value={hour}>
+                                      {hour}
+                                    </option>
+                                  ))}
+                                </select>
+                                {bulkScheduleFieldErrors[`stage.${stage}.hour`] && (
+                                  <div className="text-xs text-red-600">
+                                    {bulkScheduleFieldErrors[`stage.${stage}.hour`]}
+                                  </div>
+                                )}
+                              </div>
+                              <div className="space-y-1">
+                                <div className="text-xs font-semibold text-zinc-500">Minuto</div>
+                                <select
+                                  className="w-full rounded-xl border border-zinc-400 bg-white px-3 py-2 text-sm font-medium text-zinc-900 shadow-sm focus:border-zinc-700 focus:outline-none focus:ring-2 focus:ring-zinc-900/15"
+                                  value={config.minute}
+                                  onChange={(e) =>
+                                    updateBulkStageConfig(stage, { minute: e.target.value })
+                                  }
+                                  disabled={bulkScheduling}
+                                >
+                                  {BULK_MINUTE_OPTIONS.map((minute) => (
+                                    <option key={`${stage}-minute-${minute}`} value={minute}>
+                                      {minute}
+                                    </option>
+                                  ))}
+                                </select>
+                                {bulkScheduleFieldErrors[`stage.${stage}.minute`] && (
+                                  <div className="text-xs text-red-600">
+                                    {bulkScheduleFieldErrors[`stage.${stage}.minute`]}
+                                  </div>
+                                )}
+                              </div>
+                              <div className="space-y-1">
+                                <div className="text-xs font-semibold text-zinc-500">
+                                  Cancha inicial
+                                </div>
+                                <Input
+                                  type="number"
+                                  min={1}
+                                  value={config.firstCourt}
+                                  onChange={(e) =>
+                                    updateBulkStageConfig(stage, { firstCourt: e.target.value })
+                                  }
+                                  disabled={bulkScheduling}
+                                />
+                                {bulkScheduleFieldErrors[`stage.${stage}.firstCourt`] && (
+                                  <div className="text-xs text-red-600">
+                                    {bulkScheduleFieldErrors[`stage.${stage}.firstCourt`]}
+                                  </div>
+                                )}
+                              </div>
+                              <div className="space-y-1">
+                                <div className="text-xs font-semibold text-zinc-500">
+                                  Canchas paralelas
+                                </div>
+                                <Input
+                                  type="number"
+                                  min={1}
+                                  value={config.courtsCount}
+                                  onChange={(e) =>
+                                    updateBulkStageConfig(stage, { courtsCount: e.target.value })
+                                  }
+                                  disabled={bulkScheduling}
+                                />
+                                {bulkScheduleFieldErrors[`stage.${stage}.courtsCount`] && (
+                                  <div className="text-xs text-red-600">
+                                    {bulkScheduleFieldErrors[`stage.${stage}.courtsCount`]}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                            {summary && summary.adjustedByMinutes > 0 && (
+                              <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-2 text-xs text-zinc-700">
+                                Ajuste automático de inicio: +{summary.adjustedByMinutes} min por
+                                descanso entre instancias o disponibilidad de canchas.
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        {bulkScheduleFieldErrors[`stage.${stage}.__stage`] && (
+                          <div className="rounded-xl border border-red-300 bg-red-100 px-3 py-2 text-xs text-red-800">
+                            {bulkScheduleFieldErrors[`stage.${stage}.__stage`]}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {bulkScheduleStep === 3 && (
+            <div className="space-y-3">
+              <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-3">
+                <div className="text-sm font-semibold text-zinc-800">
+                  Se programarán {bulkSchedulePlanPreview.tasks.length} partido(s)
+                </div>
+                <div className="text-xs text-zinc-500">
+                  Duración por partido: {tournamentMatchDurationMinutes} min · Descanso entre
+                  instancias: {bulkStageGapMinutes || "0"} min.
+                </div>
+              </div>
+              <div className="space-y-2">
+                {bulkSchedulePlanPreview.summaries.map((summary) => (
+                  <div key={`summary-${summary.stage}`} className="rounded-xl border border-zinc-200 p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="text-sm font-semibold text-zinc-800">
+                        {STAGE_LABELS[summary.stage]}
+                      </div>
+                      <div className="text-xs text-zinc-500">
+                        {summary.matchCount} partido(s) · {summary.slotCount} bloque(s)
+                      </div>
+                    </div>
+                    <div className="mt-2 text-xs text-zinc-600">
+                      Horario: {summary.firstTime} - {summary.lastTime} · Canchas: {summary.firstCourt} a{" "}
+                      {summary.lastCourt}
+                    </div>
+                    {summary.adjustedByMinutes > 0 && (
+                      <div className="mt-1 text-xs text-amber-700">
+                        Inicio ajustado automáticamente +{summary.adjustedByMinutes} min para
+                        respetar descanso entre instancias y disponibilidad de canchas (desde{" "}
+                        {summary.configuredStartTime}).
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+              {Object.keys(bulkSchedulePlanPreview.errors).length > 0 && (
+                <div className="rounded-xl border border-red-300 bg-red-100 p-3 text-sm text-red-800">
+                  Hay configuraciones pendientes. Volvé al paso anterior y corregí los campos marcados.
+                </div>
+              )}
+            </div>
+          )}
 
           {bulkScheduleError && (
             <div className="rounded-xl border border-red-300 bg-red-100 p-3 text-sm text-red-800">
@@ -3170,15 +3844,104 @@ export default function TournamentPlayoffsPage() {
             </div>
           )}
 
-          <div className="flex justify-end gap-2">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div className="text-xs text-zinc-500">
+              {bulkScheduleStep === 1
+                ? "Definí la base y continuá."
+                : bulkScheduleStep === 2
+                ? "Seleccioná instancias y validá overrides."
+                : "Si está todo correcto, aplicá la programación."}
+            </div>
+            <div className="flex justify-end gap-2">
+              {bulkScheduleStep > 1 && (
+                <Button
+                  variant="secondary"
+                  type="button"
+                  onClick={goToPreviousBulkStep}
+                  disabled={bulkScheduling}
+                >
+                  Volver
+                </Button>
+              )}
+              {bulkScheduleStep < 3 ? (
+                <Button type="button" onClick={goToNextBulkStep} disabled={bulkScheduling}>
+                  Continuar
+                </Button>
+              ) : (
+                <Button type="submit" disabled={bulkScheduling}>
+                  {bulkScheduling
+                    ? "Programando..."
+                    : `Programar ${bulkSchedulePlanPreview.tasks.length} partidos`}
+                </Button>
+              )}
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-2 border-t border-zinc-200 pt-3">
             <Button variant="secondary" onClick={closeBulkScheduleModal} type="button">
               Cancelar
             </Button>
-            <Button type="submit" disabled={bulkScheduling}>
-              {bulkScheduling ? "Programando..." : "Programar todos"}
-            </Button>
           </div>
         </form>
+      </Modal>
+
+      <Modal
+        open={!!bulkScheduleSuccess}
+        title="Programación aplicada"
+        onClose={() => setBulkScheduleSuccess(null)}
+        className="max-w-md"
+      >
+        {bulkScheduleSuccess && (
+          <div className="space-y-4">
+            <div className="flex items-start gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-3">
+              <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-emerald-500 text-sm font-semibold text-white">
+                ✓
+              </div>
+              <div className="text-sm text-emerald-900">
+                Se programaron {bulkScheduleSuccess.scheduledCount} de{" "}
+                {bulkScheduleSuccess.totalCount} partidos de llaves.
+              </div>
+            </div>
+
+            <div className="text-sm text-zinc-600">
+              ¿Querés revisar la grilla o ajustar un partido puntual?
+            </div>
+
+            <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+              <Button variant="secondary" onClick={() => setBulkScheduleSuccess(null)}>
+                Cerrar
+              </Button>
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  setGridOpen(true);
+                  setBulkScheduleSuccess(null);
+                }}
+              >
+                Ver grilla
+              </Button>
+              <Button
+                onClick={() => {
+                  if (bulkScheduleSuccess.firstMatchId) {
+                    const targetMatch = matches.find(
+                      (match) => match.id === bulkScheduleSuccess.firstMatchId
+                    );
+                    if (targetMatch) {
+                      openScheduleModal(targetMatch);
+                    } else {
+                      setGridOpen(true);
+                    }
+                  } else {
+                    setGridOpen(true);
+                  }
+                  setBulkScheduleSuccess(null);
+                }}
+              >
+                Ajustar partido puntual
+              </Button>
+            </div>
+          </div>
+        )}
       </Modal>
 
       <Modal

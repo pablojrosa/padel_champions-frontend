@@ -30,7 +30,7 @@ export default function RegisterPage() {
       });
       router.replace("/login");
     } catch (err: any) {
-      setError(err?.message ?? "Register failed");
+      setError(err?.message ?? "No se pudo crear la cuenta.");
     } finally {
       setSubmitting(false);
     }

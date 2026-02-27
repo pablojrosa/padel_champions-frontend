@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useParams } from "next/navigation";
 import Card from "@/components/ui/Card";
 import Input from "@/components/ui/Input";
@@ -339,7 +339,6 @@ export default function PublicTournamentPage() {
   const [collapsedDivisions, setCollapsedDivisions] = useState<Record<string, boolean>>({});
   const [divisionFilter, setDivisionFilter] = useState<string | "all">("all");
   const [isDescriptionExpanded, setIsDescriptionExpanded] = useState(false);
-  const hasDefaultedDivision = useRef(false);
 
   useEffect(() => {
     if (!Number.isFinite(tournamentId)) return;
@@ -474,14 +473,6 @@ export default function PublicTournamentPage() {
     return map;
   }, [divisionGroupsForSeeds]);
 
-  useEffect(() => {
-    if (hasDefaultedDivision.current) return;
-    if (divisionFilter !== "all") return;
-    if (divisions.length === 0) return;
-    setDivisionFilter(divisions[0]);
-    hasDefaultedDivision.current = true;
-  }, [divisions, divisionFilter]);
-
   const filteredGroups = useMemo(() => {
     const normalized = query.trim().toLowerCase();
     return groups.filter((group) => {
@@ -522,6 +513,7 @@ export default function PublicTournamentPage() {
       return matchDivision(match) === divisionFilter;
     });
   }, [matches, query, divisionFilter, teamsById]);
+  const hasActiveFilters = query.trim().length > 0 || divisionFilter !== "all";
   const descriptionText = tournament?.description?.trim() ?? "";
   const descriptionContent = useMemo(
     () => renderDescriptionWithLinks(descriptionText),
@@ -943,13 +935,16 @@ export default function PublicTournamentPage() {
                   ))}
                 </select>
               )}
-              {query ? (
+              {hasActiveFilters ? (
                 <button
                   type="button"
-                  onClick={() => setQuery("")}
-                  className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-500"
+                  onClick={() => {
+                    setQuery("");
+                    setDivisionFilter("all");
+                  }}
+                  className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-600 sm:w-auto"
                 >
-                  Limpiar
+                  Limpiar filtros
                 </button>
               ) : null}
             </div>
@@ -983,7 +978,7 @@ export default function PublicTournamentPage() {
           )}
 
           <div className="sm:hidden">
-            <div className="rounded-2xl border border-zinc-200 bg-white p-2 text-xs font-semibold text-zinc-500">
+            <div className="rounded-2xl border border-zinc-200 bg-white p-2 text-sm text-zinc-600">
               <div
                 className={`grid gap-2 ${
                   playoffSectionVisible ? "grid-cols-4" : "grid-cols-3"
@@ -992,10 +987,10 @@ export default function PublicTournamentPage() {
                 <button
                   type="button"
                   onClick={() => setActiveSection("groups")}
-                  className={`rounded-xl px-3 py-2 ${
+                  className={`min-h-[44px] rounded-xl border px-3 py-2.5 font-semibold transition ${
                     activeSection === "groups"
-                      ? "bg-emerald-100 text-emerald-800"
-                      : "bg-white text-zinc-500"
+                      ? "border-emerald-200 bg-emerald-100 text-emerald-800 shadow-sm"
+                      : "border-zinc-200 bg-white text-zinc-600"
                   }`}
                 >
                   Zonas
@@ -1004,10 +999,10 @@ export default function PublicTournamentPage() {
                   <button
                     type="button"
                     onClick={() => setActiveSection("matches")}
-                    className={`rounded-xl px-3 py-2 ${
+                    className={`min-h-[44px] rounded-xl border px-3 py-2.5 font-semibold transition ${
                       activeSection === "matches"
-                        ? "bg-emerald-100 text-emerald-800"
-                        : "bg-white text-zinc-500"
+                        ? "border-emerald-200 bg-emerald-100 text-emerald-800 shadow-sm"
+                        : "border-zinc-200 bg-white text-zinc-600"
                     }`}
                   >
                     Partidos
@@ -1017,10 +1012,10 @@ export default function PublicTournamentPage() {
                   <button
                     type="button"
                     onClick={() => setActiveSection("results")}
-                    className={`rounded-xl px-3 py-2 ${
+                    className={`min-h-[44px] rounded-xl border px-3 py-2.5 font-semibold transition ${
                       activeSection === "results"
-                        ? "bg-emerald-100 text-emerald-800"
-                        : "bg-white text-zinc-500"
+                        ? "border-emerald-200 bg-emerald-100 text-emerald-800 shadow-sm"
+                        : "border-zinc-200 bg-white text-zinc-600"
                     }`}
                   >
                     Resultados
@@ -1030,10 +1025,10 @@ export default function PublicTournamentPage() {
                   <button
                     type="button"
                     onClick={() => setActiveSection("playoffs")}
-                    className={`rounded-xl px-3 py-2 ${
+                    className={`min-h-[44px] rounded-xl border px-3 py-2.5 font-semibold transition ${
                       activeSection === "playoffs"
-                        ? "bg-emerald-100 text-emerald-800"
-                        : "bg-white text-zinc-500"
+                        ? "border-emerald-200 bg-emerald-100 text-emerald-800 shadow-sm"
+                        : "border-zinc-200 bg-white text-zinc-600"
                     }`}
                   >
                     Playoffs

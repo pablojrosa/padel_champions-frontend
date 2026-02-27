@@ -42,7 +42,7 @@ export default function PlayersPage() {
         router.replace("/login");
         return;
       }
-      setError(err?.message ?? "Failed to load players");
+      setError(err?.message ?? "No se pudieron cargar los jugadores.");
     } finally {
       setLoading(false);
     }
@@ -64,7 +64,7 @@ export default function PlayersPage() {
       setLastName("");
       setCategory("");
     } catch (err: any) {
-      setError(err?.message ?? "Failed to create player");
+      setError(err?.message ?? "No se pudo crear el jugador.");
     } finally {
       setCreating(false);
     }
@@ -88,7 +88,7 @@ export default function PlayersPage() {
       setEditLastName("");
       setEditCategory("");
     } catch (err: any) {
-      setError(err?.message ?? "Failed to update player");
+      setError(err?.message ?? "No se pudo actualizar el jugador.");
     } finally {
       setSavingId(null);
     }
@@ -103,18 +103,23 @@ export default function PlayersPage() {
       await api<void>(`/players/${id}`, { method: "DELETE" });
       setItems((prev) => prev.filter((p) => p.id !== id));
     } catch (err: any) {
-      setError(err?.message ?? "Failed to delete player");
+      setError(err?.message ?? "No se pudo eliminar el jugador.");
     }
   }
 
   return (
     <div className="space-y-8">
-      <div className="space-y-2">
-        <div className="text-xs uppercase tracking-[0.3em] text-zinc-400">
-          Base de datos
+      <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+        <div className="space-y-2">
+          <div className="text-xs uppercase tracking-[0.3em] text-zinc-400">
+            Base de datos
+          </div>
+          <h1 className="text-3xl font-semibold">Jugadores</h1>
+          <p className="text-sm text-zinc-300">Cargá y mantené tu lista de jugadores.</p>
         </div>
-        <h1 className="text-3xl font-semibold">Jugadores</h1>
-        <p className="text-sm text-zinc-300">Cargá y mantené tu lista de jugadores.</p>
+        <Button variant="secondary" onClick={() => router.push("/dashboard")}>
+          Volver al tablero
+        </Button>
       </div>
 
       <Card className="bg-white/95">
