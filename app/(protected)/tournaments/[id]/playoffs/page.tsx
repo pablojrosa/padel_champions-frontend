@@ -232,6 +232,18 @@ function toLocalIsoDate(date: Date) {
   return `${year}-${month}-${day}`;
 }
 
+function shiftIsoDate(value: string, days: number) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+  const [yearRaw, monthRaw, dayRaw] = value.split("-");
+  const year = Number(yearRaw);
+  const month = Number(monthRaw);
+  const day = Number(dayRaw);
+  if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) {
+    return value;
+  }
+  return toLocalIsoDate(new Date(year, month - 1, day + days));
+}
+
 function resolveGridDefaultDate(startDateRaw: string | null, todayIsoDate: string) {
   const startDate = startDateRaw?.slice(0, 10) ?? "";
   const isValidIsoDate = /^\d{4}-\d{2}-\d{2}$/.test(startDate);
@@ -998,6 +1010,12 @@ export default function TournamentPlayoffsPage() {
     if (!gridOpen) return;
     setGridDateFilter(defaultGridDate);
   }, [gridOpen, defaultGridDate]);
+  const shiftGridDate = (days: number) => {
+    setGridDateFilter((prev) => {
+      const baseDate = /^\d{4}-\d{2}-\d{2}$/.test(prev) ? prev : defaultGridDate;
+      return shiftIsoDate(baseDate, days);
+    });
+  };
 
   const finalWinner = useMemo(() => {
     const finals = matchesByStage.get("final") ?? [];
@@ -4160,15 +4178,29 @@ export default function TournamentPlayoffsPage() {
                   <label htmlFor="grid-date-filter" className="font-semibold text-zinc-600">
                     Fecha
                   </label>
+                  <button
+                    type="button"
+                    onClick={() => shiftGridDate(-1)}
+                    className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-zinc-300 bg-white text-sm font-semibold text-zinc-700 transition hover:border-zinc-400 hover:bg-zinc-50"
+                    aria-label="Ir al dia anterior"
+                  >
+                    {"<"}
+                  </button>
                   <input
                     id="grid-date-filter"
                     type="date"
                     value={gridDateFilter}
                     onChange={(event) => setGridDateFilter(event.target.value)}
-                    min={gridAvailableDates[0]}
-                    max={gridAvailableDates[gridAvailableDates.length - 1]}
                     className="rounded-xl border border-zinc-300 bg-white px-3 py-1.5 text-xs font-medium text-zinc-700 focus:border-zinc-500 focus:outline-none focus:ring-2 focus:ring-zinc-800/15"
                   />
+                  <button
+                    type="button"
+                    onClick={() => shiftGridDate(1)}
+                    className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-zinc-300 bg-white text-sm font-semibold text-zinc-700 transition hover:border-zinc-400 hover:bg-zinc-50"
+                    aria-label="Ir al dia siguiente"
+                  >
+                    {">"}
+                  </button>
                 </div>
               </div>
               {gridData.times.length === 0 || gridData.courts.length === 0 ? (
