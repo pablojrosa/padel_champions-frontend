@@ -23,6 +23,7 @@ import type {
 
 
 type IdParam = { id: string };
+type CompetitionType = "tournament" | "league" | "flash";
 
 const IMPORT_TEMPLATE_HEADERS = [
   "Nombre Jugador 1",
@@ -137,6 +138,7 @@ export default function TournamentDetailPage() {
   const [editOpen, setEditOpen] = useState(false);
   const aiGenerateAbortRef = useRef<AbortController | null>(null);
   const [editName, setEditName] = useState("");
+  const [editCompetitionType, setEditCompetitionType] = useState<CompetitionType>("tournament");
   const [editDescription, setEditDescription] = useState("");
   const [editLocation, setEditLocation] = useState("");
   const [descriptionExpanded, setDescriptionExpanded] = useState(false);
@@ -259,7 +261,7 @@ async function load(options?: { silent?: boolean }) {
       router.replace("/login");
       return;
     }
-    setError(err?.message ?? "No se pudo cargar el torneo.");
+    setError(err?.message ?? "No se pudo cargar la competencia.");
   } finally {
     if (!silent) {
       setLoading(false);
@@ -310,6 +312,7 @@ async function load(options?: { silent?: boolean }) {
   function openEditModal() {
     if (!tournament) return;
     setEditName(tournament.name ?? "");
+    setEditCompetitionType((tournament.competition_type ?? "tournament") as CompetitionType);
     setEditDescription(tournament.description ?? "");
     setEditLocation(tournament.location ?? "");
     setEditMatchDurationMinutes(String(tournament.match_duration_minutes ?? 90));
@@ -322,7 +325,7 @@ async function load(options?: { silent?: boolean }) {
     if (team?.pending) return;
   
     const confirmed = window.confirm(
-      `¿Eliminar el equipo #${teamId}?\n\nLos jugadores seguirán registrados en el torneo.`
+      `¿Eliminar el equipo #${teamId}?\n\nLos jugadores seguirán registrados en la competencia.`
     );
   
     if (!confirmed) return;
@@ -617,7 +620,7 @@ async function load(options?: { silent?: boolean }) {
     event.target.value = "";
     if (!file) return;
     if (status !== "upcoming") {
-      setImportError("Solo podes importar parejas antes de iniciar el torneo.");
+      setImportError("Solo podes importar parejas antes de iniciar la competencia.");
       return;
     }
 
@@ -820,8 +823,11 @@ async function load(options?: { silent?: boolean }) {
   }
 
   async function startTournament() {
+    const competitionType = (tournament?.competition_type ?? "tournament") as CompetitionType;
     const confirmed = window.confirm(
-      "¿Iniciar torneo?\n\nUna vez iniciado, no vas a poder editar jugadores/equipos."
+      competitionType === "flash"
+        ? "¿Iniciar relámpago?\n\nSe va a generar el listado ordenado de partidos por cancha."
+        : "¿Iniciar competencia?\n\nUna vez iniciada, no vas a poder editar jugadores/equipos."
     );
     if (!confirmed) return;
   
@@ -835,10 +841,11 @@ async function load(options?: { silent?: boolean }) {
       });
   
       setStatus(res.status);
+      await load({ silent: true });
       setStartSuccessModalOpen(true);
       setStartSuccessCopyMessage(null);
     } catch (err: any) {
-      setError(err?.message ?? "No se pudo iniciar el torneo.");
+      setError(err?.message ?? "No se pudo iniciar la competencia.");
     } finally {
       setStartingTournament(false);
     }
@@ -864,7 +871,7 @@ async function load(options?: { silent?: boolean }) {
   
   async function deleteTournament() {
     const confirmed = window.confirm(
-      "¿Estás seguro de que querés eliminar este torneo?\n\nSe borrarán jugadores y equipos asociados."
+      "¿Estás seguro de que querés eliminar esta competencia?\n\nSe borrarán jugadores y equipos asociados."
     );
   
     if (!confirmed) return;
@@ -881,7 +888,7 @@ async function load(options?: { silent?: boolean }) {
       // volver al listado
       router.replace("/tournaments");
     } catch (err: any) {
-      setError(err?.message ?? "No se pudo eliminar el torneo.");
+      setError(err?.message ?? "No se pudo eliminar la competencia.");
     } finally {
       setDeletingTournament(false);
     }
@@ -890,20 +897,23 @@ async function load(options?: { silent?: boolean }) {
   async function updateTournament() {
     if (!tournament) return;
     if (!editName.trim()) {
-      setEditError("El nombre del torneo es obligatorio.");
+      setEditError("El nombre de la competencia es obligatorio.");
       return;
     }
     const parsedMatchDuration = Number(editMatchDurationMinutes);
     const parsedCourtsCount = Number(editCourtsCount);
-    if (!Number.isFinite(parsedMatchDuration) || parsedMatchDuration <= 0) {
-      setEditError("La duracion del partido debe ser mayor a 0.");
-      return;
+    if (editCompetitionType === "tournament") {
+      if (!Number.isFinite(parsedMatchDuration) || parsedMatchDuration <= 0) {
+        setEditError("La duracion del partido debe ser mayor a 0.");
+        return;
+      }
     }
-    if (!Number.isFinite(parsedCourtsCount) || parsedCourtsCount <= 0) {
-      setEditError("La cantidad de canchas debe ser mayor a 0.");
-      return;
+    if (editCompetitionType === "tournament" || editCompetitionType === "flash") {
+      if (!Number.isFinite(parsedCourtsCount) || parsedCourtsCount <= 0) {
+        setEditError("La cantidad de canchas debe ser mayor a 0.");
+        return;
+      }
     }
-
     setSavingEdit(true);
     setEditError(null);
     try {
@@ -911,17 +921,24 @@ async function load(options?: { silent?: boolean }) {
         method: "PATCH",
         body: {
           name: editName.trim(),
+          competition_type: editCompetitionType,
           description: editDescription.trim() ? editDescription.trim() : null,
           location: editLocation.trim() ? editLocation.trim() : null,
-          match_duration_minutes: Math.trunc(parsedMatchDuration),
-          courts_count: Math.trunc(parsedCourtsCount),
+          match_duration_minutes:
+            editCompetitionType === "tournament"
+              ? Math.trunc(parsedMatchDuration)
+              : null,
+          courts_count:
+            editCompetitionType === "tournament" || editCompetitionType === "flash"
+              ? Math.trunc(parsedCourtsCount)
+              : 1,
         },
       });
 
       setTournament(updated);
       setEditOpen(false);
     } catch (err: any) {
-      setEditError(err?.message ?? "No se pudo actualizar el torneo.");
+      setEditError(err?.message ?? "No se pudo actualizar la competencia.");
     } finally {
       setSavingEdit(false);
     }
@@ -1009,8 +1026,13 @@ async function load(options?: { silent?: boolean }) {
   const defaultEndTime = normalizeTime(tournament?.end_time, "23:00");
   const defaultMatchDurationMinutes = tournament?.match_duration_minutes ?? 90;
   const defaultCourtsCount = tournament?.courts_count ?? 1;
+  const competitionType = (tournament?.competition_type ?? "tournament") as CompetitionType;
+  const minTeamsRequired = competitionType === "flash" ? 2 : 1;
+  const hasRequiredTeams = teams.length >= minTeamsRequired;
+  const hasGeneratedGroups = groups.length > 0;
+  const hasRequiredGroups = groups.length > 0;
   const canStartTournament =
-    status === "upcoming" && groups.length > 0 && teams.length >= 1;
+    status === "upcoming" && hasRequiredGroups && hasRequiredTeams;
 
   function scrollToSection(sectionId: string) {
     const section = document.getElementById(sectionId);
@@ -1021,8 +1043,8 @@ async function load(options?: { silent?: boolean }) {
   const readinessItems = [
     {
       key: "teams",
-      label: "Al menos 1 pareja cargada",
-      done: teams.length >= 1,
+      label: `Al menos ${minTeamsRequired} pareja${minTeamsRequired > 1 ? "s" : ""} cargada${minTeamsRequired > 1 ? "s" : ""}`,
+      done: hasRequiredTeams,
       countInPending: true,
       actionLabel: "Cargar pareja",
       onAction: openPairModal,
@@ -1032,10 +1054,14 @@ async function load(options?: { silent?: boolean }) {
     },
     {
       key: "groups",
-      label: "Zonas generadas",
-      done: groups.length > 0,
+      label:
+        competitionType === "flash"
+          ? "Zonas creadas"
+          : "Zonas generadas",
+      done: hasGeneratedGroups,
       countInPending: true,
-      actionLabel: "Ir a zonas",
+      actionLabel:
+        competitionType === "flash" ? "Crear zonas" : "Ir a zonas",
       onAction: () => scrollToSection("groups-panel"),
     },
     {
@@ -1043,7 +1069,7 @@ async function load(options?: { silent?: boolean }) {
       label: "Estado listo para iniciar",
       done: canStartTournament,
       countInPending: false,
-      actionLabel: "Iniciar torneo",
+      actionLabel: "Iniciar competencia",
       onAction: startTournament,
     },
   ];
@@ -1066,7 +1092,7 @@ async function load(options?: { silent?: boolean }) {
           <div className="text-xs uppercase tracking-[0.3em] text-zinc-400">
             Gestión
           </div>
-          <h1 className="text-3xl font-semibold">Detalle del torneo</h1>
+          <h1 className="text-3xl font-semibold">Detalle de la competencia</h1>
           <p className="text-sm text-zinc-300">Equipos, zonas y estado general.</p>
         </div>
 
@@ -1096,7 +1122,7 @@ async function load(options?: { silent?: boolean }) {
             </button>
           </div>
           <Button variant="secondary" onClick={() => router.push("/tournaments")}>
-            Volver a torneos
+            Volver a competencias
           </Button>
         </div>
       </div>
@@ -1109,18 +1135,32 @@ async function load(options?: { silent?: boolean }) {
         <>
           <Modal
             open={editOpen}
-            title="Editar torneo"
+            title="Editar competencia"
             onClose={() => setEditOpen(false)}
           >
             <div className="space-y-3">
               <Input
-                placeholder="Nombre del torneo"
+                placeholder="Nombre de la competencia"
                 value={editName}
                 onChange={(e) => setEditName(e.target.value)}
               />
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-zinc-500">
+                  Tipo de competencia
+                </label>
+                <select
+                  className="w-full rounded-xl border border-zinc-300 bg-zinc-50 px-3 py-2 text-sm text-zinc-900 shadow-sm focus:border-zinc-900 focus:outline-none focus:ring-2 focus:ring-zinc-900/20"
+                  value={editCompetitionType}
+                  onChange={(e) => setEditCompetitionType(e.target.value as CompetitionType)}
+                >
+                  <option value="tournament">Torneo</option>
+                  <option value="league">Liga</option>
+                  <option value="flash">Relampago</option>
+                </select>
+              </div>
               <textarea
                 className="w-full rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 outline-none focus:border-zinc-900 focus:ring-2 focus:ring-zinc-900/20"
-                placeholder="Descripcion / reglas del torneo"
+                placeholder="Descripcion / reglas de la competencia"
                 value={editDescription}
                 onChange={(e) => setEditDescription(e.target.value)}
                 rows={3}
@@ -1130,30 +1170,34 @@ async function load(options?: { silent?: boolean }) {
                 value={editLocation}
                 onChange={(e) => setEditLocation(e.target.value)}
               />
-              <div className="grid gap-2 md:grid-cols-2">
-                <div className="space-y-1">
-                  <label className="text-xs font-semibold text-zinc-500">
-                    Duracion del partido (min)
-                  </label>
-                  <Input
-                    type="number"
-                    min={1}
-                    value={editMatchDurationMinutes}
-                    onChange={(e) => setEditMatchDurationMinutes(e.target.value)}
-                  />
+              {(editCompetitionType === "tournament" || editCompetitionType === "flash") && (
+                <div className="grid gap-2 md:grid-cols-2">
+                  {editCompetitionType === "tournament" && (
+                    <div className="space-y-1">
+                      <label className="text-xs font-semibold text-zinc-500">
+                        Duracion del partido (min)
+                      </label>
+                      <Input
+                        type="number"
+                        min={1}
+                        value={editMatchDurationMinutes}
+                        onChange={(e) => setEditMatchDurationMinutes(e.target.value)}
+                      />
+                    </div>
+                  )}
+                  <div className="space-y-1">
+                    <label className="text-xs font-semibold text-zinc-500">
+                      Canchas simultaneas
+                    </label>
+                    <Input
+                      type="number"
+                      min={1}
+                      value={editCourtsCount}
+                      onChange={(e) => setEditCourtsCount(e.target.value)}
+                    />
+                  </div>
                 </div>
-                <div className="space-y-1">
-                  <label className="text-xs font-semibold text-zinc-500">
-                    Canchas simultaneas
-                  </label>
-                  <Input
-                    type="number"
-                    min={1}
-                    value={editCourtsCount}
-                    onChange={(e) => setEditCourtsCount(e.target.value)}
-                  />
-                </div>
-              </div>
+              )}
 
               {editError && (
                 <div className="rounded-xl border border-red-300 bg-red-100 p-3 text-sm text-red-800">
@@ -1406,9 +1450,9 @@ async function load(options?: { silent?: boolean }) {
                 <span className="text-lg font-semibold">✓</span>
               </div>
               <div className="space-y-1">
-                <div className="text-lg font-semibold text-zinc-900">Torneo iniciado</div>
+                <div className="text-lg font-semibold text-zinc-900">Competencia iniciada</div>
                 <p className="text-sm text-zinc-600">
-                  Felicitaciones, el torneo{" "}
+                  Felicitaciones, la competencia{" "}
                   <span className="font-semibold text-zinc-900">
                     {tournament?.name ?? `#${tournamentId}`}
                   </span>{" "}
@@ -1453,11 +1497,11 @@ async function load(options?: { silent?: boolean }) {
                   <div className="flex-1 space-y-3">
                     <div className="space-y-1">
                       <div className="text-sm font-semibold text-zinc-800">
-                        Checklist para iniciar torneo
+                        Checklist para iniciar competencia
                       </div>
                       <div className="text-xs text-zinc-600">
                         {pendingReadinessCount === 0
-                          ? "Todo listo. Ya podés iniciar el torneo."
+                          ? "Todo listo. Ya podés iniciar la competencia."
                           : `Faltan ${pendingReadinessCount} requisito(s) para iniciar.`}
                       </div>
                     </div>
@@ -1483,7 +1527,7 @@ async function load(options?: { silent?: boolean }) {
                       disabled={startingTournament || !canStartTournament}
                       className="w-full lg:w-auto"
                     >
-                      {startingTournament ? "Iniciando..." : "Iniciar torneo"}
+                      {startingTournament ? "Iniciando..." : "Iniciar competencia"}
                     </Button>
                   </div>
                 </div>
@@ -1562,7 +1606,7 @@ async function load(options?: { silent?: boolean }) {
               <div className="flex items-start justify-between gap-3">
                 <div className="space-y-3">
                   <div className="text-xl font-semibold text-zinc-900">
-                    {tournament?.name ?? `Torneo #${tournamentId}`}
+                    {tournament?.name ?? `Competencia #${tournamentId}`}
                   </div>
 
                   <div className="flex flex-wrap items-center gap-2">
@@ -1623,11 +1667,11 @@ async function load(options?: { silent?: boolean }) {
                 <div className="w-full max-w-sm space-y-3">
                   <div className="space-y-2">
                     <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                      Acciones del torneo
+                      Acciones de la competencia
                     </div>
                     <div className="flex flex-wrap items-center justify-end gap-2">
                       <Button variant="secondary" onClick={openEditModal}>
-                        Editar torneo
+                        Editar competencia
                       </Button>
                       <Button variant="secondary" onClick={copyPublicLink}>
                         Copiar link público
@@ -1938,6 +1982,7 @@ async function load(options?: { silent?: boolean }) {
             <div id="groups-panel" className="md:col-span-2">
             <GroupsPanel
               tournamentId={tournamentId}
+              competitionType={competitionType}
               status={status}
               groups={groups}
               teams={teams}
@@ -1966,7 +2011,7 @@ async function load(options?: { silent?: boolean }) {
                   Zona de peligro
                 </div>
                 <div className="mt-1 text-sm text-red-700">
-                  Esta accion elimina el torneo y sus datos asociados.
+                  Esta accion elimina la competencia y sus datos asociados.
                 </div>
                 <div className="mt-3 flex justify-end">
                   <Button
@@ -1975,7 +2020,7 @@ async function load(options?: { silent?: boolean }) {
                     disabled={deletingTournament}
                     className="!border-red-300 !bg-red-50 !text-red-700 font-semibold hover:!bg-red-100"
                   >
-                    {deletingTournament ? "Eliminando..." : "Eliminar torneo"}
+                    {deletingTournament ? "Eliminando..." : "Eliminar competencia"}
                   </Button>
                 </div>
               </div>

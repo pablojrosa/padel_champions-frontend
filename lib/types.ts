@@ -12,6 +12,7 @@ export type Tournament = {
   description: string | null;
   location: string | null;
   category: string | null;
+  competition_type?: "tournament" | "league" | "flash";
   start_date: string | null;
   end_date: string | null;
   teams_per_group?: number | null;

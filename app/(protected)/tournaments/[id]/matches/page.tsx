@@ -13,12 +13,14 @@ import { isMatchAllowedByConstraints } from "@/lib/scheduleConstraints";
 import type {
   Match,
   MatchSet,
+  Tournament,
   TournamentGroupOut,
   TournamentStatusResponse,
   Team,
 } from "@/lib/types";
 
 type IdParam = { id: string };
+type CompetitionType = "tournament" | "league" | "flash";
 
 type EditableSet = { a: string; b: string };
 type ScheduleSuggestion = {
@@ -76,6 +78,7 @@ export default function TournamentMatchesPage() {
   const [teams, setTeams] = useState<Team[]>([]);
   const [groups, setGroups] = useState<TournamentGroupOut[]>([]);
   const [tournamentStatus, setTournamentStatus] = useState<string>("upcoming");
+  const [competitionType, setCompetitionType] = useState<CompetitionType>("tournament");
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -96,6 +99,7 @@ export default function TournamentMatchesPage() {
   const [scheduleError, setScheduleError] = useState<string | null>(null);
   const [scheduleMessage, setScheduleMessage] = useState<string | null>(null);
   const [scheduling, setScheduling] = useState(false);
+  const [autoSchedulingFlash, setAutoSchedulingFlash] = useState(false);
   const [gridOpen, setGridOpen] = useState(false);
   const [gridMatch, setGridMatch] = useState<Match | null>(null);
   const [gridDateFilter, setGridDateFilter] = useState("");
@@ -142,17 +146,20 @@ export default function TournamentMatchesPage() {
       setError(null);
 
       try {
-        const [matchesRes, teamsRes, groupsRes, statusRes] = await Promise.all([
+        const [matchesRes, teamsRes, groupsRes, statusRes, tournamentsRes] = await Promise.all([
           api<Match[]>(`/tournaments/${tournamentId}/matches`),
           api<Team[]>(`/tournaments/${tournamentId}/teams`),
           api<TournamentGroupOut[]>(`/tournaments/${tournamentId}/groups`),
           api<TournamentStatusResponse>(`/tournaments/${tournamentId}/status`),
+          api<Tournament[]>("/tournaments"),
         ]);
 
         setMatches(matchesRes);
         setTeams(teamsRes);
         setGroups(groupsRes);
         setTournamentStatus(statusRes.status);
+        const current = tournamentsRes.find((item) => item.id === tournamentId);
+        setCompetitionType((current?.competition_type ?? "tournament") as CompetitionType);
       } catch (err: any) {
         if (err instanceof ApiError && err.status === 401) {
           clearToken();
@@ -204,13 +211,45 @@ export default function TournamentMatchesPage() {
     return "Final";
   }
 
-  function openResultModal(match: Match) {
-    setSelectedMatch(match);
+  async function openResultModal(match: Match) {
+    let modalMatch = match;
+    if (
+      competitionType === "flash"
+      && match.status !== "played"
+      && hasDefinedTeams(match)
+    ) {
+      try {
+        const autoAssigned = await api<Match>(`/matches/${match.id}/auto-assign-court`, {
+          method: "POST",
+          body: {},
+        });
+        modalMatch = autoAssigned;
+        const refreshedMatches = await api<Match[]>(`/tournaments/${tournamentId}/matches`);
+        setMatches(refreshedMatches);
+      } catch (err: unknown) {
+        if (err instanceof ApiError && err.status === 401) {
+          clearToken();
+          router.replace("/login");
+          return;
+        }
+        const message =
+          err instanceof ApiError
+            ? err.message
+            : err instanceof Error
+            ? err.message
+            : "No se pudo asignar una cancha libre";
+        setError(message);
+        return;
+      }
+    }
+
+    setError(null);
+    setSelectedMatch(modalMatch);
     setFormError(null);
     setSuccessMessage(null);
 
-    if (match.sets && match.sets.length > 0) {
-      const mapped = match.sets.map((setScore) => ({
+    if (modalMatch.sets && modalMatch.sets.length > 0) {
+      const mapped = modalMatch.sets.map((setScore) => ({
         a: String(setScore.a),
         b: String(setScore.b),
       }));
@@ -374,18 +413,26 @@ export default function TournamentMatchesPage() {
   }
 
   function buildPayloadSets(): MatchSet[] | null {
+    const isFlashCompetition = competitionType === "flash";
     const filtered = setsInput.filter((setScore) =>
       setScore.a !== "" || setScore.b !== ""
     );
 
-    if (filtered.length < 2) {
-      setFormError("Tenes que cargar al menos 2 sets.");
-      return null;
-    }
+    if (isFlashCompetition) {
+      if (filtered.length !== 1) {
+        setFormError("En relámpago tenés que cargar exactamente 1 set.");
+        return null;
+      }
+    } else {
+      if (filtered.length < 2) {
+        setFormError("Tenes que cargar al menos 2 sets.");
+        return null;
+      }
 
-    if (filtered.length > 3) {
-      setFormError("Maximo 3 sets.");
-      return null;
+      if (filtered.length > 3) {
+        setFormError("Maximo 3 sets.");
+        return null;
+      }
     }
 
     const payload: MatchSet[] = [];
@@ -433,10 +480,13 @@ export default function TournamentMatchesPage() {
         method: "POST",
         body: { sets: payloadSets },
       });
+      const [matchesRes, statusRes] = await Promise.all([
+        api<Match[]>(`/tournaments/${tournamentId}/matches`),
+        api<TournamentStatusResponse>(`/tournaments/${tournamentId}/status`),
+      ]);
 
-      setMatches((prev) =>
-        prev.map((match) => (match.id === updated.id ? updated : match))
-      );
+      setMatches(matchesRes);
+      setTournamentStatus(statusRes.status);
       setSelectedMatch(updated);
       setSuccessMessage("Resultado cargado con exito.");
       setTimeout(() => {
@@ -506,6 +556,40 @@ export default function TournamentMatchesPage() {
       setScheduleError(err?.message ?? "No se pudo programar el partido");
     } finally {
       setScheduling(false);
+    }
+  }
+
+  async function autoScheduleFlashMatches() {
+    if (competitionType !== "flash") return;
+    setAutoSchedulingFlash(true);
+    setError(null);
+    try {
+      const res = await api<{ message: string }>(
+        `/tournaments/${tournamentId}/flash/auto-schedule`,
+        {
+          method: "POST",
+          body: {},
+        }
+      );
+      const [matchesRes, groupsRes, statusRes] = await Promise.all([
+        api<Match[]>(`/tournaments/${tournamentId}/matches`),
+        api<TournamentGroupOut[]>(`/tournaments/${tournamentId}/groups`),
+        api<TournamentStatusResponse>(`/tournaments/${tournamentId}/status`),
+      ]);
+      setMatches(matchesRes);
+      setGroups(groupsRes);
+      setTournamentStatus(statusRes.status);
+      setActiveTab("scheduled");
+      setScheduleMessage(res.message || "Partidos ordenados automaticamente.");
+    } catch (err: any) {
+      if (err instanceof ApiError && err.status === 401) {
+        clearToken();
+        router.replace("/login");
+        return;
+      }
+      setError(err?.message ?? "No se pudo ordenar el relámpago.");
+    } finally {
+      setAutoSchedulingFlash(false);
     }
   }
 
@@ -592,18 +676,31 @@ export default function TournamentMatchesPage() {
         : baseFilteredMatches,
     [onlyConstraintConflicts, activeTab, baseFilteredMatches, constraintConflictsByMatchId]
   );
+  const isFlash = competitionType === "flash";
   const unscheduledMatches = useMemo(
-    () => categoryFilteredMatches.filter((match) => match.status !== "played" && !match.scheduled_time),
-    [categoryFilteredMatches]
+    () =>
+      categoryFilteredMatches.filter((match) =>
+        match.status !== "played" && (isFlash || !match.scheduled_time)
+      ),
+    [categoryFilteredMatches, isFlash]
   );
   const scheduledMatches = useMemo(
-    () => categoryFilteredMatches.filter((match) => match.status !== "played" && !!match.scheduled_time),
-    [categoryFilteredMatches]
+    () =>
+      isFlash
+        ? []
+        : categoryFilteredMatches.filter(
+            (match) => match.status !== "played" && !!match.scheduled_time
+          ),
+    [categoryFilteredMatches, isFlash]
   );
   const playedMatches = useMemo(
     () => categoryFilteredMatches.filter((match) => match.status === "played"),
     [categoryFilteredMatches]
   );
+  const canAutoScheduleFlash =
+    competitionType === "flash" &&
+    tournamentStatus !== "finished" &&
+    unscheduledMatches.length > 0;
   const groupStageComplete = useMemo(() => {
     if (groups.length === 0) return false;
 
@@ -719,39 +816,6 @@ export default function TournamentMatchesPage() {
     scheduleHour === scheduleSuggestion.hour &&
     scheduleMinute === scheduleSuggestion.minute &&
     scheduleCourt === scheduleSuggestion.court;
-  const resultPreviewMessage = useMemo(() => {
-    if (!selectedMatch || !hasDefinedTeams(selectedMatch)) return null;
-    let winsA = 0;
-    let winsB = 0;
-    let validSets = 0;
-    const teamALabel =
-      teamsById.get(selectedMatch.team_a_id)?.players?.map((player) => player.name).join(" / ") ||
-      `Team #${selectedMatch.team_a_id}`;
-    const teamBLabel =
-      teamsById.get(selectedMatch.team_b_id)?.players?.map((player) => player.name).join(" / ") ||
-      `Team #${selectedMatch.team_b_id}`;
-
-    for (const setScore of setsInput) {
-      const hasA = setScore.a !== "";
-      const hasB = setScore.b !== "";
-      if (!hasA && !hasB) continue;
-      if (!hasA || !hasB) return "Hay sets incompletos.";
-      const a = Number(setScore.a);
-      const b = Number(setScore.b);
-      if (!Number.isFinite(a) || !Number.isFinite(b) || a < 0 || b < 0 || a === b) {
-        return "Revisa los sets: no puede haber empates ni valores invalidos.";
-      }
-      validSets += 1;
-      if (a > b) winsA += 1;
-      if (b > a) winsB += 1;
-    }
-
-    if (validSets === 0) return null;
-    if (winsA >= 2 || winsB >= 2) {
-      return `Ganador estimado: ${winsA > winsB ? teamALabel : teamBLabel}.`;
-    }
-    return `Parcial: ${winsA}-${winsB} en sets.`;
-  }, [selectedMatch, setsInput, teamsById]);
   useEffect(() => {
     setGridDateFilter((prev) => {
       if (prev && gridAvailableDates.includes(prev)) return prev;
@@ -773,6 +837,11 @@ export default function TournamentMatchesPage() {
       setOnlyConstraintConflicts(false);
     }
   }, [conflictMatchesCount, activeTab, onlyConstraintConflicts]);
+  useEffect(() => {
+    if (isFlash && activeTab === "scheduled") {
+      setActiveTab("unscheduled");
+    }
+  }, [isFlash, activeTab]);
   const matchesForTab =
     activeTab === "unscheduled"
       ? unscheduledMatches
@@ -781,7 +850,9 @@ export default function TournamentMatchesPage() {
         : playedMatches;
   const emptyLabel =
     activeTab === "unscheduled"
-      ? "No hay partidos para programar."
+      ? isFlash
+        ? "No hay partidos pendientes."
+        : "No hay partidos para programar."
       : activeTab === "scheduled"
         ? "No hay partidos programados."
         : "No hay partidos jugados.";
@@ -829,7 +900,7 @@ export default function TournamentMatchesPage() {
             </button>
           </div>
           <Button variant="secondary" onClick={() => router.push("/tournaments")}>
-            Volver a torneos
+            Volver a competencias
           </Button>
         </div>
       </div>
@@ -859,20 +930,33 @@ export default function TournamentMatchesPage() {
                     variant={activeTab === "unscheduled" ? "primary" : "secondary"}
                     onClick={() => setActiveTab("unscheduled")}
                   >
-                    Faltan programar ({unscheduledMatches.length})
+                    {isFlash
+                      ? `Pendientes (${unscheduledMatches.length})`
+                      : `Faltan programar (${unscheduledMatches.length})`}
                   </Button>
-                  <Button
-                    variant={activeTab === "scheduled" ? "primary" : "secondary"}
-                    onClick={() => setActiveTab("scheduled")}
-                  >
-                    Programados ({scheduledMatches.length})
-                  </Button>
+                  {!isFlash && (
+                    <Button
+                      variant={activeTab === "scheduled" ? "primary" : "secondary"}
+                      onClick={() => setActiveTab("scheduled")}
+                    >
+                      Programados ({scheduledMatches.length})
+                    </Button>
+                  )}
                   <Button
                     variant={activeTab === "played" ? "primary" : "secondary"}
                     onClick={() => setActiveTab("played")}
                   >
                     Jugados ({playedMatches.length})
                   </Button>
+                  {canAutoScheduleFlash && (
+                    <Button
+                      variant="secondary"
+                      onClick={autoScheduleFlashMatches}
+                      disabled={autoSchedulingFlash}
+                    >
+                      {autoSchedulingFlash ? "Ordenando..." : "Ordenar partidos"}
+                    </Button>
+                  )}
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                   <Input
@@ -917,9 +1001,11 @@ export default function TournamentMatchesPage() {
                       ))}
                     </select>
                   )}
-                  <Button variant="secondary" onClick={() => setGridOpen(true)}>
-                    Grilla de partidos
-                  </Button>
+                  {!isFlash && (
+                    <Button variant="secondary" onClick={() => setGridOpen(true)}>
+                      Grilla de partidos
+                    </Button>
+                  )}
                   {showConstraintToggle && (
                     <label className="inline-flex items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-medium text-zinc-700">
                       <input
@@ -947,7 +1033,7 @@ export default function TournamentMatchesPage() {
               ) : matchesForTab.length === 0 ? (
                 <div className="text-sm text-zinc-600">{emptyLabel}</div>
               ) : (
-                matchesForTab.map((match) => {
+                matchesForTab.map((match, listIndex) => {
                   const matchConflicts = constraintConflictsByMatchId.get(match.id) ?? [];
                   return (
                     <div
@@ -963,9 +1049,23 @@ export default function TournamentMatchesPage() {
                             {getTeamLabel(match.team_a_id)} vs {getTeamLabel(match.team_b_id)}
                           </div>
                           <div className="text-xs text-zinc-500">
-                            Estado: {match.status === "played" ? "Jugado" : match.scheduled_time ? "Programado" : "Falta programar"}
+                            Estado:{" "}
+                            {match.status === "played"
+                              ? "Jugado"
+                              : match.status === "ongoing"
+                              ? "En juego"
+                              : isFlash
+                              ? "Pendiente"
+                              : match.scheduled_time
+                              ? "Programado"
+                              : "Falta programar"}
                           </div>
-                          {match.scheduled_time && (
+                          {isFlash && (
+                            <div className="text-xs text-zinc-500">
+                              Orden: #{listIndex + 1} · Cancha: {match.court_number ?? "—"}
+                            </div>
+                          )}
+                          {!isFlash && match.scheduled_time && (
                             <div className="text-xs text-zinc-500">
                               {match.scheduled_date ? `Fecha: ${match.scheduled_date} · ` : ""}
                               Hora: {normalizeTime(match.scheduled_time)} · Cancha: {match.court_number ?? "—"}
@@ -990,10 +1090,11 @@ export default function TournamentMatchesPage() {
                           */}
                           {(() => {
                             const hasTeamsDefined = hasDefinedTeams(match);
-                            const canLoadResult = hasTeamsDefined && !!match.scheduled_time;
+                            const canLoadResult =
+                              hasTeamsDefined && (isFlash || !!match.scheduled_time);
                             if (match.status === "played") {
                               return (
-                                <Button onClick={() => openResultModal(match)} disabled={!canResult || !hasTeamsDefined}>
+                                <Button onClick={() => { void openResultModal(match); }} disabled={!canResult || !hasTeamsDefined}>
                                   Editar resultado
                                 </Button>
                               );
@@ -1002,19 +1103,21 @@ export default function TournamentMatchesPage() {
                               <>
                                 {canLoadResult && (
                                   <Button
-                                    onClick={() => openResultModal(match)}
+                                    onClick={() => { void openResultModal(match); }}
                                     disabled={!canResult}
                                   >
                                     Cargar resultado
                                   </Button>
                                 )}
-                                <Button
-                                  variant="secondary"
-                                  onClick={() => openScheduleModal(match)}
-                                  disabled={!canSchedule}
-                                >
-                                  {match.scheduled_time ? "Editar horario" : "Programar partido"}
-                                </Button>
+                                {!isFlash && (
+                                  <Button
+                                    variant="secondary"
+                                    onClick={() => openScheduleModal(match)}
+                                    disabled={!canSchedule}
+                                  >
+                                    {match.scheduled_time ? "Editar horario" : "Programar partido"}
+                                  </Button>
+                                )}
                               </>
                             );
                           })()}
@@ -1155,24 +1258,16 @@ export default function TournamentMatchesPage() {
           }}
         >
           <div className="space-y-3">
-            <div className="overflow-x-auto">
-              <div
-                className="grid min-w-[420px] items-center gap-2"
-                style={{
-                  gridTemplateColumns: `minmax(180px, 1fr) repeat(${setsInput.length}, minmax(72px, 1fr))`,
-                }}
+            {competitionType === "flash" ? (
+              <div className="grid items-center gap-2 max-w-sm"
+                style={{ gridTemplateColumns: "minmax(180px, 1fr) minmax(64px, 80px)" }}
               >
                 <div className="text-xs font-semibold uppercase tracking-wide text-zinc-400">
                   Parejas
                 </div>
-                {setsInput.map((_, idx) => (
-                  <div
-                    key={`head-${idx}`}
-                    className="text-center text-xs font-semibold uppercase tracking-wide text-zinc-400"
-                  >
-                    Set {idx + 1}
-                  </div>
-                ))}
+                <div className="text-center text-xs font-semibold uppercase tracking-wide text-zinc-400">
+                  Set 1
+                </div>
 
                 <div className="space-y-0.5">
                   <div className="text-xs font-semibold text-zinc-500">Pareja 1</div>
@@ -1180,18 +1275,15 @@ export default function TournamentMatchesPage() {
                     {selectedMatch ? getTeamLabel(selectedMatch.team_a_id) : "-"}
                   </div>
                 </div>
-                {setsInput.map((setScore, idx) => (
-                  <Input
-                    key={`a-${idx}`}
-                    type="number"
-                    min={0}
-                    placeholder="0"
-                    value={setScore.a}
-                    onChange={(e) => updateSet(idx, "a", e.target.value)}
-                    disabled={!canResult}
-                    className="score-input text-center tabular-nums"
-                  />
-                ))}
+                <Input
+                  type="number"
+                  min={0}
+                  placeholder="0"
+                  value={setsInput[0]?.a ?? ""}
+                  onChange={(e) => updateSet(0, "a", e.target.value)}
+                  disabled={!canResult}
+                  className="score-input !w-16 h-9 !px-0 justify-self-center text-center tabular-nums"
+                />
 
                 <div className="space-y-0.5">
                   <div className="text-xs font-semibold text-zinc-500">Pareja 2</div>
@@ -1199,26 +1291,79 @@ export default function TournamentMatchesPage() {
                     {selectedMatch ? getTeamLabel(selectedMatch.team_b_id) : "-"}
                   </div>
                 </div>
-                {setsInput.map((setScore, idx) => (
-                  <Input
-                    key={`b-${idx}`}
-                    type="number"
-                    min={0}
-                    placeholder="0"
-                    value={setScore.b}
-                    onChange={(e) => updateSet(idx, "b", e.target.value)}
-                    disabled={!canResult}
-                    className="score-input text-center tabular-nums"
-                  />
-                ))}
+                <Input
+                  type="number"
+                  min={0}
+                  placeholder="0"
+                  value={setsInput[0]?.b ?? ""}
+                  onChange={(e) => updateSet(0, "b", e.target.value)}
+                  disabled={!canResult}
+                  className="score-input !w-16 h-9 !px-0 justify-self-center text-center tabular-nums"
+                />
               </div>
-            </div>
-            <div className="text-xs text-zinc-500">
-              Carga minima: 2 sets completos, sin empates.
-            </div>
-            {resultPreviewMessage && (
-              <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-3 text-sm text-zinc-700">
-                {resultPreviewMessage}
+            ) : (
+              <div className="overflow-x-auto">
+                <div
+                  className="grid min-w-[420px] items-center gap-2"
+                  style={{
+                    gridTemplateColumns: `minmax(180px, 1fr) repeat(${setsInput.length}, minmax(72px, 1fr))`,
+                  }}
+                >
+                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-400">
+                    Parejas
+                  </div>
+                  {setsInput.map((_, idx) => (
+                    <div
+                      key={`head-${idx}`}
+                      className="text-center text-xs font-semibold uppercase tracking-wide text-zinc-400"
+                    >
+                      Set {idx + 1}
+                    </div>
+                  ))}
+
+                  <div className="space-y-0.5">
+                    <div className="text-xs font-semibold text-zinc-500">Pareja 1</div>
+                    <div className="text-sm text-zinc-700">
+                      {selectedMatch ? getTeamLabel(selectedMatch.team_a_id) : "-"}
+                    </div>
+                  </div>
+                  {setsInput.map((setScore, idx) => (
+                    <Input
+                      key={`a-${idx}`}
+                      type="number"
+                      min={0}
+                      placeholder="0"
+                      value={setScore.a}
+                      onChange={(e) => updateSet(idx, "a", e.target.value)}
+                      disabled={!canResult}
+                      className="score-input text-center tabular-nums"
+                    />
+                  ))}
+
+                  <div className="space-y-0.5">
+                    <div className="text-xs font-semibold text-zinc-500">Pareja 2</div>
+                    <div className="text-sm text-zinc-700">
+                      {selectedMatch ? getTeamLabel(selectedMatch.team_b_id) : "-"}
+                    </div>
+                  </div>
+                  {setsInput.map((setScore, idx) => (
+                    <Input
+                      key={`b-${idx}`}
+                      type="number"
+                      min={0}
+                      placeholder="0"
+                      value={setScore.b}
+                      onChange={(e) => updateSet(idx, "b", e.target.value)}
+                      disabled={!canResult}
+                      className="score-input text-center tabular-nums"
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
+            {competitionType !== "flash" && (
+              <div className="text-xs text-zinc-500">
+                Carga minima: 2 sets completos, sin empates.
               </div>
             )}
           </div>

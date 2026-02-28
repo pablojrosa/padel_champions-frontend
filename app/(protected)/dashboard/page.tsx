@@ -132,12 +132,12 @@ export default function DashboardPage() {
   const statItems = useMemo(
     () => [
       {
-        label: "Torneos jugándose",
+        label: "Competencias jugándose",
         value: stats.ongoing,
         note: "En curso ahora",
       },
       {
-        label: "Torneos organizados",
+        label: "Competencias organizadas",
         value: stats.tournaments,
         note: "Creados en total",
       },
@@ -163,7 +163,7 @@ export default function DashboardPage() {
           </div>
           <h1 className="text-3xl font-semibold">Bienvenido de nuevo</h1>
           <p className="text-sm text-zinc-300">
-            Revisá el estado general y entrá rápido a los torneos.
+            Revisá el estado general y entrá rápido a las competencias.
           </p>
         </div>
         <div className="text-xs text-zinc-400">
@@ -186,7 +186,7 @@ export default function DashboardPage() {
               href="/tournaments"
               className="rounded-xl border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold text-zinc-800 transition hover:-translate-y-0.5 hover:shadow-sm"
             >
-              Torneos
+              Competencias
             </Link>
             <Link
               href="/players"
@@ -232,7 +232,7 @@ export default function DashboardPage() {
             <div className="text-lg font-semibold text-zinc-900">Resumen</div>
             {!loading && (
               <div className="text-xs text-zinc-500">
-                {stats.tournaments} torneos en total
+                {stats.tournaments} competencias en total
               </div>
             )}
           </div>
