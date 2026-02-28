@@ -24,6 +24,7 @@ import type {
 } from "@/lib/types";
 
 type IdParam = { id: string };
+type CompetitionType = "tournament" | "league" | "flash";
 
 type EditableSet = { a: string; b: string };
 type ManualSlotSide = "a" | "b";
@@ -497,6 +498,7 @@ export default function TournamentPlayoffsPage() {
   const [tournamentMatchDurationMinutes, setTournamentMatchDurationMinutes] = useState(
     DEFAULT_MATCH_DURATION_MINUTES
   );
+  const [competitionType, setCompetitionType] = useState<CompetitionType>("tournament");
   const [status, setStatus] = useState<TournamentStatus>("upcoming");
   const [categoryFilter, setCategoryFilter] = useState<string | "all">("all");
   const [genderFilter, setGenderFilter] = useState<string | "all">("all");
@@ -1615,6 +1617,7 @@ export default function TournamentPlayoffsPage() {
       setTournamentMatchDurationMinutes(
         Math.max(1, tournamentRes.match_duration_minutes ?? DEFAULT_MATCH_DURATION_MINUTES)
       );
+      setCompetitionType((tournamentRes.competition_type ?? "tournament") as CompetitionType);
       setMatches(matchesRes);
       setTeams(teamsRes);
       setGroups(groupsRes);
@@ -1738,13 +1741,41 @@ export default function TournamentPlayoffsPage() {
     return "Final";
   }
 
-  function openResultModal(match: Match) {
-    setSelectedMatch(match);
+  async function openResultModal(match: Match) {
+    let modalMatch = match;
+    if (
+      isFlashCompetition
+      && match.status !== "played"
+      && hasDefinedTeams(match)
+    ) {
+      try {
+        const autoAssigned = await api<Match>(`/matches/${match.id}/auto-assign-court`, {
+          method: "POST",
+          body: {},
+        });
+        modalMatch = autoAssigned;
+        setMatches((prev) =>
+          prev.map((item) => (item.id === autoAssigned.id ? autoAssigned : item))
+        );
+      } catch (err: unknown) {
+        const message =
+          err instanceof ApiError
+            ? err.message
+            : err instanceof Error
+            ? err.message
+            : "No se pudo asignar una cancha libre";
+        setError(message);
+        return;
+      }
+    }
+
+    setError(null);
+    setSelectedMatch(modalMatch);
     setFormError(null);
     setSuccessMessage(null);
 
-    if (match.sets && match.sets.length > 0) {
-      const mapped = match.sets.map((setScore) => ({
+    if (modalMatch.sets && modalMatch.sets.length > 0) {
+      const mapped = modalMatch.sets.map((setScore) => ({
         a: String(setScore.a),
         b: String(setScore.b),
       }));
@@ -2285,57 +2316,81 @@ export default function TournamentPlayoffsPage() {
   async function saveSchedule() {
     if (!scheduleMatch) return;
 
-    if (!scheduleDate || !scheduleHour || !scheduleMinute) {
-      setScheduleError("Selecciona fecha y horario.");
-      return;
-    }
-
-    if (!MINUTES.includes(scheduleMinute)) {
-      setScheduleError("Selecciona minutos validos (00-59).");
-      return;
-    }
-
     const courtNumber = Number(scheduleCourt);
     if (!Number.isFinite(courtNumber) || courtNumber <= 0) {
       setScheduleError("La cancha debe ser un numero valido.");
       return;
     }
 
+    if (!isFlashCompetition) {
+      if (!scheduleDate || !scheduleHour || !scheduleMinute) {
+        setScheduleError("Selecciona fecha y horario.");
+        return;
+      }
+
+      if (!MINUTES.includes(scheduleMinute)) {
+        setScheduleError("Selecciona minutos validos (00-59).");
+        return;
+      }
+    }
+
     setScheduling(true);
     setScheduleError(null);
 
     try {
-      const scheduleTime = `${scheduleHour}:${scheduleMinute}`;
-      await api(`/matches/${scheduleMatch.id}/schedule`, {
-        method: "POST",
-        body: {
-          scheduled_date: scheduleDate,
-          scheduled_time: scheduleTime,
-          court_number: courtNumber,
-        },
-      });
+      if (isFlashCompetition) {
+        await api(`/matches/${scheduleMatch.id}/assign-court`, {
+          method: "POST",
+          body: {
+            court_number: courtNumber,
+          },
+        });
+      } else {
+        const scheduleTime = `${scheduleHour}:${scheduleMinute}`;
+        await api(`/matches/${scheduleMatch.id}/schedule`, {
+          method: "POST",
+          body: {
+            scheduled_date: scheduleDate,
+            scheduled_time: scheduleTime,
+            court_number: courtNumber,
+          },
+        });
+      }
       await reloadMatches();
       closeScheduleModal();
     } catch (err: any) {
-      setScheduleError(err?.message ?? "No se pudo programar el partido");
+      setScheduleError(
+        err?.message
+          ?? (isFlashCompetition
+            ? "No se pudo asignar la cancha"
+            : "No se pudo programar el partido")
+      );
     } finally {
       setScheduling(false);
     }
   }
 
   function buildPayloadSets(): MatchSet[] | null {
+    const isFlash = isFlashCompetition;
     const filtered = setsInput.filter(
       (setScore) => setScore.a !== "" || setScore.b !== ""
     );
 
-    if (filtered.length < 2) {
-      setFormError("Tenes que cargar al menos 2 sets.");
-      return null;
-    }
+    if (isFlash) {
+      if (filtered.length !== 1) {
+        setFormError("En relampago tenes que cargar exactamente 1 set.");
+        return null;
+      }
+    } else {
+      if (filtered.length < 2) {
+        setFormError("Tenes que cargar al menos 2 sets.");
+        return null;
+      }
 
-    if (filtered.length > 3) {
-      setFormError("Maximo 3 sets.");
-      return null;
+      if (filtered.length > 3) {
+        setFormError("Maximo 3 sets.");
+        return null;
+      }
     }
 
     const payload: MatchSet[] = [];
@@ -2634,6 +2689,7 @@ export default function TournamentPlayoffsPage() {
   }
 
   const canEdit = status === "ongoing" || status === "groups_finished";
+  const isFlashCompetition = competitionType === "flash";
   const confirmStageAutoOptions = useMemo(() => {
     if (!confirmStage) return [];
     return autoModeOptionsByStage.get(confirmStage) ?? [];
@@ -2774,7 +2830,7 @@ export default function TournamentPlayoffsPage() {
             </button>
           </div>
           <Button variant="secondary" onClick={() => router.push("/tournaments")}>
-            Volver a torneos
+            Volver a competencias
           </Button>
         </div>
       </div>
@@ -2802,7 +2858,9 @@ export default function TournamentPlayoffsPage() {
                       {availableStages.length === 0 ? (
                         <div className="text-sm text-zinc-600">
                           {!groupStageComplete && !latestStage
-                            ? "Podes crear el cuadro vacio para programar horarios. Las parejas se completan cuando terminen grupos."
+                            ? isFlashCompetition
+                              ? "Podes crear el cuadro vacio para asignar canchas sobre la marcha. Las parejas se completan cuando terminen grupos."
+                              : "Podes crear el cuadro vacio para programar horarios. Las parejas se completan cuando terminen grupos."
                             : latestStage && !canGenerateNextStage
                             ? `Completa los resultados de ${STAGE_LABELS[latestStage]} para avanzar.`
                             : "No hay instancias disponibles para generar ahora."}
@@ -2841,7 +2899,7 @@ export default function TournamentPlayoffsPage() {
                   </div>
                 )}
 
-                {hasPlayoffs && schedulablePlayoffStages.length > 0 && (
+                {!isFlashCompetition && hasPlayoffs && schedulablePlayoffStages.length > 0 && (
                   <div className="flex flex-wrap items-center gap-2">
                     <Button
                       variant="secondary"
@@ -2864,7 +2922,9 @@ export default function TournamentPlayoffsPage() {
                 <div className="p-6 space-y-4">
                   <div className="text-sm font-semibold text-zinc-800">Armado manual por instancia</div>
                   <div className="text-xs text-zinc-500">
-                    Podes armar y programar playoffs aun sin resultados de grupos.
+                    {isFlashCompetition
+                      ? "Podes armar playoffs sin resultados de grupos y asignar canchas sin horarios."
+                      : "Podes armar y programar playoffs aun sin resultados de grupos."}
                   </div>
 
                   {manualStageOptions.length === 0 ? (
@@ -3234,13 +3294,19 @@ export default function TournamentPlayoffsPage() {
                               const teamBLabel = hasTeams
                                 ? getTeamLabel(match.team_b_id)
                                 : item.seedB;
-                              const canSchedule = !played;
+                              const canSchedule = !played && !isFlashCompetition;
                               const canLoadResult =
-                                !played && hasTeams && !!match.scheduled_time;
-                              const scheduleLabel = formatSchedule(
-                                match.scheduled_date,
-                                match.scheduled_time
-                              );
+                                !played
+                                && hasTeams
+                                && (isFlashCompetition || !!match.scheduled_time);
+                              const scheduleLabel = isFlashCompetition
+                                ? match.court_number
+                                  ? `Cancha ${match.court_number}`
+                                  : ""
+                                : formatSchedule(
+                                    match.scheduled_date,
+                                    match.scheduled_time
+                                  );
                               const hasSchedule = !!scheduleLabel;
                               return (
                                 <div
@@ -3311,10 +3377,15 @@ export default function TournamentPlayoffsPage() {
                                       )}
                                       {(played || hasSchedule) && (
                                         <div className="text-xs text-zinc-600">
-                                          {scheduleLabel || "Horario a confirmar"}
+                                          {scheduleLabel
+                                            || (isFlashCompetition
+                                              ? "Cancha no asignada"
+                                              : "Horario a confirmar")}
                                         </div>
                                       )}
-                                      {!played && !hasSchedule && <div>Pendiente</div>}
+                                      {!played && !hasSchedule && (
+                                        <div>{isFlashCompetition ? "Sin cancha asignada" : "Pendiente"}</div>
+                                      )}
                                       <div className="flex flex-wrap justify-end gap-2">
                                         {canSchedule && (
                                           <Button
@@ -3322,14 +3393,20 @@ export default function TournamentPlayoffsPage() {
                                             disabled={scheduling}
                                             variant="secondary"
                                           >
-                                            {match.scheduled_time
+                                            {isFlashCompetition
+                                              ? match.court_number
+                                                ? "Editar cancha"
+                                                : "Asignar cancha"
+                                              : match.scheduled_time
                                               ? "Editar horario"
                                               : "Programar partido"}
                                           </Button>
                                         )}
                                         {played ? (
                                           <Button
-                                            onClick={() => openResultModal(match)}
+                                            onClick={() => {
+                                              void openResultModal(match);
+                                            }}
                                             disabled={!canEdit}
                                             variant="secondary"
                                           >
@@ -3337,7 +3414,9 @@ export default function TournamentPlayoffsPage() {
                                           </Button>
                                         ) : canLoadResult ? (
                                           <Button
-                                            onClick={() => openResultModal(match)}
+                                            onClick={() => {
+                                              void openResultModal(match);
+                                            }}
                                             disabled={!canEdit}
                                             variant="primary"
                                           >
@@ -3964,7 +4043,7 @@ export default function TournamentPlayoffsPage() {
 
       <Modal
         open={!!scheduleMatch}
-        title="Programar partido"
+        title={isFlashCompetition ? "Asignar cancha" : "Programar partido"}
         onClose={closeScheduleModal}
       >
         <form
@@ -3983,40 +4062,47 @@ export default function TournamentPlayoffsPage() {
                 )} vs ${getMatchTeamLabel(scheduleMatch, "b")}`
               : null}
           </div>
-
-          <div className="grid gap-2 md:grid-cols-2">
-            <Input
-              type="date"
-              value={scheduleDate}
-              onChange={(e) => setScheduleDate(e.target.value)}
-            />
-            <div className="grid grid-cols-2 gap-2">
-              <select
-                className="w-full rounded-xl border border-zinc-400 bg-white px-3 py-2 text-sm font-medium text-zinc-900 shadow-sm focus:border-zinc-700 focus:outline-none focus:ring-2 focus:ring-zinc-900/15"
-                value={scheduleHour}
-                onChange={(e) => setScheduleHour(e.target.value)}
-              >
-                <option value="">Hora</option>
-                {HOURS.map((hour) => (
-                  <option key={hour} value={hour}>
-                    {hour}
-                  </option>
-                ))}
-              </select>
-              <select
-                className="w-full rounded-xl border border-zinc-400 bg-white px-3 py-2 text-sm font-medium text-zinc-900 shadow-sm focus:border-zinc-700 focus:outline-none focus:ring-2 focus:ring-zinc-900/15"
-                value={scheduleMinute}
-                onChange={(e) => setScheduleMinute(e.target.value)}
-              >
-                <option value="">Min</option>
-                {MINUTES.map((minute) => (
-                  <option key={minute} value={minute}>
-                    {minute}
-                  </option>
-                ))}
-              </select>
+          {isFlashCompetition && (
+            <div className="text-xs text-zinc-500">
+              En relámpago solo asignás cancha. No hace falta fecha ni horario.
             </div>
-          </div>
+          )}
+
+          {!isFlashCompetition && (
+            <div className="grid gap-2 md:grid-cols-2">
+              <Input
+                type="date"
+                value={scheduleDate}
+                onChange={(e) => setScheduleDate(e.target.value)}
+              />
+              <div className="grid grid-cols-2 gap-2">
+                <select
+                  className="w-full rounded-xl border border-zinc-400 bg-white px-3 py-2 text-sm font-medium text-zinc-900 shadow-sm focus:border-zinc-700 focus:outline-none focus:ring-2 focus:ring-zinc-900/15"
+                  value={scheduleHour}
+                  onChange={(e) => setScheduleHour(e.target.value)}
+                >
+                  <option value="">Hora</option>
+                  {HOURS.map((hour) => (
+                    <option key={hour} value={hour}>
+                      {hour}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  className="w-full rounded-xl border border-zinc-400 bg-white px-3 py-2 text-sm font-medium text-zinc-900 shadow-sm focus:border-zinc-700 focus:outline-none focus:ring-2 focus:ring-zinc-900/15"
+                  value={scheduleMinute}
+                  onChange={(e) => setScheduleMinute(e.target.value)}
+                >
+                  <option value="">Min</option>
+                  {MINUTES.map((minute) => (
+                    <option key={minute} value={minute}>
+                      {minute}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          )}
 
           <div className="space-y-2">
             <label className="text-xs font-semibold text-zinc-500">Cancha</label>
@@ -4040,7 +4126,11 @@ export default function TournamentPlayoffsPage() {
               Cancelar
             </Button>
             <Button type="submit" disabled={scheduling}>
-              {scheduling ? "Guardando..." : "Guardar"}
+              {scheduling
+                ? "Guardando..."
+                : isFlashCompetition
+                ? "Guardar cancha"
+                : "Guardar"}
             </Button>
           </div>
         </form>
@@ -4048,11 +4138,7 @@ export default function TournamentPlayoffsPage() {
 
       <Modal
         open={!!selectedMatch}
-        title={
-          selectedMatch
-            ? `Resultado - Partido ${getMatchCode(selectedMatch)}`
-            : "Resultado"
-        }
+        title="Cargar resultado"
         onClose={closeResultModal}
       >
         <form
@@ -4064,24 +4150,17 @@ export default function TournamentPlayoffsPage() {
           }}
         >
           <div className="space-y-3">
-            <div className="overflow-x-auto">
+            {competitionType === "flash" ? (
               <div
-                className="grid min-w-[420px] items-center gap-2"
-                style={{
-                  gridTemplateColumns: `minmax(180px, 1fr) repeat(${setsInput.length}, minmax(72px, 1fr))`,
-                }}
+                className="grid items-center gap-2 max-w-sm"
+                style={{ gridTemplateColumns: "minmax(180px, 1fr) minmax(64px, 80px)" }}
               >
                 <div className="text-xs font-semibold uppercase tracking-wide text-zinc-400">
                   Parejas
                 </div>
-                {setsInput.map((_, idx) => (
-                  <div
-                    key={`head-${idx}`}
-                    className="text-center text-xs font-semibold uppercase tracking-wide text-zinc-400"
-                  >
-                    Set {idx + 1}
-                  </div>
-                ))}
+                <div className="text-center text-xs font-semibold uppercase tracking-wide text-zinc-400">
+                  Set 1
+                </div>
 
                 <div className="space-y-0.5">
                   <div className="text-xs font-semibold text-zinc-500">Pareja 1</div>
@@ -4089,18 +4168,15 @@ export default function TournamentPlayoffsPage() {
                     {selectedMatch ? getMatchTeamLabel(selectedMatch, "a") : "-"}
                   </div>
                 </div>
-                {setsInput.map((setScore, idx) => (
-                  <Input
-                    key={`a-${idx}`}
-                    type="number"
-                    min={0}
-                    placeholder="0"
-                    value={setScore.a}
-                    onChange={(e) => updateSet(idx, "a", e.target.value)}
-                    disabled={!canEdit}
-                    className="score-input text-center tabular-nums"
-                  />
-                ))}
+                <Input
+                  type="number"
+                  min={0}
+                  placeholder="0"
+                  value={setsInput[0]?.a ?? ""}
+                  onChange={(e) => updateSet(0, "a", e.target.value)}
+                  disabled={!canEdit}
+                  className="score-input !w-16 h-9 !px-0 justify-self-center text-center tabular-nums"
+                />
 
                 <div className="space-y-0.5">
                   <div className="text-xs font-semibold text-zinc-500">Pareja 2</div>
@@ -4108,20 +4184,81 @@ export default function TournamentPlayoffsPage() {
                     {selectedMatch ? getMatchTeamLabel(selectedMatch, "b") : "-"}
                   </div>
                 </div>
-                {setsInput.map((setScore, idx) => (
-                  <Input
-                    key={`b-${idx}`}
-                    type="number"
-                    min={0}
-                    placeholder="0"
-                    value={setScore.b}
-                    onChange={(e) => updateSet(idx, "b", e.target.value)}
-                    disabled={!canEdit}
-                    className="score-input text-center tabular-nums"
-                  />
-                ))}
+                <Input
+                  type="number"
+                  min={0}
+                  placeholder="0"
+                  value={setsInput[0]?.b ?? ""}
+                  onChange={(e) => updateSet(0, "b", e.target.value)}
+                  disabled={!canEdit}
+                  className="score-input !w-16 h-9 !px-0 justify-self-center text-center tabular-nums"
+                />
               </div>
-            </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <div
+                  className="grid min-w-[420px] items-center gap-2"
+                  style={{
+                    gridTemplateColumns: `minmax(180px, 1fr) repeat(${setsInput.length}, minmax(72px, 1fr))`,
+                  }}
+                >
+                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-400">
+                    Parejas
+                  </div>
+                  {setsInput.map((_, idx) => (
+                    <div
+                      key={`head-${idx}`}
+                      className="text-center text-xs font-semibold uppercase tracking-wide text-zinc-400"
+                    >
+                      Set {idx + 1}
+                    </div>
+                  ))}
+
+                  <div className="space-y-0.5">
+                    <div className="text-xs font-semibold text-zinc-500">Pareja 1</div>
+                    <div className="text-sm text-zinc-700">
+                      {selectedMatch ? getMatchTeamLabel(selectedMatch, "a") : "-"}
+                    </div>
+                  </div>
+                  {setsInput.map((setScore, idx) => (
+                    <Input
+                      key={`a-${idx}`}
+                      type="number"
+                      min={0}
+                      placeholder="0"
+                      value={setScore.a}
+                      onChange={(e) => updateSet(idx, "a", e.target.value)}
+                      disabled={!canEdit}
+                      className="score-input text-center tabular-nums"
+                    />
+                  ))}
+
+                  <div className="space-y-0.5">
+                    <div className="text-xs font-semibold text-zinc-500">Pareja 2</div>
+                    <div className="text-sm text-zinc-700">
+                      {selectedMatch ? getMatchTeamLabel(selectedMatch, "b") : "-"}
+                    </div>
+                  </div>
+                  {setsInput.map((setScore, idx) => (
+                    <Input
+                      key={`b-${idx}`}
+                      type="number"
+                      min={0}
+                      placeholder="0"
+                      value={setScore.b}
+                      onChange={(e) => updateSet(idx, "b", e.target.value)}
+                      disabled={!canEdit}
+                      className="score-input text-center tabular-nums"
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
+            {competitionType !== "flash" && (
+              <div className="text-xs text-zinc-500">
+                Carga minima: 2 sets completos, sin empates.
+              </div>
+            )}
           </div>
 
           {formError && (

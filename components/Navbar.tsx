@@ -179,7 +179,7 @@ export default function Navbar() {
                     href="/tournaments"
                     onClick={() => setMenuOpen(false)}
                   >
-                    Torneos
+                    Competencias
                   </Link>
                 </>
               )}

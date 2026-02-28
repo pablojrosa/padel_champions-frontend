@@ -54,6 +54,7 @@ function getTeamDivisionKey(team: Team) {
 
 type Props = {
   tournamentId: number;
+  competitionType: "tournament" | "league" | "flash";
   status: TournamentStatus;
   groups: TournamentGroupOut[];
   teams: Team[];
@@ -85,6 +86,7 @@ type Props = {
 
 export default function GroupsPanel({
   tournamentId,
+  competitionType,
   status,
   groups,
   teams,
@@ -102,6 +104,7 @@ export default function GroupsPanel({
   defaultCourtsCount,
 }: Props) {
   const disabled = status !== "upcoming";
+  const aiEnabled = competitionType === "tournament";
 
   const [removing, setRemoving] = useState<{
     groupId: number;
@@ -787,6 +790,10 @@ export default function GroupsPanel({
   }
 
   async function submitGenerate() {
+    if (!aiEnabled) {
+      setGenerateError("La generación con IA está disponible solo para competencias tipo torneo.");
+      return;
+    }
     if (allDivisionsGenerated) {
       setGenerateError(generationLockedMessage);
       return;
@@ -993,7 +1000,9 @@ export default function GroupsPanel({
           <div>
             <div className="text-sm font-semibold text-zinc-800">Zona de grupos</div>
             <div className="text-xs text-zinc-600">
-              Genera zonas manualmente o en forma automatica con IA
+              {aiEnabled
+                ? "Genera zonas manualmente o en forma automatica con IA"
+                : "Genera zonas manualmente. La IA se usa solo en competencias tipo torneo."}
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-3">
@@ -1029,15 +1038,17 @@ export default function GroupsPanel({
                   >
                     {generating ? "Generando..." : "Generar zonas"}
                   </Button>
-                  <Button
-                    variant="secondary"
-                    onClick={() => setGenerateOpen(true)}
-                    disabled={disabled || generating}
-                  >
-                    {generating && activeGeneration === "ai"
-                      ? getAiGeneratingLabel()
-                      : "Generar zonas con IA"}
-                  </Button>
+                  {aiEnabled && (
+                    <Button
+                      variant="secondary"
+                      onClick={() => setGenerateOpen(true)}
+                      disabled={disabled || generating}
+                    >
+                      {generating && activeGeneration === "ai"
+                        ? getAiGeneratingLabel()
+                        : "Generar zonas con IA"}
+                    </Button>
+                  )}
                 </>
               )}
             </div>
@@ -1185,19 +1196,20 @@ export default function GroupsPanel({
         </div>
       </div>
 
-      <Modal
-        open={generateOpen}
-        title="Generar zonas con IA"
-        onClose={closeGenerateModal}
-        className="max-w-3xl h-[90vh] max-h-[90vh] overflow-hidden"
-      >
-        <div className="flex h-[calc(90vh-120px)] flex-col gap-4 overflow-hidden">
+      {aiEnabled && (
+        <Modal
+          open={generateOpen}
+          title="Generar zonas con IA"
+          onClose={closeGenerateModal}
+          className="max-w-3xl h-[90vh] max-h-[90vh] overflow-hidden"
+        >
+          <div className="flex h-[calc(90vh-120px)] flex-col gap-4 overflow-hidden">
           <div className="min-h-0 flex-1 space-y-4 overflow-y-auto pr-1">
             <div className="sticky top-0 z-10 space-y-3 rounded-xl border border-zinc-200 bg-white/95 p-3 backdrop-blur">
-              <div className="text-sm text-zinc-600">
-                Definí la ventana horaria para programar los partidos de grupos.
-                Duracion y canchas se toman desde la configuracion del torneo.
-              </div>
+                <div className="text-sm text-zinc-600">
+                  Definí la ventana horaria para programar los partidos de grupos.
+                  Duracion y canchas se toman desde la configuracion de la competencia.
+                </div>
               <div className="grid gap-2 text-xs text-zinc-700 md:grid-cols-4">
                 <div className="rounded-lg border border-zinc-200 bg-zinc-50 px-2 py-1.5">
                   Equipos cargados:{" "}
@@ -1359,8 +1371,9 @@ export default function GroupsPanel({
                 : "Generar zonas ahora"}
             </Button>
           </div>
-        </div>
-      </Modal>
+          </div>
+        </Modal>
+      )}
 
       <Modal
         open={manualOpen}
