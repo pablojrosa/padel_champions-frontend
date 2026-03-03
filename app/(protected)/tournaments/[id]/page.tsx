@@ -1799,30 +1799,10 @@ async function load(options?: { silent?: boolean }) {
                 />
                 {importingPairs && (
                   <div
-                    className="flex items-center gap-3 rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs text-zinc-600"
+                    className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs text-zinc-600"
                     role="status"
                     aria-live="polite"
                   >
-                    <div className="relative h-9 w-9" aria-hidden="true">
-                      <span
-                        className="absolute bottom-0 left-1/2 h-1.5 w-6 -translate-x-1/2 rounded-full bg-zinc-900/20 blur-[1px] motion-reduce:animate-none animate-pulse"
-                        style={{ animationDuration: "1.8s" }}
-                      />
-                      <svg
-                        className="absolute inset-0 h-9 w-9 text-zinc-900 motion-reduce:animate-none animate-bounce"
-                        style={{ animationDuration: "1.8s" }}
-                        viewBox="0 0 64 64"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="3"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      >
-                        <circle cx="32" cy="32" r="26" />
-                        <path d="M8 24 C 16 18 26 18 34 24 C 42 30 50 30 56 24" />
-                        <path d="M8 40 C 16 46 26 46 34 40 C 42 34 50 34 56 40" />
-                      </svg>
-                    </div>
                     <span>Importando parejas... esto puede tardar unos segundos.</span>
                   </div>
                 )}
