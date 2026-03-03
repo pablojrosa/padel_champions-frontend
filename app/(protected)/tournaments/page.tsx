@@ -5,6 +5,7 @@ import Link from "next/link";
 import Card from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
 import Input from "@/components/ui/Input";
+import Modal from "@/components/ui/Modal";
 import StatusBadge from "@/components/StatusBadge";
 import { api, ApiError } from "@/lib/api";
 import { clearToken } from "@/lib/auth";
@@ -20,6 +21,7 @@ type TournamentFieldErrors = {
 type CompetitionType = "tournament" | "league" | "flash";
 type StatusFilter = "all" | TournamentStatus;
 type SortOption = "recent" | "name_asc" | "name_desc" | "start_asc" | "start_desc";
+type CreateFlowStep = 1 | 2 | 3 | 4 | 5;
 
 const dateFormatter = new Intl.DateTimeFormat("es-AR", {
   day: "2-digit",
@@ -35,6 +37,8 @@ const statusFilterOptions: { value: StatusFilter; label: string }[] = [
   { value: "finished", label: "Finalizado" },
 ];
 
+const ITEMS_PER_PAGE = 16;
+
 const sortOptions: { value: SortOption; label: string }[] = [
   { value: "recent", label: "Más recientes" },
   { value: "name_asc", label: "Nombre (A-Z)" },
@@ -42,11 +46,34 @@ const sortOptions: { value: SortOption; label: string }[] = [
   { value: "start_asc", label: "Fecha inicio (próxima)" },
   { value: "start_desc", label: "Fecha inicio (lejana)" },
 ];
+
+const typeCardConfig: Record<CompetitionType, { bg: string; iconColor: string }> = {
+  tournament: { bg: "bg-gradient-to-br from-amber-50 to-yellow-100", iconColor: "text-amber-400" },
+  league:     { bg: "bg-gradient-to-br from-sky-50 to-blue-100",    iconColor: "text-blue-400"  },
+  flash:      { bg: "bg-gradient-to-br from-orange-50 to-red-100",  iconColor: "text-orange-400"},
+};
 const competitionTypeOptions: { value: CompetitionType; label: string }[] = [
   { value: "tournament", label: "Torneo" },
   { value: "league", label: "Liga" },
   { value: "flash", label: "Relámpago" },
 ];
+const competitionTypeHints: Record<CompetitionType, string> = {
+  tournament: "Grupos + eliminatorias en 1 jornada. El más completo.",
+  league: "Todos contra todos a lo largo de la temporada.",
+  flash: "Eliminatoria directa. Resultados en pocas horas.",
+};
+const competitionTypeStructure: Record<CompetitionType, string> = {
+  tournament: "Fase de grupos → Llaves",
+  league: "Tabla de posiciones",
+  flash: "Eliminatoria directa",
+};
+const createFlowSteps: { step: 1 | 2 | 3 | 4; label: string; focus: string }[] = [
+  { step: 1, label: "Nombre", focus: "Dale vida a tu competencia" },
+  { step: 2, label: "Formato", focus: "¿Cómo van a jugar?" },
+  { step: 3, label: "Reglas", focus: "¿Bajo qué condiciones?" },
+  { step: 4, label: "Confirmar", focus: "¡Casi listos, revisá!" },
+];
+const totalCreateFlowSteps = createFlowSteps.length;
 
 function competitionTypeLabel(value?: string | null) {
   if (value === "league") return "Liga";
@@ -88,16 +115,8 @@ function getErrorMessage(error: unknown, fallback: string) {
   return fallback;
 }
 
-export default function TournamentsPage() {
-  const router = useRouter();
-  const [items, setItems] = useState<Tournament[]>([]);
-  const [statusByTournamentId, setStatusByTournamentId] = useState<
-    Record<number, TournamentStatus>
-  >({});
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  const defaultDescription =
+const defaultDescriptionByType: Record<CompetitionType, string> = {
+  tournament:
     "Reglas de la competencia:\n" +
     "- Partidos al mejor de 3 sets (gana quien llega a 2).\n" +
     "- Puntos en fase de grupos:\n" +
@@ -105,26 +124,126 @@ export default function TournamentsPage() {
     "  - 2-1: 2 pts\n" +
     "  - 1-2: 1 pt\n" +
     "  - 0-2: 0 pts\n" +
-    "- Criterios de clasificación: puntos, diferencia de sets, diferencia de games.";
+    "- Criterios de clasificación: puntos, diferencia de sets, diferencia de games.",
+  league:
+    "Reglas de la liga:\n" +
+    "- Partidos al mejor de 3 sets (gana quien llega a 2).\n" +
+    "- Puntos por partido:\n" +
+    "  - Victoria: 3 pts\n" +
+    "  - Derrota: 0 pts\n" +
+    "- Criterios de clasificación: puntos, diferencia de sets, diferencia de games.\n" +
+    "- Formato: todos contra todos (round-robin).",
+  flash:
+    "Reglas del relámpago:\n" +
+    "- Formato de eliminación directa.\n" +
+    "- Partidos al mejor de 3 sets (gana quien llega a 2).\n" +
+    "- Sin fase de grupos: se resuelve en llaves directas.",
+};
+
+export default function TournamentsPage() {
+  const router = useRouter();
+  const [items, setItems] = useState<Tournament[]>([]);
+  const [statusByTournamentId, setStatusByTournamentId] = useState<
+    Record<number, TournamentStatus>
+  >({});
+  const [loading, setLoading] = useState(true);
+  const [pageError, setPageError] = useState<string | null>(null);
+  const [createError, setCreateError] = useState<string | null>(null);
+
+  const defaultDescription = defaultDescriptionByType.tournament;
 
   const [name, setName] = useState("");
   const [competitionType, setCompetitionType] = useState<CompetitionType>("tournament");
+  const currentTypeDefaultDescription = defaultDescriptionByType[competitionType];
   const [description, setDescription] = useState(defaultDescription);
   const [matchDurationMinutes, setMatchDurationMinutes] = useState("90");
   const [courtsCount, setCourtsCount] = useState("1");
   const [creating, setCreating] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<TournamentFieldErrors>({});
   const [showOptionalRules, setShowOptionalRules] = useState(false);
+  const [showStandardRulesPreview, setShowStandardRulesPreview] = useState(false);
+  const [createModalOpen, setCreateModalOpen] = useState(false);
+  const [createFlowStep, setCreateFlowStep] = useState<CreateFlowStep>(1);
+  const [lastCreatedTournament, setLastCreatedTournament] = useState<{
+    id: number;
+    name: string;
+  } | null>(null);
 
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [sortBy, setSortBy] = useState<SortOption>("recent");
+  const [page, setPage] = useState(1);
 
   const [recentlyCreatedId, setRecentlyCreatedId] = useState<number | null>(null);
+  const [stepCompletedMessage, setStepCompletedMessage] = useState<string | null>(null);
+
+  function resetCreateDraft() {
+    setName("");
+    setCompetitionType("tournament");
+    setDescription(defaultDescription);
+    setMatchDurationMinutes("90");
+    setCourtsCount("1");
+    setShowOptionalRules(false);
+    setShowStandardRulesPreview(false);
+    setFieldErrors({});
+    setCreateError(null);
+  }
+
+  function openCreateModal() {
+    setCreateModalOpen(true);
+    setCreateFlowStep(1);
+    setFieldErrors({});
+    setCreateError(null);
+    setLastCreatedTournament(null);
+    setStepCompletedMessage(null);
+  }
+
+  function closeCreateModal() {
+    setCreateModalOpen(false);
+    setCreateFlowStep(1);
+    setFieldErrors({});
+    setCreateError(null);
+    setLastCreatedTournament(null);
+    setStepCompletedMessage(null);
+  }
+
+  function validateCreateStep(step: 1 | 2) {
+    const nextFieldErrors: TournamentFieldErrors = {};
+    if (step === 1) {
+      if (!name.trim()) {
+        nextFieldErrors.name = "Ingresá un nombre para la competencia.";
+      }
+    }
+
+    if (step === 2) {
+      const parsedMatchDuration = Number(matchDurationMinutes);
+      const parsedCourtsCount = Number(courtsCount);
+
+      if (competitionType === "tournament") {
+        if (!Number.isFinite(parsedMatchDuration) || parsedMatchDuration <= 0) {
+          nextFieldErrors.matchDurationMinutes = "La duración debe ser mayor a 0.";
+        }
+      }
+
+      if (competitionType === "tournament" || competitionType === "flash") {
+        if (!Number.isFinite(parsedCourtsCount) || parsedCourtsCount <= 0) {
+          nextFieldErrors.courtsCount = "La cantidad de canchas debe ser mayor a 0.";
+        }
+      }
+    }
+
+    if (Object.keys(nextFieldErrors).length > 0) {
+      setFieldErrors((prev) => ({ ...prev, ...nextFieldErrors }));
+      setCreateError(null);
+      return false;
+    }
+
+    return true;
+  }
 
   async function load() {
     setLoading(true);
-    setError(null);
+    setPageError(null);
     try {
       const data = await api<Tournament[]>("/tournaments");
       setItems(data);
@@ -149,7 +268,7 @@ export default function TournamentsPage() {
         router.replace("/login");
         return;
       }
-      setError(getErrorMessage(err, "No se pudieron cargar las competencias."));
+      setPageError(getErrorMessage(err, "No se pudieron cargar las competencias."));
     } finally {
       setLoading(false);
     }
@@ -165,6 +284,16 @@ export default function TournamentsPage() {
     const timeoutId = window.setTimeout(() => setRecentlyCreatedId(null), 3000);
     return () => window.clearTimeout(timeoutId);
   }, [recentlyCreatedId]);
+
+  useEffect(() => {
+    if (!stepCompletedMessage) return;
+    const timeoutId = window.setTimeout(() => setStepCompletedMessage(null), 2500);
+    return () => window.clearTimeout(timeoutId);
+  }, [stepCompletedMessage]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [search, statusFilter, sortBy]);
 
   const filteredAndSortedItems = useMemo(() => {
     const normalizedSearch = search.trim().toLowerCase();
@@ -185,6 +314,12 @@ export default function TournamentsPage() {
       return b.id - a.id;
     });
   }, [items, search, statusFilter, sortBy, statusByTournamentId]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredAndSortedItems.length / ITEMS_PER_PAGE));
+  const paginatedItems = filteredAndSortedItems.slice(
+    (page - 1) * ITEMS_PER_PAGE,
+    page * ITEMS_PER_PAGE
+  );
 
   async function createTournament() {
     const nextFieldErrors: TournamentFieldErrors = {};
@@ -210,12 +345,12 @@ export default function TournamentsPage() {
     }
     if (Object.keys(nextFieldErrors).length > 0) {
       setFieldErrors(nextFieldErrors);
-      setError(null);
-      return;
+      setCreateError(null);
+      return null;
     }
 
     setCreating(true);
-    setError(null);
+    setCreateError(null);
     setFieldErrors({});
     try {
       const created = await api<Tournament>("/tournaments", {
@@ -225,8 +360,8 @@ export default function TournamentsPage() {
           competition_type: competitionType,
           description: showOptionalRules
             ? description.trim() || null
-            : competitionType === "tournament"
-            ? defaultDescription
+            : competitionType !== "flash"
+            ? currentTypeDefaultDescription
             : null,
           location: null,
           match_duration_minutes:
@@ -243,23 +378,87 @@ export default function TournamentsPage() {
       });
       setItems((prev) => [created, ...prev]);
       setStatusByTournamentId((prev) => ({ ...prev, [created.id]: "upcoming" }));
-      setName("");
-      setCompetitionType("tournament");
-      setDescription(defaultDescription);
-      setMatchDurationMinutes("90");
-      setCourtsCount("1");
-      setShowOptionalRules(false);
+      setLastCreatedTournament({ id: created.id, name: created.name });
+      resetCreateDraft();
       setRecentlyCreatedId(created.id);
+      setPage(1);
+      return created;
     } catch (err: unknown) {
-      setError(getErrorMessage(err, "No se pudo crear la competencia."));
+      setCreateError(getErrorMessage(err, "No se pudo crear la competencia."));
+      return null;
     } finally {
       setCreating(false);
     }
   }
 
+  const currentCreateFlowVisualStep = Math.min(createFlowStep, totalCreateFlowSteps) as
+    | 1
+    | 2
+    | 3
+    | 4;
+  const visibleCreateFlowSteps =
+    competitionType === "league"
+      ? createFlowSteps.filter((step) => step.step !== 2)
+      : createFlowSteps;
+  const currentVisibleStepIndex = Math.max(
+    visibleCreateFlowSteps.findIndex((step) => step.step === currentCreateFlowVisualStep),
+    0
+  );
+  const visibleCreateFlowTotal = visibleCreateFlowSteps.length;
+  const createFlowProgress = ((currentVisibleStepIndex + 1) / visibleCreateFlowTotal) * 100;
+  async function handleCreateFlowContinue() {
+    if (createFlowStep === 1) {
+      if (!validateCreateStep(1)) return;
+      setFieldErrors((prev) => ({ ...prev, name: undefined }));
+      setStepCompletedMessage("Nombre guardado");
+      if (competitionType === "league") {
+        setCreateFlowStep(3);
+        return;
+      }
+      setCreateFlowStep(2);
+      return;
+    }
+
+    if (createFlowStep === 2) {
+      if (!validateCreateStep(2)) return;
+      setFieldErrors((prev) => ({
+        ...prev,
+        matchDurationMinutes: undefined,
+        courtsCount: undefined,
+      }));
+      setStepCompletedMessage("Formato configurado");
+      setCreateFlowStep(3);
+      return;
+    }
+
+    if (createFlowStep === 3) {
+      setStepCompletedMessage("Reglas definidas");
+      setCreateFlowStep(4);
+      return;
+    }
+
+    if (createFlowStep === 4) {
+      const created = await createTournament();
+      if (!created) return;
+      setCreateFlowStep(5);
+    }
+  }
+
+  function handleCreateFlowBack() {
+    if (createFlowStep <= 1 || createFlowStep === 5) return;
+    setStepCompletedMessage(null);
+    if (competitionType === "league" && createFlowStep === 3) {
+      setCreateFlowStep(1);
+      return;
+    }
+    setCreateFlowStep((prev) => (prev <= 1 ? prev : ((prev - 1) as CreateFlowStep)));
+  }
+  const activeCreateStepMeta =
+    visibleCreateFlowSteps[currentVisibleStepIndex] ?? visibleCreateFlowSteps[0];
+
   return (
     <div className="space-y-8">
-      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+      <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
         <div className="space-y-2">
           <div className="text-xs uppercase tracking-[0.3em] text-zinc-400">
             Gestión
@@ -267,283 +466,667 @@ export default function TournamentsPage() {
           <h1 className="text-3xl font-semibold">Competencias</h1>
           <p className="text-sm text-zinc-300">Creá y administrá tus competencias.</p>
         </div>
-        <Link
-          href="/dashboard"
-          className="inline-flex items-center justify-center rounded-full border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-900 transition hover:-translate-y-0.5 hover:bg-zinc-50"
-        >
-          Volver al tablero
-        </Link>
+        <Button variant="green" onClick={openCreateModal} className="gap-2 md:w-auto">
+          + Nueva competencia
+        </Button>
       </div>
 
-      <Card className="bg-white/95">
-        <div className="p-6 space-y-4">
-          <div className="space-y-1">
-            <div className="text-sm font-semibold text-zinc-800">Nueva competencia</div>
-            <p className="text-xs text-zinc-600">
-              Elegí tipo de competencia y completá lo esencial.
-            </p>
-          </div>
+      {pageError && !createModalOpen && (
+        <div className="rounded-xl border border-red-300 bg-red-100 p-3 text-sm text-red-800">
+          {pageError}
+        </div>
+      )}
 
-          <div className="grid gap-3 md:grid-cols-2">
-            <div className="space-y-1">
-              <label htmlFor="tournament-name" className="text-xs font-semibold text-zinc-600">
-                Nombre de la competencia
-              </label>
-              <Input
-                id="tournament-name"
-                placeholder="Ej: Liga Apertura 2026"
-                value={name}
-                onChange={(e) => {
-                  setName(e.target.value);
-                  setFieldErrors((prev) => ({ ...prev, name: undefined }));
-                }}
-                aria-invalid={Boolean(fieldErrors.name)}
-              />
-              {fieldErrors.name && (
-                <p className="text-xs font-medium text-red-600">{fieldErrors.name}</p>
-              )}
-            </div>
-            <div className="space-y-1">
-              <label className="text-xs font-semibold text-zinc-600">Tipo</label>
-              <select
-                value={competitionType}
-                onChange={(e) => setCompetitionType(e.target.value as CompetitionType)}
-                className="h-10 w-full rounded-xl border border-zinc-300 bg-white px-3 text-sm text-zinc-900 outline-none focus:border-zinc-900 focus:ring-2 focus:ring-zinc-900/20"
+      <Modal
+        open={createModalOpen}
+        title={
+          createFlowStep === 5
+            ? "¡Competencia lista para jugar!"
+            : `Nueva competencia · Paso ${currentVisibleStepIndex + 1}/${visibleCreateFlowTotal}`
+        }
+        onClose={closeCreateModal}
+        className="max-w-3xl"
+      >
+        <div className="space-y-5">
+          {createFlowStep !== 5 && (
+            <div className="space-y-3 rounded-xl border border-zinc-200 bg-zinc-50/70 p-3">
+              <div>
+                <div className="text-[11px] font-semibold uppercase tracking-[0.15em] text-zinc-500">
+                  {activeCreateStepMeta.label}
+                </div>
+                <div className="text-sm font-semibold text-zinc-900">
+                  {activeCreateStepMeta.focus}
+                </div>
+              </div>
+              <div className="h-2 w-full overflow-hidden rounded-full bg-zinc-200">
+                <div
+                  className="h-full rounded-full bg-zinc-900 transition-all"
+                  style={{ width: `${createFlowProgress}%` }}
+                />
+              </div>
+              <div
+                className={`grid gap-2 ${
+                  visibleCreateFlowTotal === 2 ? "md:grid-cols-2" : "md:grid-cols-4"
+                }`}
               >
-                {competitionTypeOptions.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-            {(competitionType === "tournament" || competitionType === "flash") && (
-              <>
-                {competitionType === "tournament" && (
-                  <div className="space-y-1">
-                    <label
-                      htmlFor="tournament-duration"
-                      className="text-xs font-semibold text-zinc-600"
+                {visibleCreateFlowSteps.map((step) => {
+                  const isActive = currentCreateFlowVisualStep === step.step;
+                  const isCompleted = currentCreateFlowVisualStep > step.step;
+                  return (
+                    <div
+                      key={step.step}
+                      className={`rounded-lg border px-2 py-1.5 text-xs transition-all duration-300 ${
+                        isActive
+                          ? "border-zinc-900 bg-zinc-900 text-white"
+                          : isCompleted
+                          ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                          : "border-zinc-200 bg-white text-zinc-500"
+                      }`}
                     >
-                      Duración del partido (min)
+                      {isCompleted ? (
+                        <span className="flex items-center gap-1">
+                          <svg className="h-3 w-3 text-emerald-500" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" aria-hidden>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                          </svg>
+                          {step.label}
+                        </span>
+                      ) : (
+                        <>{step.step}. {step.label}</>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {stepCompletedMessage && createFlowStep !== 1 && createFlowStep !== 5 && (
+            <div className="flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-700">
+              <svg className="h-3.5 w-3.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" aria-hidden>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+              </svg>
+              {stepCompletedMessage}
+            </div>
+          )}
+
+          {createFlowStep === 1 && (
+            <div className="space-y-4">
+              <div className="space-y-1">
+                <label htmlFor="tournament-name-modal" className="text-xs font-semibold text-zinc-600">
+                  Nombre de la competencia
+                </label>
+                <Input
+                  id="tournament-name-modal"
+                  placeholder="Ej: Liga Apertura 2026"
+                  value={name}
+                  onChange={(e) => {
+                    setName(e.target.value);
+                    setFieldErrors((prev) => ({ ...prev, name: undefined }));
+                  }}
+                  aria-invalid={Boolean(fieldErrors.name)}
+                />
+                {fieldErrors.name && (
+                  <p className="text-xs font-medium text-red-600">{fieldErrors.name}</p>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                <div className="text-xs font-semibold text-zinc-600">¿Qué tipo de competencia es?</div>
+                <div className="grid gap-2 md:grid-cols-3">
+                  {competitionTypeOptions.map((option) => {
+                    const active = competitionType === option.value;
+                    return (
+                      <button
+                        key={option.value}
+                        type="button"
+                        onClick={() => {
+                          setCompetitionType(option.value);
+                          setDescription(defaultDescriptionByType[option.value]);
+                          setShowOptionalRules(false);
+                          setShowStandardRulesPreview(false);
+                          setFieldErrors((prev) => ({
+                            ...prev,
+                            matchDurationMinutes: undefined,
+                            courtsCount: undefined,
+                          }));
+                        }}
+                        className={`rounded-xl border p-3 text-left transition-all duration-200 ${
+                          active
+                            ? "border-zinc-900 bg-zinc-900 text-white"
+                            : "border-zinc-200 bg-white text-zinc-800 hover:border-zinc-400 hover:bg-zinc-50"
+                        }`}
+                      >
+                        <div className={`mb-2 flex h-7 w-7 items-center justify-center rounded-lg ${active ? "bg-white/15" : "bg-zinc-100"}`}>
+                          {option.value === "tournament" && (
+                            <svg className={`h-4 w-4 ${active ? "text-white" : "text-zinc-600"}`} fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" aria-hidden>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 18.75h-9m9 0a3 3 0 013 3h-15a3 3 0 013-3m9 0v-3.375c0-.621-.503-1.125-1.125-1.125h-.871M7.5 18.75v-3.375c0-.621.504-1.125 1.125-1.125h.872m5.007 0H9.497m5.007 0a7.454 7.454 0 01-.982-3.172M9.497 14.25a7.454 7.454 0 00.981-3.172M5.25 4.236c-.982.143-1.954.317-2.916.52A6.003 6.003 0 007.73 9.728M5.25 4.236V4.5c0 2.108.966 3.99 2.48 5.228M5.25 4.236V2.721C7.456 2.41 9.71 2.25 12 2.25c2.291 0 4.545.16 6.75.47v1.516M7.73 9.728a6.726 6.726 0 002.748 1.35M18.75 4.236c.982.143 1.954.317 2.916.52a6.003 6.003 0 01-5.395 4.972M18.75 4.236V4.5a9.02 9.02 0 01-2.48 5.228m2.48-5.492a23.278 23.278 0 00-2.48.492m-8.52 0a7.454 7.454 0 00-.982 3.172" />
+                            </svg>
+                          )}
+                          {option.value === "league" && (
+                            <svg className={`h-4 w-4 ${active ? "text-white" : "text-zinc-600"}`} fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" aria-hidden>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 12h16.5m-16.5 3.75h16.5M3.75 19.5h16.5M5.625 4.5h12.75a1.875 1.875 0 010 3.75H5.625a1.875 1.875 0 010-3.75z" />
+                            </svg>
+                          )}
+                          {option.value === "flash" && (
+                            <svg className={`h-4 w-4 ${active ? "text-white" : "text-zinc-600"}`} fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" aria-hidden>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" />
+                            </svg>
+                          )}
+                        </div>
+                        <div className="text-sm font-semibold">{option.label}</div>
+                        <p className={`mt-1 text-xs ${active ? "text-zinc-300" : "text-zinc-500"}`}>
+                          {competitionTypeHints[option.value]}
+                        </p>
+                        <div className={`mt-2 text-[10px] font-semibold uppercase tracking-wider ${active ? "text-zinc-400" : "text-zinc-400"}`}>
+                          {competitionTypeStructure[option.value]}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {createFlowStep === 2 && (
+            <div className="space-y-4">
+              <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-3 text-sm text-zinc-700">
+                Configuración para <span className="font-semibold">{competitionTypeLabel(competitionType)}</span>
+              </div>
+              {competitionType === "league" ? (
+                <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">
+                  En formato liga no necesitás definir duración ni canchas en esta etapa.
+                </div>
+              ) : (
+                <div className="grid gap-3 md:grid-cols-2">
+                  {competitionType === "tournament" && (
+                    <div className="space-y-1">
+                      <label htmlFor="tournament-duration-modal" className="text-xs font-semibold text-zinc-600">
+                        Duración por partido
+                      </label>
+                      <Input
+                        id="tournament-duration-modal"
+                        type="number"
+                        min={1}
+                        placeholder="Ej: 90"
+                        value={matchDurationMinutes}
+                        onChange={(e) => {
+                          setMatchDurationMinutes(e.target.value);
+                          setFieldErrors((prev) => ({ ...prev, matchDurationMinutes: undefined }));
+                        }}
+                        aria-invalid={Boolean(fieldErrors.matchDurationMinutes)}
+                      />
+                      {fieldErrors.matchDurationMinutes ? (
+                        <p className="text-xs font-medium text-red-600">
+                          {fieldErrors.matchDurationMinutes}
+                        </p>
+                      ) : (
+                        <p className="text-xs text-zinc-400">
+                          Tiempo total en cancha, incluyendo cambios de lado. Para padel competitivo, 90 min es lo habitual.
+                        </p>
+                      )}
+                    </div>
+                  )}
+                  <div className="space-y-1">
+                    <label htmlFor="tournament-courts-modal" className="text-xs font-semibold text-zinc-600">
+                      ¿Cuántas canchas en simultáneo?
                     </label>
                     <Input
-                      id="tournament-duration"
+                      id="tournament-courts-modal"
                       type="number"
                       min={1}
-                      placeholder="Ej: 90"
-                      value={matchDurationMinutes}
+                      placeholder="Ej: 2"
+                      value={courtsCount}
                       onChange={(e) => {
-                        setMatchDurationMinutes(e.target.value);
-                        setFieldErrors((prev) => ({ ...prev, matchDurationMinutes: undefined }));
+                        setCourtsCount(e.target.value);
+                        setFieldErrors((prev) => ({ ...prev, courtsCount: undefined }));
                       }}
-                      aria-invalid={Boolean(fieldErrors.matchDurationMinutes)}
+                      aria-invalid={Boolean(fieldErrors.courtsCount)}
                     />
-                    {fieldErrors.matchDurationMinutes && (
-                      <p className="text-xs font-medium text-red-600">
-                        {fieldErrors.matchDurationMinutes}
+                    {fieldErrors.courtsCount ? (
+                      <p className="text-xs font-medium text-red-600">{fieldErrors.courtsCount}</p>
+                    ) : (
+                      <p className="text-xs text-zinc-400">
+                        Usamos este dato para calcular los horarios del fixture automáticamente.
                       </p>
                     )}
                   </div>
-                )}
-                <div className="space-y-1">
-                  <label htmlFor="tournament-courts" className="text-xs font-semibold text-zinc-600">
-                    Canchas simultáneas
-                  </label>
-                  <Input
-                    id="tournament-courts"
-                    type="number"
-                    min={1}
-                    placeholder="Ej: 2"
-                    value={courtsCount}
-                    onChange={(e) => {
-                      setCourtsCount(e.target.value);
-                      setFieldErrors((prev) => ({ ...prev, courtsCount: undefined }));
-                    }}
-                    aria-invalid={Boolean(fieldErrors.courtsCount)}
-                  />
-                  {fieldErrors.courtsCount && (
-                    <p className="text-xs font-medium text-red-600">{fieldErrors.courtsCount}</p>
-                  )}
                 </div>
+              )}
+              <p className="text-xs text-zinc-400">
+                Podés ajustar estos valores después desde la configuración de la competencia.
+              </p>
+            </div>
+          )}
+
+          {createFlowStep === 3 && (
+            <div className="space-y-4">
+              <div className="grid gap-2 md:grid-cols-2">
+                <button
+                  type="button"
+                  onClick={() => setShowOptionalRules(false)}
+                  className={`rounded-xl border p-3 text-left transition-all duration-200 ${
+                    !showOptionalRules
+                      ? "border-zinc-900 bg-zinc-900 text-white"
+                      : "border-zinc-200 bg-white text-zinc-700 hover:border-zinc-400 hover:bg-zinc-50"
+                  }`}
+                >
+                  <div className="text-sm font-semibold">Reglas estándar</div>
+                  <p className={`mt-1 text-xs ${!showOptionalRules ? "text-zinc-300" : "text-zinc-500"}`}>
+                    Recomendado para arrancar rápido y editar después.
+                  </p>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowOptionalRules(true)}
+                  className={`rounded-xl border p-3 text-left transition-all duration-200 ${
+                    showOptionalRules
+                      ? "border-zinc-900 bg-zinc-900 text-white"
+                      : "border-zinc-200 bg-white text-zinc-700 hover:border-zinc-400 hover:bg-zinc-50"
+                  }`}
+                >
+                  <div className="text-sm font-semibold">Editar las reglas</div>
+                  <p className={`mt-1 text-xs ${showOptionalRules ? "text-zinc-300" : "text-zinc-500"}`}>
+                    Modificá los criterios o condiciones especiales.
+                  </p>
+                </button>
+              </div>
+
+              {!showOptionalRules && (
+                <button
+                  type="button"
+                  onClick={() => setShowStandardRulesPreview((prev) => !prev)}
+                  className="flex items-center gap-1 text-xs text-zinc-500 hover:text-zinc-800 underline underline-offset-2 transition-colors"
+                >
+                  <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" aria-hidden>
+                    <path strokeLinecap="round" strokeLinejoin="round" d={showStandardRulesPreview ? "M4.5 15.75l7.5-7.5 7.5 7.5" : "M19.5 8.25l-7.5 7.5-7.5-7.5"} />
+                  </svg>
+                  {showStandardRulesPreview ? "Ocultar reglas estándar" : "Ver qué incluyen las reglas estándar"}
+                </button>
+              )}
+
+              {!showOptionalRules && showStandardRulesPreview && (
+                <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-3 space-y-1">
+                  <pre className="whitespace-pre-wrap font-sans text-xs text-zinc-500">{currentTypeDefaultDescription}</pre>
+                </div>
+              )}
+
+              {showOptionalRules && (
+                <textarea
+                  className="w-full rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 outline-none focus:border-zinc-900 focus:ring-2 focus:ring-zinc-900/20"
+                  placeholder="Descripción / reglas de la competencia"
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  rows={7}
+                />
+              )}
+
+              <p className="text-xs text-zinc-400">
+                Podés modificar las reglas en cualquier momento desde la competencia.
+              </p>
+            </div>
+          )}
+
+          {createFlowStep === 4 && (
+            <div className="space-y-4">
+              <div className="grid gap-2 md:grid-cols-2">
+                <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-3">
+                  <div className="text-[11px] uppercase tracking-[0.15em] text-zinc-500">Competencia</div>
+                  <div className="mt-1 text-sm font-semibold text-zinc-900">{name || "-"}</div>
+                </div>
+                <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-3">
+                  <div className="text-[11px] uppercase tracking-[0.15em] text-zinc-500">Formato</div>
+                  <div className="mt-1 text-sm font-semibold text-zinc-900">
+                    {competitionTypeLabel(competitionType)}
+                  </div>
+                </div>
+                {competitionType !== "league" && (
+                  <>
+                    <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-3">
+                      <div className="text-[11px] uppercase tracking-[0.15em] text-zinc-500">Duración</div>
+                      <div className="mt-1 text-sm font-semibold text-zinc-900">
+                        {competitionType === "tournament" ? `${matchDurationMinutes} min` : "No aplica"}
+                      </div>
+                    </div>
+                    <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-3">
+                      <div className="text-[11px] uppercase tracking-[0.15em] text-zinc-500">Canchas</div>
+                      <div className="mt-1 text-sm font-semibold text-zinc-900">{courtsCount}</div>
+                    </div>
+                  </>
+                )}
+              </div>
+              <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">
+                {competitionType === "tournament"
+                  ? `Torneo con ${matchDurationMinutes} min por partido y ${courtsCount} ${Number(courtsCount) === 1 ? "cancha" : "canchas"}. Al crear, sumás parejas y generás las zonas.`
+                  : competitionType === "flash"
+                  ? `Relámpago con ${courtsCount} ${Number(courtsCount) === 1 ? "cancha" : "canchas"}. Al crear, armás el fixture rápidamente.`
+                  : "Liga lista para configurar. Al crear, podés sumar equipos y programar el calendario."}
+              </div>
+            </div>
+          )}
+
+          {createFlowStep === 5 && (
+            <div className="space-y-4">
+              <div className="rounded-2xl border border-emerald-200 bg-gradient-to-br from-emerald-50 to-white p-6 text-center">
+                <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full border-2 border-emerald-300 bg-emerald-100">
+                  <svg
+                    className="h-7 w-7 text-emerald-600"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    strokeWidth={2.5}
+                    stroke="currentColor"
+                    aria-hidden
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                  </svg>
+                </div>
+                <div className="text-xl font-bold text-zinc-900">
+                  {lastCreatedTournament?.name ?? "Tu competencia"} está lista
+                </div>
+                <p className="mt-1 text-sm text-zinc-500">
+                  La creaste en menos de 1 minuto. Completá los 3 pasos siguientes para poder iniciarla.
+                </p>
+              </div>
+
+              <div className="rounded-xl border border-zinc-200 bg-white p-4 space-y-2">
+                <div className="text-xs font-semibold uppercase tracking-[0.15em] text-zinc-400 mb-3">
+                  ¿Qué sigue?
+                </div>
+                {[
+                  { num: 1, action: "Cargar parejas", time: "~2 min", desc: "Subí un CSV o ingresalas una por una." },
+                  { num: 2, action: "Generar zonas", time: "~1 min", desc: "La IA organiza los grupos y el fixture." },
+                  { num: 3, action: "Iniciar competencia", time: "~30 seg", desc: "Activá cuando todo esté confirmado." },
+                ].map((s) => (
+                  <div
+                    key={s.num}
+                    className="flex items-center gap-3 rounded-lg border border-zinc-100 bg-zinc-50 px-3 py-2.5"
+                  >
+                    <div className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-zinc-200 text-xs font-bold text-zinc-600">
+                      {s.num}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm font-medium text-zinc-900">{s.action}</div>
+                      <div className="text-xs text-zinc-500">{s.desc}</div>
+                    </div>
+                    <div className="flex-shrink-0 text-xs text-zinc-400">{s.time}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {createError && createModalOpen && (
+            <div className="rounded-xl border border-red-300 bg-red-100 p-3 text-sm text-red-800">
+              {createError}
+            </div>
+          )}
+
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            {createFlowStep === 5 ? (
+              <>
+                <Button
+                  variant="secondary"
+                  onClick={() => {
+                    resetCreateDraft();
+                    setCreateFlowStep(1);
+                    setLastCreatedTournament(null);
+                    setCreateError(null);
+                  }}
+                >
+                  Crear otra
+                </Button>
+                <Button
+                  onClick={() => {
+                    if (!lastCreatedTournament) {
+                      closeCreateModal();
+                      return;
+                    }
+                    const targetId = lastCreatedTournament.id;
+                    closeCreateModal();
+                    router.push(`/tournaments/${targetId}`);
+                  }}
+                >
+                  Ir a la competencia
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button
+                  variant="secondary"
+                  onClick={handleCreateFlowBack}
+                  disabled={creating || createFlowStep === 1}
+                >
+                  Atrás
+                </Button>
+                <Button onClick={handleCreateFlowContinue} disabled={creating} className="gap-2">
+                  {creating && (
+                    <span
+                      className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white"
+                      aria-hidden
+                    />
+                  )}
+                  <span>
+                    {createFlowStep === 4
+                      ? creating
+                        ? "Creando competencia..."
+                        : "Crear competencia"
+                      : "Continuar"}
+                  </span>
+                </Button>
               </>
             )}
           </div>
+        </div>
+      </Modal>
 
-          <div className="space-y-2 rounded-xl border border-zinc-200 bg-zinc-50/70 p-3">
-            <button
-              type="button"
-              onClick={() => setShowOptionalRules((prev) => !prev)}
-              className="flex w-full items-center justify-between text-left text-sm font-semibold text-zinc-700"
-            >
-              <span>Reglas y descripción (opcional)</span>
-              <span className="text-zinc-500">{showOptionalRules ? "Ocultar" : "Editar"}</span>
-            </button>
-
-            {!showOptionalRules && (
-              <p className="text-xs text-zinc-500">
-                Se aplicarán reglas estándar automáticamente para crear más rápido.
-              </p>
-            )}
-
-            {showOptionalRules && (
-              <textarea
-                className="w-full rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 outline-none focus:border-zinc-900 focus:ring-2 focus:ring-zinc-900/20"
-                placeholder="Descripción / reglas de la competencia"
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                rows={6}
-              />
+      <div className="space-y-4">
+        {/* Título + búsqueda + sort */}
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="text-sm font-semibold text-zinc-200">
+            Competencias
+            {!loading && items.length > 0 && (
+              <span className="ml-2 text-xs font-normal text-zinc-400">
+                {filteredAndSortedItems.length} de {items.length}
+              </span>
             )}
           </div>
-
-          <div className="flex flex-wrap items-center gap-3">
-            <Button
-              onClick={createTournament}
-              disabled={creating}
-              className="md:w-44 gap-2"
-            >
-              {creating && (
-                <span
-                  className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white"
-                  aria-hidden
-                />
-              )}
-              <span>{creating ? "Creando competencia..." : "Crear competencia"}</span>
-            </Button>
-            <span className="text-xs text-zinc-500">
-              Podés editar la competencia después de crearla.
-            </span>
-          </div>
-
-          {error && (
-            <div className="rounded-xl border border-red-300 bg-red-100 p-3 text-sm text-red-800">
-              {error}
-            </div>
-          )}
-        </div>
-      </Card>
-
-      <div className="space-y-3">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="text-sm font-semibold text-zinc-200">Competencias creadas</div>
-          {!loading && (
-            <div className="text-xs text-zinc-400">
-              {filteredAndSortedItems.length} de {items.length}
-            </div>
-          )}
-          {loading && <div className="text-xs text-zinc-500">Cargando...</div>}
-        </div>
-
-        <Card className="bg-white/95">
-          <div className="grid gap-3 p-4 md:grid-cols-3">
-            <div className="space-y-1">
-              <label htmlFor="search-tournaments" className="text-xs font-semibold text-zinc-600">
-                Buscar
-              </label>
+          {!loading && items.length > 0 && (
+            <div className="flex items-center gap-2">
               <Input
                 id="search-tournaments"
-                placeholder="Nombre de la competencia"
+                placeholder="Buscar..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
+                className="w-44"
               />
+              {items.length >= 3 && (
+                <select
+                  id="sort-by"
+                  value={sortBy}
+                  onChange={(e) => setSortBy(e.target.value as SortOption)}
+                  className="h-10 rounded-xl border border-zinc-600 bg-transparent px-3 text-xs text-zinc-300 outline-none focus:border-zinc-400"
+                >
+                  {sortOptions.map((option) => (
+                    <option key={option.value} value={option.value} className="bg-zinc-800 text-zinc-100">
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              )}
             </div>
-            <div className="space-y-1">
-              <label htmlFor="filter-status" className="text-xs font-semibold text-zinc-600">
-                Estado
-              </label>
-              <select
-                id="filter-status"
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
-                className="h-10 w-full rounded-xl border border-zinc-300 bg-white px-3 text-sm text-zinc-900 outline-none focus:border-zinc-900 focus:ring-2 focus:ring-zinc-900/20"
-              >
-                {statusFilterOptions.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="space-y-1">
-              <label htmlFor="sort-by" className="text-xs font-semibold text-zinc-600">
-                Ordenar por
-              </label>
-              <select
-                id="sort-by"
-                value={sortBy}
-                onChange={(e) => setSortBy(e.target.value as SortOption)}
-                className="h-10 w-full rounded-xl border border-zinc-300 bg-white px-3 text-sm text-zinc-900 outline-none focus:border-zinc-900 focus:ring-2 focus:ring-zinc-900/20"
-              >
-                {sortOptions.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-        </Card>
+          )}
+        </div>
 
-        <div className="grid gap-4 md:grid-cols-2">
+        {/* Pills de estado (solo si hay competencias) */}
+        {!loading && items.length > 0 && (
+          <div className="flex flex-wrap gap-1.5">
+            {statusFilterOptions.map((opt) => (
+              <button
+                key={opt.value}
+                type="button"
+                onClick={() => setStatusFilter(opt.value)}
+                className={`rounded-full border px-3 py-1 text-xs font-medium transition ${
+                  statusFilter === opt.value
+                    ? "border-zinc-100 bg-white text-zinc-900"
+                    : "border-zinc-600 bg-transparent text-zinc-400 hover:border-zinc-400 hover:text-zinc-200"
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* Grid de torneos / estados vacíos */}
+        <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {loading ? (
             <>
-              {Array.from({ length: 4 }).map((_, index) => (
-                <Card key={`skeleton-${index}`} className="animate-pulse">
-                  <div className="p-5 space-y-3">
-                    <div className="h-4 w-40 rounded bg-zinc-200" />
-                    <div className="h-3 w-28 rounded bg-zinc-100" />
-                    <div className="h-3 w-20 rounded bg-zinc-100" />
+              {Array.from({ length: 6 }).map((_, index) => (
+                <Card key={`skeleton-${index}`} className="animate-pulse overflow-hidden">
+                  <div className="h-40 bg-zinc-200" />
+                  <div className="p-4 space-y-2">
+                    <div className="h-4 w-36 rounded bg-zinc-200" />
+                    <div className="h-3 w-24 rounded bg-zinc-100" />
+                    <div className="h-3 w-16 rounded bg-zinc-100" />
                   </div>
                 </Card>
               ))}
             </>
+          ) : items.length === 0 ? (
+            <Card className="sm:col-span-2 lg:col-span-3 xl:col-span-4 border-2 border-dashed border-zinc-700 bg-transparent shadow-none ring-0">
+              <div className="p-10 flex flex-col items-center text-center gap-4">
+                <div className="flex h-14 w-14 items-center justify-center rounded-full bg-zinc-800">
+                  <svg className="h-7 w-7 text-zinc-400" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" aria-hidden>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 18.75h-9m9 0a3 3 0 013 3h-15a3 3 0 013-3m9 0v-3.375c0-.621-.503-1.125-1.125-1.125h-.871M7.5 18.75v-3.375c0-.621.504-1.125 1.125-1.125h.872m5.007 0H9.497m5.007 0a7.454 7.454 0 01-.982-3.172M9.497 14.25a7.454 7.454 0 00.981-3.172M5.25 4.236c-.982.143-1.954.317-2.916.52A6.003 6.003 0 007.73 9.728M5.25 4.236V4.5c0 2.108.966 3.99 2.48 5.228M5.25 4.236V2.721C7.456 2.41 9.71 2.25 12 2.25c2.291 0 4.545.16 6.75.47v1.516M7.73 9.728a6.726 6.726 0 002.748 1.35M18.75 4.236c.982.143 1.954.317 2.916.52a6.003 6.003 0 01-5.395 4.972M18.75 4.236V4.5a9.02 9.02 0 01-2.48 5.228m2.48-5.492a23.278 23.278 0 00-2.48.492m-8.52 0a7.454 7.454 0 00-.982 3.172" />
+                  </svg>
+                </div>
+                <div className="space-y-1">
+                  <div className="text-base font-semibold text-zinc-200">Todavía no tenés competencias</div>
+                  <p className="text-sm text-zinc-400">Creá la primera y empezá a organizar tus torneos.</p>
+                </div>
+                <Button variant="green" onClick={openCreateModal}>+ Nueva competencia</Button>
+              </div>
+            </Card>
           ) : filteredAndSortedItems.length === 0 ? (
-                <Card className="md:col-span-2">
-                  <div className="p-5 text-sm text-zinc-600">
-                    No encontramos competencias con esos filtros.
-                  </div>
-                </Card>
+            <Card className="sm:col-span-2 lg:col-span-3 xl:col-span-4">
+              <div className="p-8 flex flex-col items-center text-center gap-3">
+                <div className="text-sm text-zinc-500">No hay competencias con esos filtros.</div>
+                <button
+                  type="button"
+                  onClick={() => { setSearch(""); setStatusFilter("all"); }}
+                  className="text-xs font-medium text-zinc-400 underline underline-offset-2 hover:text-zinc-700 transition-colors"
+                >
+                  Limpiar filtros
+                </button>
+              </div>
+            </Card>
           ) : (
-            filteredAndSortedItems.map((t) => {
+            paginatedItems.map((t) => {
               const tournamentStatus = statusByTournamentId[t.id] ?? "upcoming";
               const isRecentlyCreated = recentlyCreatedId === t.id;
+              const dateLabel = formatDateRange(t.start_date, t.end_date);
+              const cardType = (t.competition_type ?? "tournament") as CompetitionType;
+              const cardConfig = typeCardConfig[cardType] ?? typeCardConfig.tournament;
               return (
-              <Link key={t.id} href={`/tournaments/${t.id}`}>
-                <Card
-                  className={`transition hover:-translate-y-0.5 hover:shadow-xl ${
-                    isRecentlyCreated
-                      ? "ring-2 ring-emerald-300 shadow-emerald-200/40"
-                      : ""
-                  }`}
-                >
-                  <div className="p-5 flex items-center justify-between">
-                    <div className="space-y-1">
-                      <div className="text-lg font-semibold">{t.name}</div>
-                      <div className="text-sm text-zinc-600">{formatDateRange(t.start_date, t.end_date)}</div>
-                      {t.location?.trim() && (
-                        <div className="text-xs text-zinc-500">{t.location}</div>
+                <Link key={t.id} href={`/tournaments/${t.id}`}>
+                  <Card
+                    className={`overflow-hidden transition hover:-translate-y-1 hover:shadow-2xl ${
+                      isRecentlyCreated ? "ring-2 ring-emerald-300 shadow-emerald-200/40" : ""
+                    }`}
+                  >
+                    {/* Visual area */}
+                    <div className={`relative flex h-40 items-center justify-center ${cardConfig.bg}`}>
+                      {cardType === "tournament" && (
+                        <svg className={`h-20 w-20 ${cardConfig.iconColor}`} fill="none" viewBox="0 0 24 24" strokeWidth={1} stroke="currentColor" aria-hidden>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 18.75h-9m9 0a3 3 0 013 3h-15a3 3 0 013-3m9 0v-3.375c0-.621-.503-1.125-1.125-1.125h-.871M7.5 18.75v-3.375c0-.621.504-1.125 1.125-1.125h.872m5.007 0H9.497m5.007 0a7.454 7.454 0 01-.982-3.172M9.497 14.25a7.454 7.454 0 00.981-3.172M5.25 4.236c-.982.143-1.954.317-2.916.52A6.003 6.003 0 007.73 9.728M5.25 4.236V4.5c0 2.108.966 3.99 2.48 5.228M5.25 4.236V2.721C7.456 2.41 9.71 2.25 12 2.25c2.291 0 4.545.16 6.75.47v1.516M7.73 9.728a6.726 6.726 0 002.748 1.35M18.75 4.236c.982.143 1.954.317 2.916.52a6.003 6.003 0 01-5.395 4.972M18.75 4.236V4.5a9.02 9.02 0 01-2.48 5.228m2.48-5.492a23.278 23.278 0 00-2.48.492m-8.52 0a7.454 7.454 0 00-.982 3.172" />
+                        </svg>
                       )}
-                      <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                      {cardType === "league" && (
+                        <svg className={`h-20 w-20 ${cardConfig.iconColor}`} fill="none" viewBox="0 0 24 24" strokeWidth={1} stroke="currentColor" aria-hidden>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 12h16.5m-16.5 3.75h16.5M3.75 19.5h16.5M5.625 4.5h12.75a1.875 1.875 0 010 3.75H5.625a1.875 1.875 0 010-3.75z" />
+                        </svg>
+                      )}
+                      {cardType === "flash" && (
+                        <svg className={`h-20 w-20 ${cardConfig.iconColor}`} fill="none" viewBox="0 0 24 24" strokeWidth={1} stroke="currentColor" aria-hidden>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" />
+                        </svg>
+                      )}
+                      <div className="absolute top-3 right-3">
+                        <StatusBadge status={tournamentStatus} />
+                      </div>
+                      {isRecentlyCreated && (
+                        <div className="absolute top-3 left-3">
+                          <span className="rounded-full bg-emerald-500 px-2 py-0.5 text-[10px] font-semibold text-white shadow-sm">
+                            Nuevo
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                    {/* Info area */}
+                    <div className="p-4 space-y-1">
+                      <div className="text-sm font-semibold leading-snug">{t.name}</div>
+                      {dateLabel !== "Sin fecha" && (
+                        <div className="text-xs text-zinc-500">{dateLabel}</div>
+                      )}
+                      <div className="text-[11px] font-medium uppercase tracking-wide text-zinc-400">
                         {competitionTypeLabel(t.competition_type)}
+                        {t.courts_count != null && t.courts_count > 0 && (
+                          <span className="ml-1.5 normal-case tracking-normal">
+                            · {t.courts_count} {t.courts_count === 1 ? "cancha" : "canchas"}
+                          </span>
+                        )}
                       </div>
                     </div>
-                    <div className="space-y-2 text-right">
-                      <StatusBadge status={tournamentStatus} />
-                      <div className="text-zinc-400">→</div>
+                    {/* Footer */}
+                    <div className={`border-t px-4 py-2.5 text-xs text-right font-medium ${
+                      isRecentlyCreated
+                        ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                        : "border-zinc-100 bg-zinc-50/50 text-zinc-400"
+                    }`}>
+                      Ver competencia →
                     </div>
-                  </div>
-                  {isRecentlyCreated && (
-                    <div className="border-t border-emerald-200 bg-emerald-50 px-5 py-2 text-xs font-medium text-emerald-700">
-                      Recién creado
-                    </div>
-                  )}
-                </Card>
-              </Link>
+                  </Card>
+                </Link>
               );
             })
           )}
         </div>
+
+        {/* Paginación */}
+        {!loading && totalPages > 1 && (
+          <div className="flex items-center justify-center gap-1.5 pt-2">
+            <button
+              type="button"
+              onClick={() => setPage((p) => p - 1)}
+              disabled={page === 1}
+              className="rounded-full border border-zinc-600 px-3 py-1 text-xs font-medium text-zinc-400 transition hover:border-zinc-400 hover:text-zinc-200 disabled:opacity-30 disabled:cursor-not-allowed"
+            >
+              ←
+            </button>
+            {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => (
+              <button
+                key={p}
+                type="button"
+                onClick={() => setPage(p)}
+                className={`rounded-full border px-3 py-1 text-xs font-medium transition ${
+                  p === page
+                    ? "border-zinc-100 bg-white text-zinc-900"
+                    : "border-zinc-600 bg-transparent text-zinc-400 hover:border-zinc-400 hover:text-zinc-200"
+                }`}
+              >
+                {p}
+              </button>
+            ))}
+            <button
+              type="button"
+              onClick={() => setPage((p) => p + 1)}
+              disabled={page === totalPages}
+              className="rounded-full border border-zinc-600 px-3 py-1 text-xs font-medium text-zinc-400 transition hover:border-zinc-400 hover:text-zinc-200 disabled:opacity-30 disabled:cursor-not-allowed"
+            >
+              →
+            </button>
+          </div>
+        )}
       </div>
 
     </div>

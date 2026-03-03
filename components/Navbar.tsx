@@ -81,7 +81,7 @@ export default function Navbar() {
           {!isAdmin && (
             <Link
               href="/soporte"
-              className="inline-flex items-center justify-center rounded-xl border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-900 transition hover:bg-zinc-50"
+              className="hidden sm:inline-flex items-center justify-center rounded-xl border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-900 transition hover:bg-zinc-50"
             >
               Soporte
             </Link>
@@ -95,9 +95,8 @@ export default function Navbar() {
             Mi cuenta
           </Button>
           {!isAdmin && (
-            <div className="flex items-center gap-2 text-xs text-zinc-500">
-              <span className="hidden sm:inline">Estado de la cuenta</span>
-              <span className="sm:hidden">Cuenta</span>
+            <div className="hidden sm:flex items-center gap-2 text-xs text-zinc-500">
+              <span>Estado de la cuenta</span>
               {accountStatus ? (
                 <span
                   className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
@@ -113,7 +112,7 @@ export default function Navbar() {
               )}
               {daysUntilExpiry === 5 && (
                 <span className="text-amber-700">
-                  Faltan 5 dias para el vencimiento de tu plan.
+                  Faltan 5 días para el vencimiento de tu plan.
                 </span>
               )}
             </div>
@@ -153,6 +152,31 @@ export default function Navbar() {
                 </>
               ) : (
                 <>
+                  <div className="px-3 py-2.5 border-b border-zinc-100 mb-1">
+                    <div className="text-[11px] text-zinc-400 mb-1.5">Estado de la cuenta</div>
+                    <div className="flex items-center gap-2">
+                      {accountStatus ? (
+                        <span
+                          className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
+                            accountStatus === "active"
+                              ? "bg-emerald-100 text-emerald-700"
+                              : "bg-red-100 text-red-700"
+                          }`}
+                        >
+                          {accountStatus === "active" ? "Activa" : "Inactiva"}
+                        </span>
+                      ) : (
+                        <span className="text-xs text-zinc-400">—</span>
+                      )}
+                    </div>
+                    {daysUntilExpiry !== null && daysUntilExpiry <= 5 && daysUntilExpiry >= 0 && (
+                      <div className="mt-1.5 text-[11px] text-amber-700">
+                        {daysUntilExpiry === 0
+                          ? "Tu plan vence hoy."
+                          : `Faltan ${daysUntilExpiry} día${daysUntilExpiry === 1 ? "" : "s"} para el vencimiento.`}
+                      </div>
+                    )}
+                  </div>
                   <Link
                     className="block rounded-lg px-3 py-2 text-sm text-zinc-800 hover:bg-zinc-50"
                     href="/profile"
@@ -180,6 +204,13 @@ export default function Navbar() {
                     onClick={() => setMenuOpen(false)}
                   >
                     Competencias
+                  </Link>
+                  <Link
+                    className="block sm:hidden rounded-lg px-3 py-2 text-sm text-zinc-800 hover:bg-zinc-50"
+                    href="/soporte"
+                    onClick={() => setMenuOpen(false)}
+                  >
+                    Soporte
                   </Link>
                 </>
               )}
