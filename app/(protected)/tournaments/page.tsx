@@ -9,7 +9,7 @@ import Modal from "@/components/ui/Modal";
 import StatusBadge from "@/components/StatusBadge";
 import { api, ApiError } from "@/lib/api";
 import { clearToken } from "@/lib/auth";
-import type { Tournament, TournamentStatus, TournamentStatusResponse } from "@/lib/types";
+import type { Tournament, TournamentStatus } from "@/lib/types";
 import { useRouter } from "next/navigation";
 
 type TournamentFieldErrors = {
@@ -248,20 +248,10 @@ export default function TournamentsPage() {
       const data = await api<Tournament[]>("/tournaments");
       setItems(data);
 
-      const statuses = await Promise.all(
-        data.map(async (tournament) => {
-          try {
-            const status = await api<TournamentStatusResponse>(
-              `/tournaments/${tournament.id}/status`
-            );
-            return [tournament.id, status.status] as const;
-          } catch {
-            return [tournament.id, "upcoming"] as const;
-          }
-        })
+      const statusMap = Object.fromEntries(
+        data.map((t) => [t.id, (t.status ?? "upcoming") as TournamentStatus] as const)
       );
-
-      setStatusByTournamentId(Object.fromEntries(statuses));
+      setStatusByTournamentId(statusMap);
     } catch (err: unknown) {
       if (err instanceof ApiError && err.status === 401) {
         clearToken();
