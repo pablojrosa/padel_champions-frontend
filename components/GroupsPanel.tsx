@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useEffect } from "react";
+import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import Card from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
@@ -82,9 +82,14 @@ type Props = {
   defaultEndTime: string;
   defaultMatchDurationMinutes: number;
   defaultCourtsCount: number;
+  onAllGroupsGenerated?: () => void;
 };
 
-export default function GroupsPanel({
+export type GroupsPanelHandle = {
+  openGenerateModal: () => void;
+};
+
+const GroupsPanel = forwardRef<GroupsPanelHandle, Props>(function GroupsPanel({
   tournamentId,
   competitionType,
   status,
@@ -102,7 +107,8 @@ export default function GroupsPanel({
   defaultEndTime,
   defaultMatchDurationMinutes,
   defaultCourtsCount,
-}: Props) {
+  onAllGroupsGenerated,
+}: Props, ref) {
   const disabled = status !== "upcoming";
   const aiEnabled = competitionType === "tournament";
 
@@ -127,6 +133,7 @@ export default function GroupsPanel({
   const [generateCourtsCount, setGenerateCourtsCount] = useState(defaultCourtsCount);
   const [generateError, setGenerateError] = useState<string | null>(null);
   const [generateSuccess, setGenerateSuccess] = useState<string | null>(null);
+  const [showAllGeneratedNotice, setShowAllGeneratedNotice] = useState(false);
   const [activeGeneration, setActiveGeneration] = useState<"ai" | "manual" | null>(null);
   const [aiDots, setAiDots] = useState(".");
   const [manualOpen, setManualOpen] = useState(false);
@@ -300,6 +307,7 @@ export default function GroupsPanel({
   }, [teams, persistedAssignedTeamIds]);
   const allDivisionsGenerated =
     teams.length > 0 && groups.length > 0 && persistedMissingByDivision.length === 0;
+  const prevAllDivisionsGeneratedRef = useRef(allDivisionsGenerated);
   const generationLockedMessage =
     "Ya generaste el 100% de las zonas posibles. Si queres ajustar, move parejas entre zonas.";
   const firstPendingDivision = manualMissingByDivision[0] ?? null;
@@ -372,6 +380,17 @@ export default function GroupsPanel({
     return true;
   }, [manualZones, manualTeamsById]);
 
+  useImperativeHandle(
+    ref,
+    () => ({
+      openGenerateModal: () => {
+        if (disabled || generating || allDivisionsGenerated) return;
+        setManualOpen(true);
+      },
+    }),
+    [disabled, generating, allDivisionsGenerated]
+  );
+
   useEffect(() => {
     if (!generateOpen) return;
     setGenerateScheduleWindows([
@@ -410,6 +429,30 @@ export default function GroupsPanel({
       prev.filter((teamId) => filteredManualTeamIds.has(teamId))
     );
   }, [filteredManualTeamIds]);
+  useEffect(() => {
+    if (!manualOpen || !allDivisionsGenerated || !generateSuccess) return;
+    const timeoutId = window.setTimeout(() => {
+      setManualOpen(false);
+    }, 1500);
+    return () => window.clearTimeout(timeoutId);
+  }, [manualOpen, allDivisionsGenerated, generateSuccess]);
+  useEffect(() => {
+    if (!allDivisionsGenerated || !generateSuccess) return;
+    onAllGroupsGenerated?.();
+  }, [allDivisionsGenerated, generateSuccess, onAllGroupsGenerated]);
+  useEffect(() => {
+    if (!prevAllDivisionsGeneratedRef.current && allDivisionsGenerated) {
+      setShowAllGeneratedNotice(true);
+    }
+    prevAllDivisionsGeneratedRef.current = allDivisionsGenerated;
+  }, [allDivisionsGenerated]);
+  useEffect(() => {
+    if (!showAllGeneratedNotice) return;
+    const timeoutId = window.setTimeout(() => {
+      setShowAllGeneratedNotice(false);
+    }, 4000);
+    return () => window.clearTimeout(timeoutId);
+  }, [showAllGeneratedNotice]);
 
   function updateScheduleWindow(
     index: number,
@@ -1004,6 +1047,21 @@ export default function GroupsPanel({
                 ? "Genera zonas manualmente o en forma automatica con IA"
                 : "Genera zonas manualmente. La IA se usa solo en competencias tipo torneo."}
             </div>
+            <div
+              className={`mt-2 inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-semibold ${
+                allDivisionsGenerated
+                  ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                  : "border-amber-200 bg-amber-50 text-amber-700"
+              }`}
+            >
+              <span
+                className={`h-1.5 w-1.5 rounded-full ${
+                  allDivisionsGenerated ? "bg-emerald-500" : "bg-amber-500"
+                }`}
+                aria-hidden="true"
+              />
+              {allDivisionsGenerated ? "Zonas generadas" : "Zonas pendientes"}
+            </div>
           </div>
           <div className="flex flex-wrap items-center gap-3">
             <div className="flex items-center gap-2">
@@ -1060,7 +1118,7 @@ export default function GroupsPanel({
             {generateSuccess}
           </div>
         )}
-        {allDivisionsGenerated && (
+        {showAllGeneratedNotice && (
           <div className="rounded-xl border border-emerald-300 bg-emerald-100 p-3 text-sm text-emerald-900">
             Perfecto: ya generaste todas las zonas para todas las categorias y generos.
           </div>
@@ -1756,4 +1814,6 @@ export default function GroupsPanel({
       </Modal>
     </Card>
   );
-}
+});
+
+export default GroupsPanel;

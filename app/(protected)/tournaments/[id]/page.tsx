@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import * as XLSX from "xlsx";
 import Card from "@/components/ui/Card";
@@ -11,7 +11,7 @@ import { api, ApiError, apiMaybe } from "@/lib/api";
 import { clearToken } from "@/lib/auth";
 import type { Player, Team, Tournament } from "@/lib/types";
 import StatusBadge from "@/components/StatusBadge";
-import GroupsPanel from "@/components/GroupsPanel";
+import GroupsPanel, { type GroupsPanelHandle } from "@/components/GroupsPanel";
 import type { TournamentGroupOut } from "@/lib/types";
 import type {
   TournamentStatus,
@@ -80,6 +80,34 @@ function formatDate(value: string | null | undefined) {
   return dateFormatter.format(parsed);
 }
 
+function CompetitionTypeIcon({
+  type,
+  className = "",
+}: {
+  type: CompetitionType;
+  className?: string;
+}) {
+  if (type === "league") {
+    return (
+      <svg className={className} fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" aria-hidden>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 12h16.5m-16.5 3.75h16.5M3.75 19.5h16.5M5.625 4.5h12.75a1.875 1.875 0 010 3.75H5.625a1.875 1.875 0 010-3.75z" />
+      </svg>
+    );
+  }
+  if (type === "flash") {
+    return (
+      <svg className={className} fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" aria-hidden>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" />
+      </svg>
+    );
+  }
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" aria-hidden>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 18.75h-9m9 0a3 3 0 013 3h-15a3 3 0 013-3m9 0v-3.375c0-.621-.503-1.125-1.125-1.125h-.871M7.5 18.75v-3.375c0-.621.504-1.125 1.125-1.125h.872m5.007 0H9.497m5.007 0a7.454 7.454 0 01-.982-3.172M9.497 14.25a7.454 7.454 0 00.981-3.172M5.25 4.236c-.982.143-1.954.317-2.916.52A6.003 6.003 0 007.73 9.728M5.25 4.236V4.5c0 2.108.966 3.99 2.48 5.228M5.25 4.236V2.721C7.456 2.41 9.71 2.25 12 2.25c2.291 0 4.545.16 6.75.47v1.516M7.73 9.728a6.726 6.726 0 002.748 1.35M18.75 4.236c.982.143 1.954.317 2.916.52a6.003 6.003 0 01-5.395 4.972M18.75 4.236V4.5a9.02 9.02 0 01-2.48 5.228m2.48-5.492a23.278 23.278 0 00-2.48.492m-8.52 0a7.454 7.454 0 00-.982 3.172" />
+    </svg>
+  );
+}
+
 export default function TournamentDetailPage() {
   const router = useRouter();
   const params = useParams<IdParam>();
@@ -115,6 +143,7 @@ export default function TournamentDetailPage() {
     failed: number;
   } | null>(null);
   const importInputRef = useRef<HTMLInputElement | null>(null);
+  const groupsPanelRef = useRef<GroupsPanelHandle | null>(null);
 
   // Delete team from tournament
   const [deletingTeamId, setDeletingTeamId] = useState<number | null>(null);
@@ -823,11 +852,12 @@ async function load(options?: { silent?: boolean }) {
   }
 
   async function startTournament() {
-    const competitionType = (tournament?.competition_type ?? "tournament") as CompetitionType;
     const confirmed = window.confirm(
       competitionType === "flash"
         ? "¿Iniciar relámpago?\n\nSe va a generar el listado ordenado de partidos por cancha."
-        : "¿Iniciar competencia?\n\nUna vez iniciada, no vas a poder editar jugadores/equipos."
+        : competitionType === "league"
+        ? "¿Iniciar liga?\n\nUna vez iniciada, no vas a poder editar los equipos."
+        : "¿Iniciar torneo?\n\nUna vez iniciado, no vas a poder editar jugadores/equipos."
     );
     if (!confirmed) return;
   
@@ -1027,6 +1057,18 @@ async function load(options?: { silent?: boolean }) {
   const defaultMatchDurationMinutes = tournament?.match_duration_minutes ?? 90;
   const defaultCourtsCount = tournament?.courts_count ?? 1;
   const competitionType = (tournament?.competition_type ?? "tournament") as CompetitionType;
+  const competitionTypeDisplayLabel =
+    competitionType === "league"
+      ? "Liga"
+      : competitionType === "flash"
+      ? "Relámpago"
+      : "Torneo";
+  const startLabel =
+    competitionType === "league"
+      ? "Iniciar liga"
+      : competitionType === "flash"
+      ? "Iniciar relámpago"
+      : "Iniciar torneo";
   const minTeamsRequired = competitionType === "flash" ? 2 : 1;
   const hasRequiredTeams = teams.length >= minTeamsRequired;
   const hasGeneratedGroups = groups.length > 0;
@@ -1034,11 +1076,14 @@ async function load(options?: { silent?: boolean }) {
   const canStartTournament =
     status === "upcoming" && hasRequiredGroups && hasRequiredTeams;
 
-  function scrollToSection(sectionId: string) {
+  const scrollToSection = useCallback((sectionId: string) => {
     const section = document.getElementById(sectionId);
     if (!section) return;
     section.scrollIntoView({ behavior: "smooth", block: "start" });
-  }
+  }, []);
+  const scrollToStartChecklist = useCallback(() => {
+    scrollToSection("start-tournament-section");
+  }, [scrollToSection]);
 
   const readinessItems = [
     {
@@ -1056,20 +1101,30 @@ async function load(options?: { silent?: boolean }) {
       key: "groups",
       label:
         competitionType === "flash"
-          ? "Zonas creadas"
-          : "Zonas generadas",
+          ? hasGeneratedGroups
+            ? "Zonas creadas"
+            : "Creá las zonas"
+          : hasGeneratedGroups
+          ? "Zonas generadas"
+          : "Generá las zonas",
       done: hasGeneratedGroups,
       countInPending: true,
       actionLabel:
         competitionType === "flash" ? "Crear zonas" : "Ir a zonas",
-      onAction: () => scrollToSection("groups-panel"),
+      onAction: () => {
+        if (groupsPanelRef.current) {
+          groupsPanelRef.current.openGenerateModal();
+          return;
+        }
+        scrollToSection("groups-panel");
+      },
     },
     {
       key: "status",
       label: "Estado listo para iniciar",
       done: canStartTournament,
       countInPending: false,
-      actionLabel: "Iniciar competencia",
+      actionLabel: startLabel,
       onAction: startTournament,
     },
   ];
@@ -1094,6 +1149,22 @@ async function load(options?: { silent?: boolean }) {
           </div>
           <h1 className="text-3xl font-semibold">Detalle de la competencia</h1>
           <p className="text-sm text-zinc-300">Equipos, zonas y estado general.</p>
+          <div className="space-y-1">
+            <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
+              Formato actual
+            </div>
+            <div
+              className="inline-flex items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-1.5"
+              aria-label={`Formato actual: ${competitionTypeDisplayLabel}`}
+            >
+              <span className="inline-flex h-6 w-6 items-center justify-center rounded-md bg-zinc-100 text-zinc-700">
+                <CompetitionTypeIcon type={competitionType} className="h-3.5 w-3.5" />
+              </span>
+              <span className="text-xs font-semibold text-zinc-800">
+                {competitionTypeDisplayLabel}
+              </span>
+            </div>
+          </div>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
@@ -1492,43 +1563,31 @@ async function load(options?: { silent?: boolean }) {
 
           {status === "upcoming" && (
             <Card className="bg-white/95">
-              <div className="p-6 space-y-4">
-                <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                  <div className="flex-1 space-y-3">
-                    <div className="space-y-1">
-                      <div className="text-sm font-semibold text-zinc-800">
-                        Checklist para iniciar competencia
-                      </div>
-                      <div className="text-xs text-zinc-600">
-                        {pendingReadinessCount === 0
-                          ? "Todo listo. Ya podés iniciar la competencia."
-                          : `Faltan ${pendingReadinessCount} requisito(s) para iniciar.`}
-                      </div>
+              <div id="start-tournament-section" className="p-6 space-y-4">
+                <div className="space-y-3">
+                  <div className="space-y-1">
+                    <div className="text-sm font-semibold text-zinc-800">
+                      Checklist para iniciar {competitionType === "league" ? "liga" : competitionType === "flash" ? "relámpago" : "torneo"}
                     </div>
-                    <div className="space-y-1">
-                      <div className="flex items-center justify-between text-xs text-zinc-500">
-                        <span>Progreso de inicio</span>
-                        <span>
-                          {readinessDoneCount}/{readinessItems.length}
-                        </span>
-                      </div>
-                      <div className="h-2 rounded-full bg-zinc-200">
-                        <div
-                          className="h-full rounded-full bg-emerald-500 transition-all"
-                          style={{ width: `${readinessProgress}%` }}
-                        />
-                      </div>
+                    <div className="text-xs text-zinc-600">
+                      {pendingReadinessCount === 0
+                        ? `Todo listo. Ya podés ${startLabel.toLowerCase()}.`
+                        : `Faltan ${pendingReadinessCount} requisito(s) para iniciar.`}
                     </div>
                   </div>
-
-                  <div className="lg:pl-4">
-                    <Button
-                      onClick={startTournament}
-                      disabled={startingTournament || !canStartTournament}
-                      className="w-full lg:w-auto"
-                    >
-                      {startingTournament ? "Iniciando..." : "Iniciar competencia"}
-                    </Button>
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between text-xs text-zinc-500">
+                      <span>Progreso de inicio</span>
+                      <span>
+                        {readinessDoneCount}/{readinessItems.length}
+                      </span>
+                    </div>
+                    <div className="h-2 rounded-full bg-zinc-200">
+                      <div
+                        className="h-full rounded-full bg-emerald-500 transition-all"
+                        style={{ width: `${readinessProgress}%` }}
+                      />
+                    </div>
                   </div>
                 </div>
 
@@ -1562,10 +1621,20 @@ async function load(options?: { silent?: boolean }) {
                           </span>
                         </div>
                         {item.key === "status" ? (
-                          <div className="mt-2 text-xs text-zinc-600">
-                            {canStartTournament
-                              ? "Inicio habilitado. Usá el botón principal."
-                              : "Completá los pasos anteriores para habilitarlo."}
+                          <div className="mt-2">
+                            {canStartTournament ? (
+                              <Button
+                                onClick={startTournament}
+                                disabled={startingTournament}
+                                className="w-full"
+                              >
+                                {startingTournament ? "Iniciando..." : startLabel}
+                              </Button>
+                            ) : (
+                              <p className="text-xs text-zinc-500">
+                                Completá los pasos anteriores para habilitarlo.
+                              </p>
+                            )}
                           </div>
                         ) : !item.done && (
                           <div className="mt-2">
@@ -1981,6 +2050,7 @@ async function load(options?: { silent?: boolean }) {
             {/* Zonas / Grupos */}
             <div id="groups-panel" className="md:col-span-2">
             <GroupsPanel
+              ref={groupsPanelRef}
               tournamentId={tournamentId}
               competitionType={competitionType}
               status={status}
@@ -1998,6 +2068,7 @@ async function load(options?: { silent?: boolean }) {
               defaultEndTime={defaultEndTime}
               defaultMatchDurationMinutes={defaultMatchDurationMinutes}
               defaultCourtsCount={defaultCourtsCount}
+              onAllGroupsGenerated={scrollToStartChecklist}
             />
 
             </div>
@@ -2005,20 +2076,22 @@ async function load(options?: { silent?: boolean }) {
           </div>
 
           <Card className="bg-white/95">
-            <div className="p-4">
-              <div className="rounded-2xl border border-red-200 bg-red-50 p-3">
-                <div className="text-xs font-semibold uppercase tracking-wide text-red-700">
-                  Zona de peligro
-                </div>
-                <div className="mt-1 text-sm text-red-700">
-                  Esta accion elimina la competencia y sus datos asociados.
-                </div>
-                <div className="mt-3 flex justify-end">
+            <div className="p-3">
+              <div className="rounded-2xl border border-red-200 bg-red-50 px-3 py-2.5">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="space-y-0.5">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-red-700">
+                      Zona de peligro
+                    </div>
+                    <div className="text-sm text-red-700">
+                      Esta accion elimina la competencia y sus datos asociados.
+                    </div>
+                  </div>
                   <Button
                     variant="secondary"
                     onClick={deleteTournament}
                     disabled={deletingTournament}
-                    className="!border-red-300 !bg-red-50 !text-red-700 font-semibold hover:!bg-red-100"
+                    className="!border-red-300 !bg-red-50 !text-red-700 font-semibold hover:!bg-red-100 sm:shrink-0"
                   >
                     {deletingTournament ? "Eliminando..." : "Eliminar competencia"}
                   </Button>
