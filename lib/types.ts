@@ -23,6 +23,7 @@ export type Tournament = {
   club_name?: string | null;
   club_location?: string | null;
   club_logo_url?: string | null;
+  status?: TournamentStatus;
 };
 
 export type Team = {

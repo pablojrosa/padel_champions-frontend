@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import Card from "@/components/ui/Card";
 import { api, ApiError } from "@/lib/api";
 import { clearToken, getIsAdmin } from "@/lib/auth";
-import type { AdminUser, Player, Tournament, TournamentStatusResponse } from "@/lib/types";
+import type { AdminUser, Player, Tournament } from "@/lib/types";
 
 type DashboardStats = {
   ongoing: number;
@@ -43,15 +43,8 @@ export default function DashboardPage() {
           api<Player[]>("/players"),
         ]);
 
-        const statuses = await Promise.all(
-          tournaments.map((tournament) =>
-            api<TournamentStatusResponse>(`/tournaments/${tournament.id}/status`)
-          )
-        );
-
         if (!mounted) return;
-        const ongoing = statuses.filter((item) => item.status === "ongoing")
-          .length;
+        const ongoing = tournaments.filter((t) => t.status === "ongoing").length;
 
         setStats({
           ongoing,
