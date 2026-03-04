@@ -150,17 +150,13 @@ export default function TournamentsPage() {
   const [pageError, setPageError] = useState<string | null>(null);
   const [createError, setCreateError] = useState<string | null>(null);
 
-  const defaultDescription = defaultDescriptionByType.tournament;
-
   const [name, setName] = useState("");
   const [competitionType, setCompetitionType] = useState<CompetitionType>("tournament");
   const currentTypeDefaultDescription = defaultDescriptionByType[competitionType];
-  const [description, setDescription] = useState(defaultDescription);
   const [matchDurationMinutes, setMatchDurationMinutes] = useState("90");
   const [courtsCount, setCourtsCount] = useState("1");
   const [creating, setCreating] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<TournamentFieldErrors>({});
-  const [showOptionalRules, setShowOptionalRules] = useState(false);
   const [showStandardRulesPreview, setShowStandardRulesPreview] = useState(false);
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [createFlowStep, setCreateFlowStep] = useState<CreateFlowStep>(1);
@@ -175,15 +171,12 @@ export default function TournamentsPage() {
   const [page, setPage] = useState(1);
 
   const [recentlyCreatedId, setRecentlyCreatedId] = useState<number | null>(null);
-  const [stepCompletedMessage, setStepCompletedMessage] = useState<string | null>(null);
 
   function resetCreateDraft() {
     setName("");
     setCompetitionType("tournament");
-    setDescription(defaultDescription);
     setMatchDurationMinutes("90");
     setCourtsCount("1");
-    setShowOptionalRules(false);
     setShowStandardRulesPreview(false);
     setFieldErrors({});
     setCreateError(null);
@@ -195,7 +188,6 @@ export default function TournamentsPage() {
     setFieldErrors({});
     setCreateError(null);
     setLastCreatedTournament(null);
-    setStepCompletedMessage(null);
   }
 
   function closeCreateModal() {
@@ -204,7 +196,6 @@ export default function TournamentsPage() {
     setFieldErrors({});
     setCreateError(null);
     setLastCreatedTournament(null);
-    setStepCompletedMessage(null);
   }
 
   function validateCreateStep(step: 1 | 2) {
@@ -276,12 +267,6 @@ export default function TournamentsPage() {
   }, [recentlyCreatedId]);
 
   useEffect(() => {
-    if (!stepCompletedMessage) return;
-    const timeoutId = window.setTimeout(() => setStepCompletedMessage(null), 2500);
-    return () => window.clearTimeout(timeoutId);
-  }, [stepCompletedMessage]);
-
-  useEffect(() => {
     setPage(1);
   }, [search, statusFilter, sortBy]);
 
@@ -348,11 +333,7 @@ export default function TournamentsPage() {
         body: {
           name: trimmedName,
           competition_type: competitionType,
-          description: showOptionalRules
-            ? description.trim() || null
-            : competitionType !== "flash"
-            ? currentTypeDefaultDescription
-            : null,
+          description: currentTypeDefaultDescription,
           location: null,
           match_duration_minutes:
             competitionType === "tournament"
@@ -400,7 +381,6 @@ export default function TournamentsPage() {
     if (createFlowStep === 1) {
       if (!validateCreateStep(1)) return;
       setFieldErrors((prev) => ({ ...prev, name: undefined }));
-      setStepCompletedMessage("Nombre guardado");
       if (competitionType === "league") {
         setCreateFlowStep(3);
         return;
@@ -416,13 +396,11 @@ export default function TournamentsPage() {
         matchDurationMinutes: undefined,
         courtsCount: undefined,
       }));
-      setStepCompletedMessage("Formato configurado");
       setCreateFlowStep(3);
       return;
     }
 
     if (createFlowStep === 3) {
-      setStepCompletedMessage("Reglas definidas");
       setCreateFlowStep(4);
       return;
     }
@@ -436,7 +414,6 @@ export default function TournamentsPage() {
 
   function handleCreateFlowBack() {
     if (createFlowStep <= 1 || createFlowStep === 5) return;
-    setStepCompletedMessage(null);
     if (competitionType === "league" && createFlowStep === 3) {
       setCreateFlowStep(1);
       return;
@@ -456,9 +433,6 @@ export default function TournamentsPage() {
           <h1 className="text-3xl font-semibold">Competencias</h1>
           <p className="text-sm text-zinc-300">Creá y administrá tus competencias.</p>
         </div>
-        <Button variant="green" onClick={openCreateModal} className="gap-2 md:w-auto">
-          + Nueva competencia
-        </Button>
       </div>
 
       {pageError && !createModalOpen && (
@@ -530,15 +504,6 @@ export default function TournamentsPage() {
             </div>
           )}
 
-          {stepCompletedMessage && createFlowStep !== 1 && createFlowStep !== 5 && (
-            <div className="flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-700">
-              <svg className="h-3.5 w-3.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" aria-hidden>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
-              </svg>
-              {stepCompletedMessage}
-            </div>
-          )}
-
           {createFlowStep === 1 && (
             <div className="space-y-4">
               <div className="space-y-1">
@@ -571,8 +536,6 @@ export default function TournamentsPage() {
                         type="button"
                         onClick={() => {
                           setCompetitionType(option.value);
-                          setDescription(defaultDescriptionByType[option.value]);
-                          setShowOptionalRules(false);
                           setShowStandardRulesPreview(false);
                           setFieldErrors((prev) => ({
                             ...prev,
@@ -691,68 +654,32 @@ export default function TournamentsPage() {
 
           {createFlowStep === 3 && (
             <div className="space-y-4">
-              <div className="grid gap-2 md:grid-cols-2">
-                <button
-                  type="button"
-                  onClick={() => setShowOptionalRules(false)}
-                  className={`rounded-xl border p-3 text-left transition-all duration-200 ${
-                    !showOptionalRules
-                      ? "border-zinc-900 bg-zinc-900 text-white"
-                      : "border-zinc-200 bg-white text-zinc-700 hover:border-zinc-400 hover:bg-zinc-50"
-                  }`}
-                >
-                  <div className="text-sm font-semibold">Reglas estándar</div>
-                  <p className={`mt-1 text-xs ${!showOptionalRules ? "text-zinc-300" : "text-zinc-500"}`}>
-                    Recomendado para arrancar rápido y editar después.
-                  </p>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setShowOptionalRules(true)}
-                  className={`rounded-xl border p-3 text-left transition-all duration-200 ${
-                    showOptionalRules
-                      ? "border-zinc-900 bg-zinc-900 text-white"
-                      : "border-zinc-200 bg-white text-zinc-700 hover:border-zinc-400 hover:bg-zinc-50"
-                  }`}
-                >
-                  <div className="text-sm font-semibold">Editar las reglas</div>
-                  <p className={`mt-1 text-xs ${showOptionalRules ? "text-zinc-300" : "text-zinc-500"}`}>
-                    Modificá los criterios o condiciones especiales.
-                  </p>
-                </button>
+              <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-3">
+                <div className="text-sm font-semibold text-zinc-900">Reglas del formato</div>
+                <p className="mt-1 text-xs text-zinc-600">
+                  Esta competencia se jugará con las reglas estándar.
+                </p>
               </div>
 
-              {!showOptionalRules && (
-                <button
-                  type="button"
-                  onClick={() => setShowStandardRulesPreview((prev) => !prev)}
-                  className="flex items-center gap-1 text-xs text-zinc-500 hover:text-zinc-800 underline underline-offset-2 transition-colors"
-                >
-                  <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" aria-hidden>
-                    <path strokeLinecap="round" strokeLinejoin="round" d={showStandardRulesPreview ? "M4.5 15.75l7.5-7.5 7.5 7.5" : "M19.5 8.25l-7.5 7.5-7.5-7.5"} />
-                  </svg>
-                  {showStandardRulesPreview ? "Ocultar reglas estándar" : "Ver qué incluyen las reglas estándar"}
-                </button>
-              )}
+              <button
+                type="button"
+                onClick={() => setShowStandardRulesPreview((prev) => !prev)}
+                className="flex items-center gap-1 text-xs text-zinc-500 hover:text-zinc-800 underline underline-offset-2 transition-colors"
+              >
+                <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" aria-hidden>
+                  <path strokeLinecap="round" strokeLinejoin="round" d={showStandardRulesPreview ? "M4.5 15.75l7.5-7.5 7.5 7.5" : "M19.5 8.25l-7.5 7.5-7.5-7.5"} />
+                </svg>
+                {showStandardRulesPreview ? "Ocultar reglas" : "Ver reglas"}
+              </button>
 
-              {!showOptionalRules && showStandardRulesPreview && (
+              {showStandardRulesPreview && (
                 <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-3 space-y-1">
                   <pre className="whitespace-pre-wrap font-sans text-xs text-zinc-500">{currentTypeDefaultDescription}</pre>
                 </div>
               )}
 
-              {showOptionalRules && (
-                <textarea
-                  className="w-full rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 outline-none focus:border-zinc-900 focus:ring-2 focus:ring-zinc-900/20"
-                  placeholder="Descripción / reglas de la competencia"
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  rows={7}
-                />
-              )}
-
               <p className="text-xs text-zinc-400">
-                Podés modificar las reglas en cualquier momento desde la competencia.
+                Podés revisar el detalle completo de las reglas en esta sección.
               </p>
             </div>
           )}
@@ -814,33 +741,24 @@ export default function TournamentsPage() {
                   {lastCreatedTournament?.name ?? "Tu competencia"} está lista
                 </div>
                 <p className="mt-1 text-sm text-zinc-500">
-                  La creaste en menos de 1 minuto. Completá los 3 pasos siguientes para poder iniciarla.
+                  La creaste en menos de 1 minuto. El primer paso es cargar las parejas.
                 </p>
               </div>
 
-              <div className="rounded-xl border border-zinc-200 bg-white p-4 space-y-2">
+              <div className="rounded-xl border border-zinc-200 bg-white p-4">
                 <div className="text-xs font-semibold uppercase tracking-[0.15em] text-zinc-400 mb-3">
                   ¿Qué sigue?
                 </div>
-                {[
-                  { num: 1, action: "Cargar parejas", time: "~2 min", desc: "Subí un CSV o ingresalas una por una." },
-                  { num: 2, action: "Generar zonas", time: "~1 min", desc: "La IA organiza los grupos y el fixture." },
-                  { num: 3, action: "Iniciar competencia", time: "~30 seg", desc: "Activá cuando todo esté confirmado." },
-                ].map((s) => (
-                  <div
-                    key={s.num}
-                    className="flex items-center gap-3 rounded-lg border border-zinc-100 bg-zinc-50 px-3 py-2.5"
-                  >
-                    <div className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-zinc-200 text-xs font-bold text-zinc-600">
-                      {s.num}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="text-sm font-medium text-zinc-900">{s.action}</div>
-                      <div className="text-xs text-zinc-500">{s.desc}</div>
-                    </div>
-                    <div className="flex-shrink-0 text-xs text-zinc-400">{s.time}</div>
+                <div className="flex items-center gap-3 rounded-lg border border-zinc-100 bg-zinc-50 px-3 py-2.5">
+                  <div className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-zinc-200 text-xs font-bold text-zinc-600">
+                    1
                   </div>
-                ))}
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm font-medium text-zinc-900">Cargar parejas</div>
+                    <div className="text-xs text-zinc-500">Subí un CSV o ingresalas una por una.</div>
+                  </div>
+                  <div className="flex-shrink-0 text-xs text-zinc-400">~2 min</div>
+                </div>
               </div>
             </div>
           )}
@@ -855,17 +773,7 @@ export default function TournamentsPage() {
             {createFlowStep === 5 ? (
               <>
                 <Button
-                  variant="secondary"
-                  onClick={() => {
-                    resetCreateDraft();
-                    setCreateFlowStep(1);
-                    setLastCreatedTournament(null);
-                    setCreateError(null);
-                  }}
-                >
-                  Crear otra
-                </Button>
-                <Button
+                  className="ml-auto"
                   onClick={() => {
                     if (!lastCreatedTournament) {
                       closeCreateModal();
@@ -920,31 +828,36 @@ export default function TournamentsPage() {
               </span>
             )}
           </div>
-          {!loading && items.length > 0 && (
-            <div className="flex items-center gap-2">
-              <Input
-                id="search-tournaments"
-                placeholder="Buscar..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="w-44"
-              />
-              {items.length >= 3 && (
-                <select
-                  id="sort-by"
-                  value={sortBy}
-                  onChange={(e) => setSortBy(e.target.value as SortOption)}
-                  className="h-10 rounded-xl border border-zinc-600 bg-transparent px-3 text-xs text-zinc-300 outline-none focus:border-zinc-400"
-                >
-                  {sortOptions.map((option) => (
-                    <option key={option.value} value={option.value} className="bg-zinc-800 text-zinc-100">
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              )}
-            </div>
-          )}
+          <div className="flex items-center gap-2">
+            <Button variant="green" onClick={openCreateModal} className="gap-2 whitespace-nowrap">
+              + Nueva competencia
+            </Button>
+            {!loading && items.length > 0 && (
+              <>
+                <Input
+                  id="search-tournaments"
+                  placeholder="Buscar..."
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="w-44"
+                />
+                {items.length >= 3 && (
+                  <select
+                    id="sort-by"
+                    value={sortBy}
+                    onChange={(e) => setSortBy(e.target.value as SortOption)}
+                    className="h-10 rounded-xl border border-zinc-600 bg-transparent px-3 text-xs text-zinc-300 outline-none focus:border-zinc-400"
+                  >
+                    {sortOptions.map((option) => (
+                      <option key={option.value} value={option.value} className="bg-zinc-800 text-zinc-100">
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </>
+            )}
+          </div>
         </div>
 
         {/* Pills de estado (solo si hay competencias) */}
@@ -983,7 +896,7 @@ export default function TournamentsPage() {
               ))}
             </>
           ) : items.length === 0 ? (
-            <Card className="sm:col-span-2 lg:col-span-3 xl:col-span-4 border-2 border-dashed border-zinc-700 bg-transparent shadow-none ring-0">
+            <Card className="sm:col-span-2 lg:col-span-3 xl:col-span-4 border-2 border-dashed border-zinc-700 !bg-zinc-800/40 shadow-none ring-0">
               <div className="p-10 flex flex-col items-center text-center gap-4">
                 <div className="flex h-14 w-14 items-center justify-center rounded-full bg-zinc-800">
                   <svg className="h-7 w-7 text-zinc-400" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" aria-hidden>

@@ -25,6 +25,31 @@ import type {
 type IdParam = { id: string };
 type CompetitionType = "tournament" | "league" | "flash";
 
+const fixedDescriptionByType: Record<CompetitionType, string> = {
+  tournament:
+    "Reglas de la competencia:\n" +
+    "- Partidos al mejor de 3 sets (gana quien llega a 2).\n" +
+    "- Puntos en fase de grupos:\n" +
+    "  - 2-0: 3 pts\n" +
+    "  - 2-1: 2 pts\n" +
+    "  - 1-2: 1 pt\n" +
+    "  - 0-2: 0 pts\n" +
+    "- Criterios de clasificación: puntos, diferencia de sets, diferencia de games.",
+  league:
+    "Reglas de la liga:\n" +
+    "- Partidos al mejor de 3 sets (gana quien llega a 2).\n" +
+    "- Puntos por partido:\n" +
+    "  - Victoria: 3 pts\n" +
+    "  - Derrota: 0 pts\n" +
+    "- Criterios de clasificación: puntos, diferencia de sets, diferencia de games.\n" +
+    "- Formato: todos contra todos (round-robin).",
+  flash:
+    "Reglas del relámpago:\n" +
+    "- Formato de eliminación directa.\n" +
+    "- Partidos al mejor de 3 sets (gana quien llega a 2).\n" +
+    "- Sin fase de grupos: se resuelve en llaves directas.",
+};
+
 const IMPORT_TEMPLATE_HEADERS = [
   "Nombre Jugador 1",
   "Nombre Jugador 2",
@@ -161,6 +186,8 @@ export default function TournamentDetailPage() {
   const [teamsNameQuery, setTeamsNameQuery] = useState("");
 
   const [startingTournament, setStartingTournament] = useState(false);
+  const [confirmStartModalOpen, setConfirmStartModalOpen] = useState(false);
+  const [confirmDeleteModalOpen, setConfirmDeleteModalOpen] = useState(false);
   const [startSuccessModalOpen, setStartSuccessModalOpen] = useState(false);
   const [startSuccessCopyMessage, setStartSuccessCopyMessage] = useState<string | null>(null);
   const [copyMessage, setCopyMessage] = useState<string | null>(null);
@@ -168,7 +195,6 @@ export default function TournamentDetailPage() {
   const aiGenerateAbortRef = useRef<AbortController | null>(null);
   const [editName, setEditName] = useState("");
   const [editCompetitionType, setEditCompetitionType] = useState<CompetitionType>("tournament");
-  const [editDescription, setEditDescription] = useState("");
   const [editLocation, setEditLocation] = useState("");
   const [descriptionExpanded, setDescriptionExpanded] = useState(false);
   const [editMatchDurationMinutes, setEditMatchDurationMinutes] = useState("90");
@@ -342,7 +368,6 @@ async function load(options?: { silent?: boolean }) {
     if (!tournament) return;
     setEditName(tournament.name ?? "");
     setEditCompetitionType((tournament.competition_type ?? "tournament") as CompetitionType);
-    setEditDescription(tournament.description ?? "");
     setEditLocation(tournament.location ?? "");
     setEditMatchDurationMinutes(String(tournament.match_duration_minutes ?? 90));
     setEditCourtsCount(String(tournament.courts_count ?? 1));
@@ -852,15 +877,6 @@ async function load(options?: { silent?: boolean }) {
   }
 
   async function startTournament() {
-    const confirmed = window.confirm(
-      competitionType === "flash"
-        ? "¿Iniciar relámpago?\n\nSe va a generar el listado ordenado de partidos por cancha."
-        : competitionType === "league"
-        ? "¿Iniciar liga?\n\nUna vez iniciada, no vas a poder editar los equipos."
-        : "¿Iniciar torneo?\n\nUna vez iniciado, no vas a poder editar jugadores/equipos."
-    );
-    if (!confirmed) return;
-  
     setStartingTournament(true);
     setError(null);
   
@@ -900,12 +916,6 @@ async function load(options?: { silent?: boolean }) {
   }
   
   async function deleteTournament() {
-    const confirmed = window.confirm(
-      "¿Estás seguro de que querés eliminar esta competencia?\n\nSe borrarán jugadores y equipos asociados."
-    );
-  
-    if (!confirmed) return;
-  
     setDeletingTournament(true);
     setError(null);
   
@@ -952,7 +962,7 @@ async function load(options?: { silent?: boolean }) {
         body: {
           name: editName.trim(),
           competition_type: editCompetitionType,
-          description: editDescription.trim() ? editDescription.trim() : null,
+          description: fixedDescriptionByType[editCompetitionType],
           location: editLocation.trim() ? editLocation.trim() : null,
           match_duration_minutes:
             editCompetitionType === "tournament"
@@ -1229,13 +1239,17 @@ async function load(options?: { silent?: boolean }) {
                   <option value="flash">Relampago</option>
                 </select>
               </div>
-              <textarea
-                className="w-full rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 outline-none focus:border-zinc-900 focus:ring-2 focus:ring-zinc-900/20"
-                placeholder="Descripcion / reglas de la competencia"
-                value={editDescription}
-                onChange={(e) => setEditDescription(e.target.value)}
-                rows={3}
-              />
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-zinc-500">Reglas de la competencia</label>
+                <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-3">
+                  <pre className="whitespace-pre-wrap font-sans text-xs text-zinc-600">
+                    {fixedDescriptionByType[editCompetitionType]}
+                  </pre>
+                </div>
+                <p className="text-xs text-zinc-400">
+                  Esta competencia se juega con reglas estándar según su formato.
+                </p>
+              </div>
               <Input
                 placeholder="Link de Google Maps"
                 value={editLocation}
@@ -1511,6 +1525,111 @@ async function load(options?: { silent?: boolean }) {
           </Modal>
 
           <Modal
+            open={confirmDeleteModalOpen}
+            title="Eliminar competencia"
+            onClose={() => setConfirmDeleteModalOpen(false)}
+            className="max-w-md"
+          >
+            <div className="space-y-5">
+              <div className="rounded-xl border border-red-100 bg-red-50 p-4 space-y-3">
+                <div className="text-sm font-semibold text-zinc-900">{tournament?.name}</div>
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div className="rounded-lg border border-red-100 bg-white px-3 py-2">
+                    <div className="text-zinc-400 uppercase tracking-wide text-[10px] font-semibold mb-0.5">Formato</div>
+                    <div className="font-medium text-zinc-700">{competitionTypeDisplayLabel}</div>
+                  </div>
+                  <div className="rounded-lg border border-red-100 bg-white px-3 py-2">
+                    <div className="text-zinc-400 uppercase tracking-wide text-[10px] font-semibold mb-0.5">Parejas</div>
+                    <div className="font-medium text-zinc-700">{teams.length}</div>
+                  </div>
+                </div>
+              </div>
+              <p className="text-sm text-zinc-500">
+                Esta acción es permanente. Se borrarán todos los jugadores, equipos y partidos asociados a esta competencia.
+              </p>
+              <div className="flex items-center justify-between gap-2">
+                <Button variant="secondary" onClick={() => setConfirmDeleteModalOpen(false)}>
+                  Cancelar
+                </Button>
+                <Button
+                  variant="secondary"
+                  onClick={() => {
+                    setConfirmDeleteModalOpen(false);
+                    deleteTournament();
+                  }}
+                  disabled={deletingTournament}
+                  className="!border-red-300 !bg-red-50 !text-red-700 hover:!bg-red-100 gap-2"
+                >
+                  {deletingTournament && (
+                    <span className="h-4 w-4 animate-spin rounded-full border-2 border-red-300 border-t-red-700" aria-hidden />
+                  )}
+                  Eliminar competencia
+                </Button>
+              </div>
+            </div>
+          </Modal>
+
+          <Modal
+            open={confirmStartModalOpen}
+            title={`Iniciar ${competitionTypeDisplayLabel.toLowerCase()}`}
+            onClose={() => setConfirmStartModalOpen(false)}
+            className="max-w-md"
+          >
+            <div className="space-y-5">
+              <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-4 space-y-3">
+                <div className="text-sm font-semibold text-zinc-900">{tournament?.name}</div>
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div className="rounded-lg border border-zinc-100 bg-white px-3 py-2">
+                    <div className="text-zinc-400 uppercase tracking-wide text-[10px] font-semibold mb-0.5">Formato</div>
+                    <div className="font-medium text-zinc-700">{competitionTypeDisplayLabel}</div>
+                  </div>
+                  <div className="rounded-lg border border-zinc-100 bg-white px-3 py-2">
+                    <div className="text-zinc-400 uppercase tracking-wide text-[10px] font-semibold mb-0.5">Parejas</div>
+                    <div className="font-medium text-zinc-700">{teams.length}</div>
+                  </div>
+                  {competitionType !== "league" && (
+                    <div className="rounded-lg border border-zinc-100 bg-white px-3 py-2">
+                      <div className="text-zinc-400 uppercase tracking-wide text-[10px] font-semibold mb-0.5">Canchas</div>
+                      <div className="font-medium text-zinc-700">{tournament?.courts_count ?? "-"}</div>
+                    </div>
+                  )}
+                  {competitionType === "tournament" && (
+                    <div className="rounded-lg border border-zinc-100 bg-white px-3 py-2">
+                      <div className="text-zinc-400 uppercase tracking-wide text-[10px] font-semibold mb-0.5">Zonas</div>
+                      <div className="font-medium text-zinc-700">{groups.length}</div>
+                    </div>
+                  )}
+                </div>
+              </div>
+              <p className="text-sm text-zinc-500">
+                {competitionType === "flash"
+                  ? "Se va a generar el listado ordenado de partidos por cancha. Una vez iniciado, no vas a poder modificar las parejas."
+                  : competitionType === "league"
+                  ? "Una vez iniciada, no vas a poder editar los equipos."
+                  : "Una vez iniciado, no vas a poder editar jugadores ni equipos."}
+              </p>
+              <div className="flex items-center justify-between gap-2">
+                <Button variant="secondary" onClick={() => setConfirmStartModalOpen(false)}>
+                  Cancelar
+                </Button>
+                <Button
+                  onClick={() => {
+                    setConfirmStartModalOpen(false);
+                    startTournament();
+                  }}
+                  disabled={startingTournament}
+                  className="gap-2"
+                >
+                  {startingTournament && (
+                    <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" aria-hidden />
+                  )}
+                  Confirmar
+                </Button>
+              </div>
+            </div>
+          </Modal>
+
+          <Modal
             open={startSuccessModalOpen}
             title=""
             onClose={() => setStartSuccessModalOpen(false)}
@@ -1624,7 +1743,7 @@ async function load(options?: { silent?: boolean }) {
                           <div className="mt-2">
                             {canStartTournament ? (
                               <Button
-                                onClick={startTournament}
+                                onClick={() => setConfirmStartModalOpen(true)}
                                 disabled={startingTournament}
                                 className="w-full"
                               >
@@ -2069,7 +2188,7 @@ async function load(options?: { silent?: boolean }) {
                   </div>
                   <Button
                     variant="secondary"
-                    onClick={deleteTournament}
+                    onClick={() => setConfirmDeleteModalOpen(true)}
                     disabled={deletingTournament}
                     className="!border-red-300 !bg-red-50 !text-red-700 font-semibold hover:!bg-red-100 sm:shrink-0"
                   >
