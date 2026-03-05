@@ -6,6 +6,19 @@ import Card from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
 import Modal from "@/components/ui/Modal";
 import Input from "@/components/ui/Input";
+import {
+  DndContext,
+  DragOverlay,
+  closestCenter,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragStartEvent,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import { useDraggable, useDroppable } from "@dnd-kit/core";
+import { CSS } from "@dnd-kit/utilities";
+import ZonesDragModal from "@/components/ZonesDragModal";
 import { api } from "@/lib/api";
 import type {
   GenerateGroupsResponse,
@@ -13,12 +26,6 @@ import type {
   TournamentGroupOut,
   TournamentStatus,
 } from "@/lib/types";
-
-type ManualZone = {
-  id: string;
-  name: string;
-  teamIds: number[];
-};
 
 const TEAM_SIZE_OPTIONS = [3, 4, 5, 6] as const;
 
@@ -42,15 +49,108 @@ function getDivisionLabel(team: Team) {
   return `${category} - ${genderLabel}`;
 }
 
-function getGenderLabel(gender: string | null) {
-  if (gender === "damas") return "Damas";
-  if (gender === "masculino") return "Masculino";
-  return gender ?? "Sin genero";
+// ─── Panel DnD sub-components ─────────────────────────────────────────────────
+
+function PanelDragHandle() {
+  return (
+    <svg
+      width="10"
+      height="16"
+      viewBox="0 0 10 16"
+      fill="currentColor"
+      className="flex-shrink-0 text-zinc-300 group-hover:text-zinc-400"
+      aria-hidden="true"
+    >
+      <circle cx="2" cy="2" r="1.5" />
+      <circle cx="8" cy="2" r="1.5" />
+      <circle cx="2" cy="8" r="1.5" />
+      <circle cx="8" cy="8" r="1.5" />
+      <circle cx="2" cy="14" r="1.5" />
+      <circle cx="8" cy="14" r="1.5" />
+    </svg>
+  );
 }
 
-function getTeamDivisionKey(team: Team) {
-  return `${getTeamCategory(team) ?? ""}::${getTeamGender(team) ?? ""}`;
+type PanelTeamCardProps = {
+  team: { id: number; players: { name: string }[] };
+  groupId: number;
+  idx: number;
+  status: TournamentStatus;
+  onRemove: () => void;
+  removing: boolean;
+};
+
+function PanelTeamCard({ team, groupId, idx, status, onRemove, removing }: PanelTeamCardProps) {
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
+    id: `panel-team:${groupId}:${team.id}`,
+    data: { teamId: team.id, groupId },
+    disabled: status !== "upcoming",
+  });
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={{
+        transform: CSS.Translate.toString(transform),
+        opacity: isDragging ? 0.15 : 1,
+        transition: isDragging ? "none" : "opacity 0.15s",
+      }}
+      className="group flex items-start justify-between rounded-xl border border-zinc-200 px-3 py-2"
+    >
+      <div className="flex items-start gap-2">
+        {status === "upcoming" && (
+          <button
+            {...listeners}
+            {...attributes}
+            className="mt-1 cursor-grab active:cursor-grabbing touch-none"
+            aria-label="Arrastrar"
+          >
+            <PanelDragHandle />
+          </button>
+        )}
+        <div>
+          <div className="text-sm font-medium">Pareja {idx + 1}</div>
+          <div className="text-sm text-zinc-700">{team.players?.[0]?.name ?? "Jugador"}</div>
+          <div className="text-sm text-zinc-700">{team.players?.[1]?.name ?? "Jugador"}</div>
+        </div>
+      </div>
+      {status === "upcoming" && (
+        <button
+          onClick={onRemove}
+          disabled={removing}
+          className="rounded-lg p-2 text-zinc-400 hover:text-red-600 hover:bg-red-50"
+          title="Quitar equipo de la zona"
+        >
+          🗑️
+        </button>
+      )}
+    </div>
+  );
 }
+
+type PanelGroupDropZoneProps = {
+  group: TournamentGroupOut;
+  children: React.ReactNode;
+};
+
+function PanelGroupDropZone({ group, children }: PanelGroupDropZoneProps) {
+  const { isOver, setNodeRef } = useDroppable({ id: `panel-group:${group.id}` });
+
+  return (
+    <div
+      ref={setNodeRef}
+      className={`rounded-2xl border p-4 shadow-sm transition-all duration-150 ${
+        isOver
+          ? "border-emerald-400 bg-emerald-50/40 ring-2 ring-emerald-200"
+          : "border-zinc-200 bg-white"
+      }`}
+    >
+      {children}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 type Props = {
   tournamentId: number;
@@ -137,16 +237,9 @@ const GroupsPanel = forwardRef<GroupsPanelHandle, Props>(function GroupsPanel({
   const [activeGeneration, setActiveGeneration] = useState<"ai" | "manual" | null>(null);
   const [aiDots, setAiDots] = useState(".");
   const [manualOpen, setManualOpen] = useState(false);
-  const [manualZones, setManualZones] = useState<ManualZone[]>([
-    { id: "manual-zone-1", name: "Grupo 1", teamIds: [] },
-  ]);
-  const [manualSelectedZoneId, setManualSelectedZoneId] = useState("manual-zone-1");
-  const [manualCategory, setManualCategory] = useState<string | "all">("all");
-  const [manualGender, setManualGender] = useState<string | "all">("all");
-  const [manualSelectedTeamIds, setManualSelectedTeamIds] = useState<number[]>([]);
-  const [manualError, setManualError] = useState<string | null>(null);
   const [categoryFilter, setCategoryFilter] = useState<string | "all">("all");
   const [genderFilter, setGenderFilter] = useState<string | "all">("all");
+  const [panelDragActiveId, setPanelDragActiveId] = useState<string | null>(null);
 
   function isAbortError(err: unknown) {
     return err instanceof Error && err.name === "AbortError";
@@ -174,23 +267,6 @@ const GroupsPanel = forwardRef<GroupsPanelHandle, Props>(function GroupsPanel({
     });
     return Array.from(values).sort();
   }, [groups]);
-  const manualCategories = useMemo(() => {
-    const values = new Set<string>();
-    teams.forEach((team) => {
-      const category = getTeamCategory(team);
-      if (category) values.add(category);
-    });
-    return Array.from(values).sort();
-  }, [teams]);
-  const manualGenders = useMemo(() => {
-    const values = new Set<string>();
-    teams.forEach((team) => {
-      const gender = getTeamGender(team);
-      if (gender) values.add(gender);
-    });
-    return Array.from(values).sort();
-  }, [teams]);
-
   const filteredGroups = useMemo(() => {
     return groups.filter((group) => {
       const categoryMatch =
@@ -209,25 +285,6 @@ const GroupsPanel = forwardRef<GroupsPanelHandle, Props>(function GroupsPanel({
   const persistedAssignedTeamIds = useMemo(() => {
     return new Set(groups.flatMap((group) => group.teams.map((team) => team.id)));
   }, [groups]);
-  const assignedManualTeamIds = useMemo(() => {
-    return new Set(manualZones.flatMap((zone) => zone.teamIds));
-  }, [manualZones]);
-  const combinedAssignedTeamIds = useMemo(() => {
-    const values = new Set<number>(persistedAssignedTeamIds);
-    assignedManualTeamIds.forEach((id) => values.add(id));
-    return values;
-  }, [persistedAssignedTeamIds, assignedManualTeamIds]);
-  const availableManualTeams = useMemo(() => {
-    return teams.filter((team) => !combinedAssignedTeamIds.has(team.id));
-  }, [teams, combinedAssignedTeamIds]);
-  const filteredManualTeams = useMemo(() => {
-    return availableManualTeams.filter((team) => {
-      const categoryMatch =
-        manualCategory === "all" || getTeamCategory(team) === manualCategory;
-      const genderMatch = manualGender === "all" || getTeamGender(team) === manualGender;
-      return categoryMatch && genderMatch;
-    });
-  }, [availableManualTeams, manualCategory, manualGender]);
 
   useEffect(() => {
     if (!generating) {
@@ -263,27 +320,6 @@ const GroupsPanel = forwardRef<GroupsPanelHandle, Props>(function GroupsPanel({
     }
     setGenerateOpen(false);
   }
-  const manualMissingByDivision = useMemo(() => {
-    const counts = new Map<string, { category: string | null; gender: string | null; count: number }>();
-    teams.forEach((team) => {
-      if (combinedAssignedTeamIds.has(team.id)) return;
-      const category = getTeamCategory(team);
-      const gender = getTeamGender(team);
-      const key = `${category ?? ""}::${gender ?? ""}`;
-      const current = counts.get(key);
-      if (current) {
-        current.count += 1;
-      } else {
-        counts.set(key, { category, gender, count: 1 });
-      }
-    });
-    return Array.from(counts.values()).sort((a, b) => {
-      const aCategory = a.category ?? "";
-      const bCategory = b.category ?? "";
-      if (aCategory !== bCategory) return aCategory.localeCompare(bCategory);
-      return (a.gender ?? "").localeCompare(b.gender ?? "");
-    });
-  }, [teams, combinedAssignedTeamIds]);
   const persistedMissingByDivision = useMemo(() => {
     const counts = new Map<string, { category: string | null; gender: string | null; count: number }>();
     teams.forEach((team) => {
@@ -308,77 +344,7 @@ const GroupsPanel = forwardRef<GroupsPanelHandle, Props>(function GroupsPanel({
   const allDivisionsGenerated =
     teams.length > 0 && groups.length > 0 && persistedMissingByDivision.length === 0;
   const prevAllDivisionsGeneratedRef = useRef(allDivisionsGenerated);
-  const generationLockedMessage =
-    "Ya generaste el 100% de las zonas posibles. Si queres ajustar, move parejas entre zonas.";
-  const firstPendingDivision = manualMissingByDivision[0] ?? null;
-  const filteredManualTeamIds = useMemo(() => {
-    return new Set(filteredManualTeams.map((team) => team.id));
-  }, [filteredManualTeams]);
-  const selectedManualZone = useMemo(() => {
-    return manualZones.find((zone) => zone.id === manualSelectedZoneId) ?? null;
-  }, [manualZones, manualSelectedZoneId]);
-  const manualTeamsById = useMemo(() => {
-    return new Map(teams.map((team) => [team.id, team]));
-  }, [teams]);
-  const manualAssignedCount = useMemo(() => {
-    return manualZones.reduce((acc, zone) => acc + zone.teamIds.length, 0);
-  }, [manualZones]);
-  const manualPoolTotal = manualAssignedCount + availableManualTeams.length;
-  const manualProgressPercent =
-    manualPoolTotal > 0 ? Math.round((manualAssignedCount / manualPoolTotal) * 100) : 0;
-  const manualReadyZonesCount = useMemo(() => {
-    return manualZones.filter((zone) => zone.teamIds.length >= 2).length;
-  }, [manualZones]);
-  const selectedZoneDivisionKey = useMemo(() => {
-    if (!selectedManualZone || selectedManualZone.teamIds.length === 0) return null;
-    const team = manualTeamsById.get(selectedManualZone.teamIds[0]);
-    return team ? getTeamDivisionKey(team) : null;
-  }, [selectedManualZone, manualTeamsById]);
-  const selectedZoneDivisionLabel = useMemo(() => {
-    if (!selectedZoneDivisionKey) return null;
-    const team = selectedManualZone?.teamIds.length
-      ? manualTeamsById.get(selectedManualZone.teamIds[0])
-      : null;
-    return team ? getDivisionLabel(team) : null;
-  }, [selectedZoneDivisionKey, selectedManualZone, manualTeamsById]);
-  const selectedManualDivisionKeys = useMemo(() => {
-    const values = new Set<string>();
-    manualSelectedTeamIds.forEach((teamId) => {
-      const team = manualTeamsById.get(teamId);
-      if (!team) return;
-      values.add(getTeamDivisionKey(team));
-    });
-    return values;
-  }, [manualSelectedTeamIds, manualTeamsById]);
-  const selectedTeamsMixDivisions = selectedManualDivisionKeys.size > 1;
-  const selectedTeamsInvalidForZone = useMemo(() => {
-    if (!selectedZoneDivisionKey) return [];
-    return manualSelectedTeamIds.filter((teamId) => {
-      const team = manualTeamsById.get(teamId);
-      if (!team) return false;
-      return getTeamDivisionKey(team) !== selectedZoneDivisionKey;
-    });
-  }, [manualSelectedTeamIds, manualTeamsById, selectedZoneDivisionKey]);
-  const canAddSelectedTeamsToZone =
-    !!selectedManualZone &&
-    manualSelectedTeamIds.length > 0 &&
-    !selectedTeamsMixDivisions &&
-    selectedTeamsInvalidForZone.length === 0;
-  const canSubmitManualGenerate = useMemo(() => {
-    const nonEmptyZones = manualZones.filter((zone) => zone.teamIds.length > 0);
-    if (nonEmptyZones.length === 0) return false;
-    for (const zone of nonEmptyZones) {
-      if (zone.teamIds.length < 2) return false;
-      const divisions = new Set(
-        zone.teamIds.map((teamId) => {
-          const team = manualTeamsById.get(teamId);
-          return team ? getTeamDivisionKey(team) : "";
-        })
-      );
-      if (divisions.size > 1) return false;
-    }
-    return true;
-  }, [manualZones, manualTeamsById]);
+  const firstPendingDivision = persistedMissingByDivision[0] ?? null;
 
   useImperativeHandle(
     ref,
@@ -414,21 +380,6 @@ const GroupsPanel = forwardRef<GroupsPanelHandle, Props>(function GroupsPanel({
     }
     setTeamsPerGroup(TEAM_SIZE_OPTIONS[0]);
   }, [teamsPerGroup, setTeamsPerGroup]);
-  useEffect(() => {
-    if (!manualOpen) return;
-    setManualZones([{ id: "manual-zone-1", name: "Grupo 1", teamIds: [] }]);
-    setManualSelectedZoneId("manual-zone-1");
-    setManualCategory(firstPendingDivision?.category ?? "all");
-    setManualGender(firstPendingDivision?.gender ?? "all");
-    setManualSelectedTeamIds([]);
-    setManualError(null);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [manualOpen]);
-  useEffect(() => {
-    setManualSelectedTeamIds((prev) =>
-      prev.filter((teamId) => filteredManualTeamIds.has(teamId))
-    );
-  }, [filteredManualTeamIds]);
   useEffect(() => {
     if (!manualOpen || !allDivisionsGenerated || !generateSuccess) return;
     const timeoutId = window.setTimeout(() => {
@@ -838,7 +789,7 @@ const GroupsPanel = forwardRef<GroupsPanelHandle, Props>(function GroupsPanel({
       return;
     }
     if (allDivisionsGenerated) {
-      setGenerateError(generationLockedMessage);
+      setGenerateError("Ya generaste el 100% de las zonas posibles. Si queres ajustar, move parejas entre zonas.");
       return;
     }
     if (!generateValidation.canSubmit) {
@@ -867,174 +818,45 @@ const GroupsPanel = forwardRef<GroupsPanelHandle, Props>(function GroupsPanel({
     }
   }
 
-  function updateManualZonesCount(nextCountRaw: number) {
-    const nextCount = Math.max(1, Math.min(20, Math.trunc(nextCountRaw || 1)));
-    setManualError(null);
-    setManualZones((prev) => {
-      if (nextCount === prev.length) return prev;
-
-      if (nextCount < prev.length) {
-        const removed = prev.slice(nextCount);
-        const hasTeamsInRemoved = removed.some((zone) => zone.teamIds.length > 0);
-        if (hasTeamsInRemoved) {
-          setManualError(
-            "Para reducir la cantidad de zonas, primero vacia las zonas que sobran."
-          );
-          return prev;
-        }
-        const trimmed = prev.slice(0, nextCount);
-        if (!trimmed.some((zone) => zone.id === manualSelectedZoneId)) {
-          setManualSelectedZoneId(trimmed[0]?.id ?? "");
-        }
-        return trimmed;
-      }
-
-      const expanded = [...prev];
-      for (let index = prev.length; index < nextCount; index += 1) {
-        expanded.push({
-          id: `manual-zone-${index + 1}`,
-          name: `Grupo ${index + 1}`,
-          teamIds: [],
-        });
-      }
-      return expanded;
-    });
-  }
-
-  function toggleManualTeamSelection(teamId: number) {
-    setManualSelectedTeamIds((prev) =>
-      prev.includes(teamId) ? prev.filter((id) => id !== teamId) : [...prev, teamId]
-    );
-    setManualError(null);
-  }
-
-  function addManualTeamsToZone() {
-    if (!selectedManualZone) {
-      setManualError("Selecciona una zona.");
-      return;
-    }
-    if (manualSelectedTeamIds.length === 0) {
-      setManualError("Selecciona al menos una pareja.");
-      return;
-    }
-    if (selectedTeamsMixDivisions) {
-      setManualError("Seleccionaste parejas de distintas divisiones. Separalas antes de agregar.");
-      return;
-    }
-    if (selectedTeamsInvalidForZone.length > 0) {
-      setManualError(
-        `La zona seleccionada es ${selectedZoneDivisionLabel ?? "de otra division"}. ` +
-          "Solo podes agregar parejas de la misma categoria y genero."
-      );
-      return;
-    }
-
-    setManualZones((prev) =>
-      {
-        const currentZoneIndex = prev.findIndex((zone) => zone.id === selectedManualZone.id);
-        const nextZones = prev.map((zone) =>
-        zone.id === selectedManualZone.id
-          ? { ...zone, teamIds: [...zone.teamIds, ...manualSelectedTeamIds] }
-          : zone
-        );
-        const nextEmptyZone = nextZones.find(
-          (zone, idx) => idx > currentZoneIndex && zone.teamIds.length === 0
-        );
-        if (nextEmptyZone) {
-          setManualSelectedZoneId(nextEmptyZone.id);
-        }
-        return nextZones;
-      }
-    );
-    setManualSelectedTeamIds([]);
-    setManualError(null);
-  }
-
-  function removeManualTeamFromZone(zoneId: string, teamId: number) {
-    setManualZones((prev) =>
-      prev.map((zone) =>
-        zone.id === zoneId
-          ? { ...zone, teamIds: zone.teamIds.filter((id) => id !== teamId) }
-          : zone
-      )
-    );
-  }
-
-  async function submitManualGenerate() {
-    if (allDivisionsGenerated) {
-      setManualError(generationLockedMessage);
-      return;
-    }
-    const nonEmptyZones = manualZones.filter((zone) => zone.teamIds.length > 0);
-    if (nonEmptyZones.length === 0) {
-      setManualError("Agrega al menos una pareja a una zona.");
-      return;
-    }
-
-    for (const zone of nonEmptyZones) {
-      if (zone.teamIds.length < 2) {
-        setManualError(
-          `La zona ${zone.name} debe tener al menos 2 parejas.`
-        );
-        return;
-      }
-      const divisions = new Set(
-        zone.teamIds.map((teamId) => {
-          const team = manualTeamsById.get(teamId);
-          return team ? `${getTeamCategory(team) ?? ""}::${getTeamGender(team) ?? ""}` : "";
-        })
-      );
-      if (divisions.size > 1) {
-        setManualError(
-          `La zona ${zone.name} mezcla categorias o generos. Separalas antes de continuar.`
-        );
-        return;
-      }
-    }
-
-    setManualError(null);
+  async function handleManualSubmit(payload: { groups: { team_ids: number[] }[] }) {
     setGenerateSuccess(null);
     setActiveGeneration("manual");
-    try {
-      await onGenerateManual({
-        teams_per_group: teamsPerGroup,
-        groups: nonEmptyZones.map((zone) => ({
-          team_ids: zone.teamIds,
-        })),
-      });
-      setGenerateSuccess("Zonas guardadas manualmente. Podes continuar con otra categoria.");
-      setManualZones([{ id: "manual-zone-1", name: "Grupo 1", teamIds: [] }]);
-      setManualSelectedZoneId("manual-zone-1");
-      setManualSelectedTeamIds([]);
-      if (firstPendingDivision?.category) {
-        setManualCategory(firstPendingDivision.category);
-      } else {
-        setManualCategory("all");
-      }
-      if (firstPendingDivision?.gender) {
-        setManualGender(firstPendingDivision.gender);
-      } else {
-        setManualGender("all");
-      }
-    } catch (err: unknown) {
-      setManualError(
-        err instanceof Error ? err.message : "No se pudo generar zonas manualmente"
-      );
-    }
+    await onGenerateManual({ teams_per_group: teamsPerGroup, ...payload });
+    setGenerateSuccess("Zonas guardadas. Podés continuar con otra categoría.");
   }
 
-  function handleDrop(e: React.DragEvent<HTMLDivElement>, targetGroupId: number) {
-    e.preventDefault();
-    const payload = e.dataTransfer.getData("application/json");
-    if (!payload) return;
-    try {
-      const parsed = JSON.parse(payload) as { teamId: number; groupId: number };
-      if (parsed.groupId === targetGroupId) return;
-      openMoveModal(parsed.teamId, parsed.groupId, targetGroupId);
-    } catch {
-      // ignore invalid payload
+  const panelSensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } })
+  );
+
+  function handlePanelDragEnd(event: DragEndEvent) {
+    const { active, over } = event;
+    setPanelDragActiveId(null);
+    if (!over) return;
+    const activeId = active.id as string;
+    const overId = over.id as string;
+    if (!activeId.startsWith("panel-team:")) return;
+    const [, groupIdStr, teamIdStr] = activeId.split(":");
+    const sourceGroupId = parseInt(groupIdStr);
+    const teamId = parseInt(teamIdStr);
+    let targetGroupId: number;
+    if (overId.startsWith("panel-group:")) {
+      targetGroupId = parseInt(overId.replace("panel-group:", ""));
+    } else if (overId.startsWith("panel-team:")) {
+      targetGroupId = parseInt(overId.split(":")[1]);
+    } else {
+      return;
     }
+    if (sourceGroupId === targetGroupId) return;
+    openMoveModal(teamId, sourceGroupId, targetGroupId);
   }
+
+  // Get team data for panel drag overlay
+  const panelDragTeam = useMemo(() => {
+    if (!panelDragActiveId || !panelDragActiveId.startsWith("panel-team:")) return null;
+    const teamId = parseInt(panelDragActiveId.split(":")[2]);
+    return allTeams.find((t) => t.id === teamId) ?? null;
+  }, [panelDragActiveId, allTeams]);
 
   return (
     <Card className="bg-white/95">
@@ -1171,87 +993,71 @@ const GroupsPanel = forwardRef<GroupsPanelHandle, Props>(function GroupsPanel({
             )}
           </div>
         )}
-        <div className="grid gap-4 md:grid-cols-2">
-          {filteredGroups.map((g) => (
-            <div
-              key={g.id}
-              className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm"
-              onDragOver={(e) => e.preventDefault()}
-              onDrop={(e) => handleDrop(e, g.id)}
-            >
-              <div className="flex justify-between">
-                <div className="flex flex-wrap items-center gap-2 font-medium">
-                  <span>{g.name.replace(/^Group\s+/i, "Grupo ")}</span>
-                  {g.is_incompatible && (
-                    <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs text-amber-700">
-                      Incompatible
-                    </span>
-                  )}
-                </div>
-                <div className="flex items-center gap-2">
-                  {status === "upcoming" && g.teams.length === 0 && (
-                    <button
-                      onClick={() => removeEmptyGroup(g.id, g.name)}
-                      className="rounded-lg border border-zinc-200 px-2 py-1 text-xs text-zinc-600 hover:bg-zinc-50"
-                    >
-                      Eliminar
-                    </button>
-                  )}
-                  <Link
-                    href={`/groups/${g.id}/standings`}
-                    className="rounded-lg border border-zinc-200 px-2 py-1 text-xs text-zinc-600 hover:bg-zinc-50"
-                  >
-                    Tabla
-                  </Link>
-                </div>
-              </div>
-
-              <div className="mt-3 space-y-2">
-                {g.teams.map((t, idx) => (
-                  <div
-                    key={t.id}
-                    className="flex items-start justify-between rounded-xl border border-zinc-200 px-3 py-2"
-                    draggable
-                    onDragStart={(e) =>
-                      e.dataTransfer.setData(
-                        "application/json",
-                        JSON.stringify({ teamId: t.id, groupId: g.id })
-                      )
-                    }
-                  >
-                    <div>
-                      <div className="text-sm font-medium">
-                        Pareja {idx + 1}
-                      </div>
-                      <div className="text-sm text-zinc-700">
-                        {t.players?.[0]?.name ?? "Jugador"}
-                      </div>
-                      <div className="text-sm text-zinc-700">
-                        {t.players?.[1]?.name ?? "Jugador"}
-                      </div>
-                    </div>
-
-                    {status === "upcoming" && (
-                      <button
-                        onClick={() =>
-                          removeTeamFromGroup(g.id, t, g.name)
-                        }
-                        disabled={
-                          removing?.groupId === g.id &&
-                          removing?.teamId === t.id
-                        }
-                        className="rounded-lg p-2 text-zinc-400 hover:text-red-600 hover:bg-red-50"
-                        title="Quitar equipo de la zona"
-                      >
-                        🗑️
-                      </button>
+        <DndContext
+          sensors={panelSensors}
+          collisionDetection={closestCenter}
+          onDragStart={(e: DragStartEvent) => setPanelDragActiveId(e.active.id as string)}
+          onDragEnd={handlePanelDragEnd}
+        >
+          <div className="grid gap-4 md:grid-cols-2">
+            {filteredGroups.map((g) => (
+              <PanelGroupDropZone key={g.id} group={g}>
+                <div className="flex justify-between">
+                  <div className="flex flex-wrap items-center gap-2 font-medium">
+                    <span>{g.name.replace(/^Group\s+/i, "Grupo ")}</span>
+                    {g.is_incompatible && (
+                      <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs text-amber-700">
+                        Incompatible
+                      </span>
                     )}
                   </div>
-                ))}
+                  <div className="flex items-center gap-2">
+                    {status === "upcoming" && g.teams.length === 0 && (
+                      <button
+                        onClick={() => removeEmptyGroup(g.id, g.name)}
+                        className="rounded-lg border border-zinc-200 px-2 py-1 text-xs text-zinc-600 hover:bg-zinc-50"
+                      >
+                        Eliminar
+                      </button>
+                    )}
+                    <Link
+                      href={`/groups/${g.id}/standings`}
+                      className="rounded-lg border border-zinc-200 px-2 py-1 text-xs text-zinc-600 hover:bg-zinc-50"
+                    >
+                      Tabla
+                    </Link>
+                  </div>
+                </div>
+                <div className="mt-3 space-y-2">
+                  {g.teams.map((t, idx) => (
+                    <PanelTeamCard
+                      key={t.id}
+                      team={t}
+                      groupId={g.id}
+                      idx={idx}
+                      status={status}
+                      onRemove={() => removeTeamFromGroup(g.id, t, g.name)}
+                      removing={removing?.groupId === g.id && removing?.teamId === t.id}
+                    />
+                  ))}
+                </div>
+              </PanelGroupDropZone>
+            ))}
+          </div>
+          <DragOverlay
+            dropAnimation={{ duration: 200, easing: "cubic-bezier(0.18, 0.67, 0.6, 1.22)" }}
+          >
+            {panelDragTeam ? (
+              <div className="flex cursor-grabbing items-start gap-2 rounded-xl border border-zinc-300 bg-white px-3 py-2 shadow-2xl rotate-1 scale-105">
+                <div>
+                  <div className="text-sm font-medium">Pareja</div>
+                  <div className="text-sm text-zinc-700">{panelDragTeam.players?.[0]?.name ?? "Jugador"}</div>
+                  <div className="text-sm text-zinc-700">{panelDragTeam.players?.[1]?.name ?? "Jugador"}</div>
+                </div>
               </div>
-            </div>
-          ))}
-        </div>
+            ) : null}
+          </DragOverlay>
+        </DndContext>
       </div>
 
       {aiEnabled && (
@@ -1433,296 +1239,17 @@ const GroupsPanel = forwardRef<GroupsPanelHandle, Props>(function GroupsPanel({
         </Modal>
       )}
 
-      <Modal
+      <ZonesDragModal
         open={manualOpen}
-        title="Generar zonas manualmente"
         onClose={() => setManualOpen(false)}
-        className="max-w-4xl h-[94vh] max-h-[94vh] overflow-hidden"
-      >
-        <div className="flex h-[calc(94vh-120px)] flex-col gap-4 overflow-hidden">
-          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto pr-1">
-            <div className="text-sm text-zinc-600">
-              Elegir categoria y agregar cada pareja a su zona.
-            </div>
-            {allDivisionsGenerated && (
-              <div className="rounded-xl border border-emerald-300 bg-emerald-100 p-3 text-sm text-emerald-900">
-                Ya estan generadas todas las zonas para todas las categorias y generos.
-              </div>
-            )}
-
-            <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-3 space-y-2">
-              <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-zinc-600">
-                <span>
-                  Parejas asignadas:{" "}
-                  <span className="font-semibold text-zinc-900">
-                    {manualAssignedCount}/{manualPoolTotal}
-                  </span>
-                </span>
-              <span>
-                Zonas listas ({">="}2 parejas):{" "}
-                <span className="font-semibold text-zinc-900">
-                  {manualReadyZonesCount}/{manualZones.length}
-                </span>
-              </span>
-            </div>
-              <div className="h-2 w-full overflow-hidden rounded-full bg-zinc-200">
-                <div
-                  className="h-full rounded-full bg-zinc-900 transition-all"
-                  style={{ width: `${manualProgressPercent}%` }}
-                />
-              </div>
-            </div>
-
-            <div className="grid gap-2 md:grid-cols-3">
-              <div className="min-w-0 space-y-2">
-                <label className="text-xs font-semibold text-zinc-500">Categoria</label>
-                <select
-                  className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                  value={manualCategory}
-                  onChange={(e) => setManualCategory(e.target.value === "all" ? "all" : e.target.value)}
-                >
-                  <option value="all">Todas</option>
-                  {manualCategories.map((category) => (
-                    <option key={category} value={category}>
-                      {category}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="min-w-0 space-y-2">
-                <label className="text-xs font-semibold text-zinc-500">Genero</label>
-                <select
-                  className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                  value={manualGender}
-                  onChange={(e) => setManualGender(e.target.value === "all" ? "all" : e.target.value)}
-                >
-                  <option value="all">Todos</option>
-                  {manualGenders.map((gender) => (
-                    <option key={gender} value={gender}>
-                      {gender === "damas" ? "Damas" : "Masculino"}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            <div className="min-w-0 space-y-2">
-              <label className="text-xs font-semibold text-zinc-500">Cantidad de zonas</label>
-              <select
-                className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                value={manualZones.length}
-                onChange={(e) => updateManualZonesCount(Number(e.target.value))}
-              >
-                {Array.from({ length: 20 }, (_, idx) => idx + 1).map((n) => (
-                  <option key={n} value={n}>
-                    {n}
-                  </option>
-                ))}
-              </select>
-              </div>
-            </div>
-            {manualMissingByDivision.length > 0 && (
-              <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-3 text-xs text-zinc-600">
-                Pendientes por asignar:{" "}
-                {manualMissingByDivision
-                  .map(
-                    (item) =>
-                      `${item.category ?? "Sin categoria"} ${getGenderLabel(item.gender)} (${item.count})`
-                  )
-                  .join(" · ")}
-              </div>
-            )}
-
-            <div className="flex items-end gap-2">
-            <div className="flex-1 space-y-2">
-              <label className="text-xs font-semibold text-zinc-500">Zona activa</label>
-              <select
-                className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                value={manualSelectedZoneId}
-                onChange={(e) => setManualSelectedZoneId(e.target.value)}
-              >
-                  {manualZones.map((zone) => (
-                    <option key={zone.id} value={zone.id}>
-                      {zone.name} ({zone.teamIds.length})
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-            {selectedZoneDivisionLabel && (
-              <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-3 text-xs text-zinc-600">
-                La zona seleccionada usa division:{" "}
-                <span className="font-semibold text-zinc-900">{selectedZoneDivisionLabel}</span>
-              </div>
-            )}
-            {selectedTeamsMixDivisions && (
-              <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
-                Las parejas seleccionadas mezclan categorias o genero. Selecciona una sola division.
-              </div>
-            )}
-            {!selectedTeamsMixDivisions && selectedTeamsInvalidForZone.length > 0 && (
-              <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
-                La seleccion no coincide con la division de la zona actual.
-              </div>
-            )}
-
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <label className="text-xs font-semibold text-zinc-500">Parejas disponibles</label>
-                <span className="text-xs text-zinc-500">
-                  {filteredManualTeams.length} disponibles
-                </span>
-              </div>
-              {filteredManualTeams.length === 0 ? (
-                <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-3 text-sm text-zinc-500">
-                  No hay parejas disponibles para los filtros seleccionados.
-                </div>
-              ) : (
-                <div className="max-h-40 md:max-h-44 space-y-1 overflow-y-auto rounded-xl border border-zinc-200 bg-white p-2">
-                  {filteredManualTeams.map((team) => {
-                    const checked = manualSelectedTeamIds.includes(team.id);
-                    return (
-                      <label
-                        key={team.id}
-                        className="flex cursor-pointer items-start gap-2 rounded-lg px-2 py-1.5 hover:bg-zinc-50"
-                      >
-                        <input
-                          type="checkbox"
-                          className="mt-0.5 h-4 w-4 accent-zinc-900"
-                          checked={checked}
-                          onChange={() => toggleManualTeamSelection(team.id)}
-                        />
-                        <span className="text-sm text-zinc-700">
-                          {team.players[0]?.name ?? "Jugador"} / {team.players[1]?.name ?? "Jugador"}{" "}
-                          <span className="text-zinc-500">({getDivisionLabel(team)})</span>
-                        </span>
-                      </label>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-
-            <div className="flex flex-wrap justify-end gap-2">
-              <Button
-                type="button"
-                variant="secondary"
-                onClick={() => setManualSelectedTeamIds(filteredManualTeams.map((team) => team.id))}
-                disabled={filteredManualTeams.length === 0}
-              >
-                Seleccionar visibles
-              </Button>
-              <Button
-                type="button"
-                variant="secondary"
-                onClick={() => setManualSelectedTeamIds([])}
-                disabled={manualSelectedTeamIds.length === 0}
-              >
-                Limpiar
-              </Button>
-              <Button
-                type="button"
-                variant="secondary"
-                onClick={addManualTeamsToZone}
-                disabled={!canAddSelectedTeamsToZone}
-              >
-                Agregar parejas seleccionadas
-              </Button>
-            </div>
-
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <label className="text-xs font-semibold text-zinc-500">Zonas armadas</label>
-                <span className="text-xs text-zinc-500">{manualZones.length} zonas</span>
-              </div>
-              <div className="h-[220px] md:h-[260px] overflow-y-auto rounded-xl border border-zinc-200 bg-zinc-50 p-2">
-                <div className="space-y-2 pr-1">
-                  {manualZones.map((zone) => (
-                    <div key={zone.id} className="rounded-xl border border-zinc-200 bg-white p-3">
-                      <div className="mb-2 flex items-center justify-between">
-                        <div className="space-y-1">
-                          <div className="text-sm font-medium text-zinc-800">
-                            {zone.name} ({zone.teamIds.length} pareja(s))
-                          </div>
-                          {(() => {
-                            const firstTeam = zone.teamIds.length
-                              ? manualTeamsById.get(zone.teamIds[0])
-                              : null;
-                            const division = firstTeam ? getDivisionLabel(firstTeam) : null;
-                            const statusLabel =
-                              zone.teamIds.length === 0
-                                ? "Pendiente"
-                                : zone.teamIds.length === 1
-                                  ? "Incompleta"
-                                  : "Lista";
-                            return (
-                              <div className="text-xs text-zinc-500">
-                                {division ? `${division} · ` : ""}{statusLabel}
-                              </div>
-                            );
-                          })()}
-                        </div>
-                      </div>
-                      {zone.teamIds.length === 0 ? (
-                        <div className="text-xs text-zinc-500">Sin parejas asignadas</div>
-                      ) : (
-                        <div className="space-y-1">
-                          {zone.teamIds.map((teamId) => {
-                            const team = teams.find((item) => item.id === teamId);
-                            if (!team) return null;
-                            return (
-                              <div
-                                key={`${zone.id}-${teamId}`}
-                                className="flex items-center justify-between rounded-lg border border-zinc-200 px-2 py-1 text-sm"
-                              >
-                                <span>
-                                  {team.players[0]?.name ?? "Jugador 1"} /{" "}
-                                  {team.players[1]?.name ?? "Jugador 2"}
-                                </span>
-                                <button
-                                  type="button"
-                                  onClick={() => removeManualTeamFromZone(zone.id, teamId)}
-                                  className="text-xs text-zinc-500 hover:text-zinc-900"
-                                >
-                                  Quitar
-                                </button>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="space-y-3 border-t border-zinc-200 bg-white pt-3">
-            {manualError && (
-              <div className="rounded-xl border border-red-300 bg-red-100 p-3 text-sm text-red-800">
-                {manualError}
-              </div>
-            )}
-            {!manualError && !canSubmitManualGenerate && (
-              <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-                Para generar: cada zona usada debe tener al menos 2 parejas y una sola division.
-              </div>
-            )}
-
-            <div className="flex justify-end gap-2">
-              <Button variant="secondary" onClick={() => setManualOpen(false)}>
-                Cancelar
-              </Button>
-              <Button
-                onClick={submitManualGenerate}
-                disabled={generating || !canSubmitManualGenerate || allDivisionsGenerated}
-              >
-                {generating ? "Generando..." : "Generar zonas"}
-              </Button>
-            </div>
-          </div>
-        </div>
-      </Modal>
-
+        teams={teams}
+        persistedAssignedIds={persistedAssignedTeamIds}
+        allDivisionsGenerated={allDivisionsGenerated}
+        generating={generating && activeGeneration === "manual"}
+        defaultCategory={firstPendingDivision?.category}
+        defaultGender={firstPendingDivision?.gender}
+        onSubmit={handleManualSubmit}
+      />
       <Modal
         open={moveOpen}
         title="Mover equipo"
