@@ -139,7 +139,7 @@ export default function TournamentFlowDemo() {
         </div>
 
         <div className="text-xs text-zinc-500">
-          Usá Anterior/Siguiente para navegar los pasos.
+          Usa Anterior/Siguiente para navegar los pasos.
         </div>
       </div>
     </div>

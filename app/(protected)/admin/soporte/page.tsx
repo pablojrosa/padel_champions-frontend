@@ -242,7 +242,7 @@ export default function AdminSupportPage() {
           <div>
             <h1 className="text-3xl font-semibold">Soporte</h1>
             <p className="text-sm text-zinc-300">
-              Gestioná tickets y respondé mensajes de clientes.
+              Gestiona tickets y responde mensajes de clientes.
             </p>
           </div>
         </div>
@@ -528,7 +528,7 @@ export default function AdminSupportPage() {
               </div>
             ) : (
               <div className="text-sm text-zinc-600">
-                Seleccioná un ticket para ver la conversación.
+                Selecciona un ticket para ver la conversacion.
               </div>
             )}
           </div>

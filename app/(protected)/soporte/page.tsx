@@ -200,7 +200,7 @@ export default function SupportPage() {
           </div>
           <h1 className="text-3xl font-semibold">Tus consultas</h1>
           <p className="text-sm text-zinc-300">
-            Creá tickets, revisá respuestas y seguí la conversación.
+            Crea consultas, revisa respuestas y sigue la conversación.
           </p>
         </div>
         <Button variant="secondary" onClick={() => router.push("/dashboard")}>
@@ -212,10 +212,10 @@ export default function SupportPage() {
         <div className="p-6 space-y-4">
           <div>
             <div className="text-lg font-semibold text-zinc-900">
-              Nuevo ticket
+              Nueva consulta
             </div>
             <div className="text-sm text-zinc-600">
-              Describí tu consulta y te respondemos por acá.
+              Describe tu consulta y te respondemos por acá.
             </div>
           </div>
           <div className="grid gap-3 md:grid-cols-2">
@@ -245,7 +245,7 @@ export default function SupportPage() {
               onClick={createTicket}
               disabled={creating || !subject.trim() || !message.trim()}
             >
-              {creating ? "Enviando..." : "Crear ticket"}
+              {creating ? "Enviando..." : "Enviar consulta"}
             </Button>
           </div>
         </div>
@@ -254,12 +254,12 @@ export default function SupportPage() {
       <div className="grid gap-6 lg:grid-cols-3">
         <Card className="bg-white/95 lg:col-span-1">
           <div className="p-6 space-y-4">
-            <div className="text-lg font-semibold text-zinc-900">Bandeja</div>
+            <div className="text-lg font-semibold text-zinc-900">Tus consultas</div>
             {loading ? (
-              <div className="text-sm text-zinc-600">Cargando tickets...</div>
+              <div className="text-sm text-zinc-600">Cargando consultas...</div>
             ) : sorted.length === 0 ? (
               <div className="text-sm text-zinc-600">
-                Todavía no abriste tickets.
+                Todavía no abriste consultas.
               </div>
             ) : (
               <div className="space-y-3">
@@ -375,8 +375,8 @@ export default function SupportPage() {
 
                 {detail.status === "closed" ? (
                   <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-                    El ticket se ha marcado como resuelto. Si tenés otra consulta,
-                    creá un nuevo ticket.
+                    La consulta se ha marcado como resuelta. Si tienes otra consulta,
+                    envia una nueva.
                   </div>
                 ) : (
                   <div className="space-y-2">
@@ -403,7 +403,7 @@ export default function SupportPage() {
               </div>
             ) : (
               <div className="text-sm text-zinc-600">
-                Seleccioná un ticket para ver la conversación.
+                Selecciona una consulta para ver la conversación.
               </div>
             )}
           </div>

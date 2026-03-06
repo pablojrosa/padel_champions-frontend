@@ -25,29 +25,53 @@ import type {
 type IdParam = { id: string };
 type CompetitionType = "tournament" | "league" | "flash";
 
+type RulesContent = {
+  title: string;
+  subtitle?: string;
+  items: string[];
+};
+
+const rulesContentByType: Record<CompetitionType, RulesContent> = {
+  tournament: {
+    title: "Reglas del torneo",
+    subtitle: "Cuando veas 2-0 o 2-1, se refiere a sets ganados y perdidos.",
+    items: [
+      "Los partidos se juegan al mejor de 3 sets.",
+      "Si una pareja gana por 2 sets a 0, suma 3 puntos.",
+      "Si una pareja gana por 2 sets a 1, suma 2 puntos.",
+      "Si una pareja pierde por 1 set a 2, suma 1 punto.",
+      "Si una pareja pierde por 0 sets a 2, suma 0 puntos.",
+      "Desempate: puntos, diferencia de sets y diferencia de games.",
+    ],
+  },
+  league: {
+    title: "Reglas de la liga",
+    items: [
+      "Los partidos se juegan al mejor de 3 sets.",
+      "Cada victoria suma 3 puntos.",
+      "Cada derrota suma 0 puntos.",
+      "Desempate: puntos, diferencia de sets y diferencia de games.",
+      "Formato todos contra todos.",
+    ],
+  },
+  flash: {
+    title: "Reglas del relámpago",
+    items: [
+      "Formato de eliminación directa.",
+      "Los partidos se juegan al mejor de 3 sets.",
+      "No hay fase de grupos.",
+    ],
+  },
+};
+
+function serializeRulesContent(content: RulesContent) {
+  return [content.title, ...content.items.map((item) => `- ${item}`)].join("\n");
+}
+
 const fixedDescriptionByType: Record<CompetitionType, string> = {
-  tournament:
-    "Reglas de la competencia:\n" +
-    "- Partidos al mejor de 3 sets (gana quien llega a 2).\n" +
-    "- Puntos en fase de grupos:\n" +
-    "  - 2-0: 3 pts\n" +
-    "  - 2-1: 2 pts\n" +
-    "  - 1-2: 1 pt\n" +
-    "  - 0-2: 0 pts\n" +
-    "- Criterios de clasificación: puntos, diferencia de sets, diferencia de games.",
-  league:
-    "Reglas de la liga:\n" +
-    "- Partidos al mejor de 3 sets (gana quien llega a 2).\n" +
-    "- Puntos por partido:\n" +
-    "  - Victoria: 3 pts\n" +
-    "  - Derrota: 0 pts\n" +
-    "- Criterios de clasificación: puntos, diferencia de sets, diferencia de games.\n" +
-    "- Formato: todos contra todos (round-robin).",
-  flash:
-    "Reglas del relámpago:\n" +
-    "- Formato de eliminación directa.\n" +
-    "- Partidos al mejor de 3 sets (gana quien llega a 2).\n" +
-    "- Sin fase de grupos: se resuelve en llaves directas.",
+  tournament: serializeRulesContent(rulesContentByType.tournament),
+  league: serializeRulesContent(rulesContentByType.league),
+  flash: serializeRulesContent(rulesContentByType.flash),
 };
 
 const IMPORT_TEMPLATE_HEADERS = [
@@ -133,6 +157,33 @@ function CompetitionTypeIcon({
   );
 }
 
+function RulesSummary({
+  type,
+  className = "",
+}: {
+  type: CompetitionType;
+  className?: string;
+}) {
+  const content = rulesContentByType[type];
+
+  return (
+    <div className={`rounded-xl border border-zinc-200 bg-zinc-50/80 p-4 ${className}`}>
+      <div className="text-sm font-semibold text-zinc-900">{content.title}</div>
+      {content.subtitle ? (
+        <p className="mt-1 text-xs text-zinc-500">{content.subtitle}</p>
+      ) : null}
+      <ul className="mt-3 space-y-2 text-sm text-zinc-600">
+        {content.items.map((item) => (
+          <li key={item} className="flex items-start gap-2">
+            <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-zinc-400" />
+            <span>{item}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 export default function TournamentDetailPage() {
   const router = useRouter();
   const params = useParams<IdParam>();
@@ -153,11 +204,8 @@ export default function TournamentDetailPage() {
   const [pairSaving, setPairSaving] = useState(false);
   const [pairError, setPairError] = useState<string | null>(null);
   const [p1FirstName, setP1FirstName] = useState("");
-  const [p1LastName, setP1LastName] = useState("");
-  const [p1Category, setP1Category] = useState("");
   const [p2FirstName, setP2FirstName] = useState("");
-  const [p2LastName, setP2LastName] = useState("");
-  const [p2Category, setP2Category] = useState("");
+  const [pairCategory, setPairCategory] = useState("");
   const [pairGender, setPairGender] = useState("");
   const [pairScheduleConstraints, setPairScheduleConstraints] = useState("");
   const [importingPairs, setImportingPairs] = useState(false);
@@ -186,8 +234,10 @@ export default function TournamentDetailPage() {
   const [teamsNameQuery, setTeamsNameQuery] = useState("");
 
   const [startingTournament, setStartingTournament] = useState(false);
+  const [showRules, setShowRules] = useState(false);
   const [confirmStartModalOpen, setConfirmStartModalOpen] = useState(false);
   const [confirmDeleteModalOpen, setConfirmDeleteModalOpen] = useState(false);
+  const [deleteConfirmName, setDeleteConfirmName] = useState("");
   const [startSuccessModalOpen, setStartSuccessModalOpen] = useState(false);
   const [startSuccessCopyMessage, setStartSuccessCopyMessage] = useState<string | null>(null);
   const [copyMessage, setCopyMessage] = useState<string | null>(null);
@@ -196,7 +246,6 @@ export default function TournamentDetailPage() {
   const [editName, setEditName] = useState("");
   const [editCompetitionType, setEditCompetitionType] = useState<CompetitionType>("tournament");
   const [editLocation, setEditLocation] = useState("");
-  const [descriptionExpanded, setDescriptionExpanded] = useState(false);
   const [editMatchDurationMinutes, setEditMatchDurationMinutes] = useState("90");
   const [editCourtsCount, setEditCourtsCount] = useState("1");
   const [savingEdit, setSavingEdit] = useState(false);
@@ -326,7 +375,6 @@ async function load(options?: { silent?: boolean }) {
 
   useEffect(() => {
     if (!Number.isFinite(tournamentId)) return;
-    setDescriptionExpanded(false);
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tournamentId]);
@@ -412,11 +460,8 @@ async function load(options?: { silent?: boolean }) {
 
   function openPairModal() {
     setP1FirstName("");
-    setP1LastName("");
-    setP1Category("");
     setP2FirstName("");
-    setP2LastName("");
-    setP2Category("");
+    setPairCategory("");
     setPairGender("");
     setPairScheduleConstraints("");
     setPairError(null);
@@ -455,7 +500,7 @@ async function load(options?: { silent?: boolean }) {
       !editP2Category ||
       !editPairGender
     ) {
-      setEditPairError("Completá los datos de ambos jugadores.");
+      setEditPairError("Completa los datos de ambos jugadores.");
       return;
     }
 
@@ -527,14 +572,11 @@ async function load(options?: { silent?: boolean }) {
   async function createPair() {
     if (
       !p1FirstName.trim() ||
-      !p1LastName.trim() ||
-      !p1Category ||
       !p2FirstName.trim() ||
-      !p2LastName.trim() ||
-      !p2Category ||
+      !pairCategory ||
       !pairGender
     ) {
-      setPairError("Completá los datos de ambos jugadores.");
+      setPairError("Completa los datos de ambos jugadores.");
       return;
     }
 
@@ -549,14 +591,14 @@ async function load(options?: { silent?: boolean }) {
       players: [
         {
           id: tempId * 10 - 1,
-          name: `${p1FirstName.trim()} ${p1LastName.trim()}`.trim(),
-          category: p1Category,
+          name: p1FirstName.trim(),
+          category: pairCategory,
           gender: pairGender,
         },
         {
           id: tempId * 10 - 2,
-          name: `${p2FirstName.trim()} ${p2LastName.trim()}`.trim(),
-          category: p2Category,
+          name: p2FirstName.trim(),
+          category: pairCategory,
           gender: pairGender,
         },
       ],
@@ -575,14 +617,12 @@ async function load(options?: { silent?: boolean }) {
           body: {
             player1: {
               first_name: p1FirstName.trim(),
-              last_name: p1LastName.trim(),
-              category: p1Category,
+              category: pairCategory,
               gender: pairGender,
             },
             player2: {
               first_name: p2FirstName.trim(),
-              last_name: p2LastName.trim(),
-              category: p2Category,
+              category: pairCategory,
               gender: pairGender,
             },
             schedule_constraints: pairScheduleConstraints.trim()
@@ -911,7 +951,7 @@ async function load(options?: { silent?: boolean }) {
       }
       setStartSuccessCopyMessage("Link público copiado. Ya podés compartirlo.");
     } catch {
-      setStartSuccessCopyMessage("No se pudo copiar el link. Probá de nuevo.");
+      setStartSuccessCopyMessage("No se pudo copiar el link. Prueba de nuevo.");
     }
   }
   
@@ -994,11 +1034,6 @@ async function load(options?: { silent?: boolean }) {
     tournament?.location && tournament.location.startsWith("http")
       ? tournament.location
       : null;
-  const trimmedDescription = tournament?.description?.trim() ?? "";
-  const hasDescription = trimmedDescription.length > 0;
-  const descriptionLineCount = trimmedDescription.split("\n").filter(Boolean).length;
-  const hasLongDescription =
-    trimmedDescription.length > 280 || descriptionLineCount > 4;
   const getTeamGroup = (teamId: number) =>
     groups.find((g) => g.teams?.some((t) => t.id === teamId)) ?? null;
   const teamCategories = useMemo(() => {
@@ -1098,7 +1133,7 @@ async function load(options?: { silent?: boolean }) {
   const readinessItems = [
     {
       key: "teams",
-      label: `Al menos ${minTeamsRequired} pareja${minTeamsRequired > 1 ? "s" : ""} cargada${minTeamsRequired > 1 ? "s" : ""}`,
+      label: `Cargá las parejas al ${competitionType === "league" ? "liga" : competitionType === "flash" ? "relámpago" : "torneo"}`,
       done: hasRequiredTeams,
       countInPending: true,
       actionLabel: "Cargar pareja",
@@ -1113,10 +1148,10 @@ async function load(options?: { silent?: boolean }) {
         competitionType === "flash"
           ? hasGeneratedGroups
             ? "Zonas creadas"
-            : "Creá las zonas"
+            : "Crea las zonas"
           : hasGeneratedGroups
           ? "Zonas generadas"
-          : "Generá las zonas",
+          : "Genera las zonas",
       done: hasGeneratedGroups,
       countInPending: true,
       actionLabel:
@@ -1154,15 +1189,10 @@ async function load(options?: { silent?: boolean }) {
     <div className="space-y-8">
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div className="space-y-2">
-          <div className="text-xs uppercase tracking-[0.3em] text-zinc-400">
-            Gestión
-          </div>
-          <h1 className="text-3xl font-semibold">Detalle de la competencia</h1>
+<h1 className="text-3xl font-semibold">Detalle de la competencia</h1>
           <p className="text-sm text-zinc-300">Equipos, zonas y estado general.</p>
           <div className="space-y-1">
-            <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
-              Formato actual
-            </div>
+
             <div
               className="inline-flex items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-1.5"
               aria-label={`Formato actual: ${competitionTypeDisplayLabel}`}
@@ -1229,25 +1259,15 @@ async function load(options?: { silent?: boolean }) {
                 <label className="text-xs font-semibold text-zinc-500">
                   Tipo de competencia
                 </label>
-                <select
-                  className="w-full rounded-xl border border-zinc-300 bg-zinc-50 px-3 py-2 text-sm text-zinc-900 shadow-sm focus:border-zinc-900 focus:outline-none focus:ring-2 focus:ring-zinc-900/20"
-                  value={editCompetitionType}
-                  onChange={(e) => setEditCompetitionType(e.target.value as CompetitionType)}
-                >
-                  <option value="tournament">Torneo</option>
-                  <option value="league">Liga</option>
-                  <option value="flash">Relampago</option>
-                </select>
+                <div className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm font-medium text-zinc-700">
+                  {competitionTypeDisplayLabel}
+                </div>
               </div>
               <div className="space-y-1">
                 <label className="text-xs font-semibold text-zinc-500">Reglas de la competencia</label>
-                <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-3">
-                  <pre className="whitespace-pre-wrap font-sans text-xs text-zinc-600">
-                    {fixedDescriptionByType[editCompetitionType]}
-                  </pre>
-                </div>
+                <RulesSummary type={editCompetitionType} />
                 <p className="text-xs text-zinc-400">
-                  Esta competencia se juega con reglas estándar según su formato.
+                  Estas reglas son fijas según el formato de la competencia.
                 </p>
               </div>
               <Input
@@ -1314,52 +1334,32 @@ async function load(options?: { silent?: boolean }) {
                 <div className="text-sm font-medium text-zinc-900">
                   Jugador 1
                 </div>
-                <div className="grid gap-2 md:grid-cols-2">
-                  <Input
-                    placeholder="Nombre"
-                    value={p1FirstName}
-                    onChange={(e) => setP1FirstName(e.target.value)}
-                  />
-                  <Input
-                    placeholder="Apellido"
-                    value={p1LastName}
-                    onChange={(e) => setP1LastName(e.target.value)}
-                  />
-                </div>
-                <select
-                  className="w-full rounded-xl border border-zinc-300 bg-zinc-50 px-3 py-2 text-sm text-zinc-900 shadow-sm focus:border-zinc-900 focus:outline-none focus:ring-2 focus:ring-zinc-900/20"
-                  value={p1Category}
-                  onChange={(e) => setP1Category(e.target.value)}
-                >
-                  <option value="">Seleccionar categoría</option>
-                  {categories.map((c) => (
-                    <option key={c} value={c}>
-                      {c}
-                    </option>
-                  ))}
-                </select>
+                <Input
+                  placeholder="Nombre"
+                  value={p1FirstName}
+                  onChange={(e) => setP1FirstName(e.target.value)}
+                />
               </div>
 
               <div className="space-y-2">
                 <div className="text-sm font-medium text-zinc-900">
                   Jugador 2
                 </div>
-                <div className="grid gap-2 md:grid-cols-2">
-                  <Input
-                    placeholder="Nombre"
-                    value={p2FirstName}
-                    onChange={(e) => setP2FirstName(e.target.value)}
-                  />
-                  <Input
-                    placeholder="Apellido"
-                    value={p2LastName}
-                    onChange={(e) => setP2LastName(e.target.value)}
-                  />
+                <Input
+                  placeholder="Nombre"
+                  value={p2FirstName}
+                  onChange={(e) => setP2FirstName(e.target.value)}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <div className="text-sm font-medium text-zinc-900">
+                  Categoría
                 </div>
                 <select
                   className="w-full rounded-xl border border-zinc-300 bg-zinc-50 px-3 py-2 text-sm text-zinc-900 shadow-sm focus:border-zinc-900 focus:outline-none focus:ring-2 focus:ring-zinc-900/20"
-                  value={p2Category}
-                  onChange={(e) => setP2Category(e.target.value)}
+                  value={pairCategory}
+                  onChange={(e) => setPairCategory(e.target.value)}
                 >
                   <option value="">Seleccionar categoría</option>
                   {categories.map((c) => (
@@ -1526,104 +1526,117 @@ async function load(options?: { silent?: boolean }) {
 
           <Modal
             open={confirmDeleteModalOpen}
-            title="Eliminar competencia"
-            onClose={() => setConfirmDeleteModalOpen(false)}
-            className="max-w-md"
+            onClose={() => { setConfirmDeleteModalOpen(false); setDeleteConfirmName(""); }}
+            className="max-w-sm"
           >
             <div className="space-y-5">
-              <div className="rounded-xl border border-red-100 bg-red-50 p-4 space-y-3">
-                <div className="text-sm font-semibold text-zinc-900">{tournament?.name}</div>
-                <div className="grid grid-cols-2 gap-2 text-xs">
-                  <div className="rounded-lg border border-red-100 bg-white px-3 py-2">
-                    <div className="text-zinc-400 uppercase tracking-wide text-[10px] font-semibold mb-0.5">Formato</div>
-                    <div className="font-medium text-zinc-700">{competitionTypeDisplayLabel}</div>
-                  </div>
-                  <div className="rounded-lg border border-red-100 bg-white px-3 py-2">
-                    <div className="text-zinc-400 uppercase tracking-wide text-[10px] font-semibold mb-0.5">Parejas</div>
-                    <div className="font-medium text-zinc-700">{teams.length}</div>
-                  </div>
-                </div>
+              {/* Header */}
+              <div className="space-y-1">
+                <div className="text-base font-semibold text-zinc-900">Eliminar competencia</div>
+                <p className="text-sm text-zinc-500">
+                  Esta acción es <span className="font-semibold text-zinc-700">permanente e irreversible</span>. Se eliminarán todos los equipos, jugadores y partidos asociados.
+                </p>
               </div>
-              <p className="text-sm text-zinc-500">
-                Esta acción es permanente. Se borrarán todos los jugadores, equipos y partidos asociados a esta competencia.
-              </p>
-              <div className="flex items-center justify-between gap-2">
-                <Button variant="secondary" onClick={() => setConfirmDeleteModalOpen(false)}>
-                  Cancelar
-                </Button>
+
+              {/* Confirmation input */}
+              <div className="space-y-2">
+                <label className="text-xs text-zinc-500">
+                  Para confirmar, escribí el nombre de la competencia:{" "}
+                  <span className="font-semibold text-zinc-800 select-all">{tournament?.name}</span>
+                </label>
+                <Input
+                  value={deleteConfirmName}
+                  onChange={(e) => setDeleteConfirmName(e.target.value)}
+                  placeholder={tournament?.name ?? ""}
+                  autoComplete="off"
+                />
+              </div>
+
+              {/* Actions */}
+              <div className="flex flex-col gap-2">
                 <Button
                   variant="secondary"
                   onClick={() => {
                     setConfirmDeleteModalOpen(false);
+                    setDeleteConfirmName("");
                     deleteTournament();
                   }}
-                  disabled={deletingTournament}
-                  className="!border-red-300 !bg-red-50 !text-red-700 hover:!bg-red-100 gap-2"
+                  disabled={deletingTournament || deleteConfirmName !== tournament?.name}
+                  className="w-full gap-2 !border-red-300 !bg-red-50 !text-red-700 hover:!bg-red-100 disabled:!opacity-40"
                 >
                   {deletingTournament && (
-                    <span className="h-4 w-4 animate-spin rounded-full border-2 border-red-300 border-t-red-700" aria-hidden />
+                    <span className="h-4 w-4 animate-spin rounded-full border-2 border-red-300 border-t-red-600" aria-hidden />
                   )}
-                  Eliminar competencia
+                  {deletingTournament ? "Eliminando..." : "Eliminar competencia"}
                 </Button>
+                <button
+                  type="button"
+                  onClick={() => { setConfirmDeleteModalOpen(false); setDeleteConfirmName(""); }}
+                  className="text-xs text-zinc-400 hover:text-zinc-600 text-center py-1 transition-colors"
+                >
+                  Cancelar
+                </button>
               </div>
             </div>
           </Modal>
 
           <Modal
             open={confirmStartModalOpen}
-            title={`Iniciar ${competitionTypeDisplayLabel.toLowerCase()}`}
             onClose={() => setConfirmStartModalOpen(false)}
-            className="max-w-md"
+            className="max-w-sm"
           >
             <div className="space-y-5">
-              <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-4 space-y-3">
-                <div className="text-sm font-semibold text-zinc-900">{tournament?.name}</div>
-                <div className="grid grid-cols-2 gap-2 text-xs">
-                  <div className="rounded-lg border border-zinc-100 bg-white px-3 py-2">
-                    <div className="text-zinc-400 uppercase tracking-wide text-[10px] font-semibold mb-0.5">Formato</div>
-                    <div className="font-medium text-zinc-700">{competitionTypeDisplayLabel}</div>
+              {/* Hero */}
+              <div className="rounded-xl bg-zinc-700 px-5 py-6 text-white space-y-3">
+                <div>
+                  <div className="text-[10px] font-bold uppercase tracking-widest text-zinc-400 mb-1">
+                    {competitionTypeDisplayLabel}
                   </div>
-                  <div className="rounded-lg border border-zinc-100 bg-white px-3 py-2">
-                    <div className="text-zinc-400 uppercase tracking-wide text-[10px] font-semibold mb-0.5">Parejas</div>
-                    <div className="font-medium text-zinc-700">{teams.length}</div>
-                  </div>
+                  <div className="text-2xl font-black leading-tight">{tournament?.name}</div>
+                </div>
+                <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-zinc-300">
+                  <span><span className="font-semibold text-white">{teams.length}</span> parejas</span>
                   {competitionType !== "league" && (
-                    <div className="rounded-lg border border-zinc-100 bg-white px-3 py-2">
-                      <div className="text-zinc-400 uppercase tracking-wide text-[10px] font-semibold mb-0.5">Canchas</div>
-                      <div className="font-medium text-zinc-700">{tournament?.courts_count ?? "-"}</div>
-                    </div>
+                    <span><span className="font-semibold text-white">{tournament?.courts_count ?? "-"}</span> canchas</span>
                   )}
                   {competitionType === "tournament" && (
-                    <div className="rounded-lg border border-zinc-100 bg-white px-3 py-2">
-                      <div className="text-zinc-400 uppercase tracking-wide text-[10px] font-semibold mb-0.5">Zonas</div>
-                      <div className="font-medium text-zinc-700">{groups.length}</div>
-                    </div>
+                    <span><span className="font-semibold text-white">{groups.length}</span> zonas</span>
                   )}
                 </div>
               </div>
-              <p className="text-sm text-zinc-500">
-                {competitionType === "flash"
-                  ? "Se va a generar el listado ordenado de partidos por cancha. Una vez iniciado, no vas a poder modificar las parejas."
-                  : competitionType === "league"
-                  ? "Una vez iniciada, no vas a poder editar los equipos."
-                  : "Una vez iniciado, no vas a poder editar jugadores ni equipos."}
-              </p>
-              <div className="flex items-center justify-between gap-2">
-                <Button variant="secondary" onClick={() => setConfirmStartModalOpen(false)}>
-                  Cancelar
-                </Button>
+
+              {/* Warning */}
+              <div className="flex gap-3 rounded-xl bg-amber-50 border border-amber-200 px-4 py-3">
+                <svg className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" aria-hidden>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+                </svg>
+                <p className="text-xs text-amber-800 leading-relaxed">
+                  {competitionType === "flash"
+                    ? "Se va a generar el listado de partidos por cancha. Una vez iniciado, no vas a poder modificar las parejas."
+                    : competitionType === "league"
+                    ? "Una vez iniciada, no vas a poder editar las parejas."
+                    : "Una vez iniciado, no vas a poder editar jugadores ni parejas."}
+                </p>
+              </div>
+
+              {/* Actions */}
+              <div className="flex flex-col gap-2">
                 <Button
                   onClick={() => {
                     setConfirmStartModalOpen(false);
                     startTournament();
                   }}
                   disabled={startingTournament}
-                  className="gap-2"
+                  variant="secondary"
+                  className="w-full gap-2"
                 >
                   {startingTournament && (
-                    <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" aria-hidden />
+                    <span className="h-4 w-4 animate-spin rounded-full border-2 border-zinc-400/40 border-t-zinc-600" aria-hidden />
                   )}
-                  Confirmar
+                  {startingTournament ? "Iniciando..." : `Iniciar ${competitionTypeDisplayLabel.toLowerCase()}`}
+                </Button>
+                <Button variant="secondary" onClick={() => setConfirmStartModalOpen(false)} className="w-full">
+                  Cancelar
                 </Button>
               </div>
             </div>
@@ -1631,38 +1644,57 @@ async function load(options?: { silent?: boolean }) {
 
           <Modal
             open={startSuccessModalOpen}
-            title=""
             onClose={() => setStartSuccessModalOpen(false)}
-            className="max-w-md"
+            className="max-w-sm"
           >
-            <div className="space-y-4 text-center">
-              <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-emerald-500 text-white">
-                <span className="text-lg font-semibold">✓</span>
+            <div className="space-y-5">
+              {/* Hero */}
+              <div className="rounded-xl bg-zinc-700 px-5 py-6 text-white space-y-3">
+                <div className="flex items-center gap-2">
+                  <svg className="h-5 w-5 text-emerald-400 shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" aria-hidden>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                  </svg>
+                  <span className="text-sm font-semibold text-emerald-400">Competencia iniciada</span>
+                </div>
+                <div>
+                  <div className="text-2xl font-black leading-tight">{tournament?.name ?? `#${tournamentId}`}</div>
+                  <div className="text-sm text-zinc-400 mt-1">Ya está en juego.</div>
+                </div>
               </div>
-              <div className="space-y-1">
-                <div className="text-lg font-semibold text-zinc-900">Competencia iniciada</div>
-                <p className="text-sm text-zinc-600">
-                  Felicitaciones, la competencia{" "}
-                  <span className="font-semibold text-zinc-900">
-                    {tournament?.name ?? `#${tournamentId}`}
-                  </span>{" "}
-                  fue iniciado de forma exitosa. Copiá el link y compartilo con los jugadores.
-                </p>
+
+              {/* Link */}
+              <div className="space-y-2">
+                <div className="text-xs font-semibold text-zinc-500 uppercase tracking-wide">Compartí con los jugadores</div>
+                <div className="flex items-center gap-2 rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2">
+                  <span className="flex-1 text-xs text-zinc-600 truncate">{getPublicViewerLink()}</span>
+                  <button
+                    type="button"
+                    onClick={copyStartedTournamentLink}
+                    className="shrink-0 text-xs font-semibold text-zinc-700 hover:text-zinc-900 border border-zinc-300 rounded-lg px-2 py-1 bg-white hover:bg-zinc-50 transition-colors"
+                  >
+                    Copiar
+                  </button>
+                </div>
+                {startSuccessCopyMessage && (
+                  <div className="text-xs text-emerald-600">{startSuccessCopyMessage}</div>
+                )}
               </div>
-              <div className="rounded-xl border border-zinc-300 bg-zinc-50 px-3 py-2 text-xs text-zinc-700 break-all text-left">
-                {getPublicViewerLink()}
-              </div>
-              {startSuccessCopyMessage && (
-                <div className="text-xs text-emerald-700">{startSuccessCopyMessage}</div>
-              )}
-              <div className="flex flex-col gap-2 sm:flex-row sm:justify-center">
-                <Button variant="secondary" onClick={() => setStartSuccessModalOpen(false)}>
-                  Cerrar
-                </Button>
-                <Button variant="secondary" onClick={copyStartedTournamentLink}>
-                  Copiar link público
+
+              {/* Actions */}
+              <div className="flex flex-col gap-2">
+                <Button
+                  variant="secondary"
+                  className="w-full"
+                  onClick={() => {
+                    router.push(`/tournaments/${tournamentId}/matches`);
+                    setStartSuccessModalOpen(false);
+                  }}
+                >
+                  Ver partidos
                 </Button>
                 <Button
+                  variant="secondary"
+                  className="w-full"
                   onClick={() => {
                     router.push(`/viewer/tournaments/${tournamentId}`);
                     setStartSuccessModalOpen(false);
@@ -1670,6 +1702,13 @@ async function load(options?: { silent?: boolean }) {
                 >
                   Abrir vista pública
                 </Button>
+                <button
+                  type="button"
+                  onClick={() => setStartSuccessModalOpen(false)}
+                  className="text-xs text-zinc-400 hover:text-zinc-600 text-center py-1 transition-colors"
+                >
+                  Cerrar
+                </button>
               </div>
             </div>
           </Modal>
@@ -1710,77 +1749,102 @@ async function load(options?: { silent?: boolean }) {
                   </div>
                 </div>
 
-                <div className="grid gap-2 md:grid-cols-3">
-                  {readinessItems.map((item) => {
+                <div className="grid gap-3 md:grid-cols-3">
+                  {readinessItems.map((item, index) => {
                     const isNextStep = nextReadinessItem?.key === item.key && !item.done;
-                    return (
-                      <div
-                        key={item.key}
-                        className={`rounded-xl border px-3 py-2 ${
-                          item.done
-                            ? "border-emerald-200 bg-emerald-50"
-                            : "border-amber-200 bg-amber-50"
-                        } ${isNextStep ? "ring-2 ring-amber-200" : ""}`}
-                      >
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="space-y-1">
-                            <div className="text-sm text-zinc-800">{item.label}</div>
-                            {isNextStep && (
-                              <span className="inline-flex rounded-full bg-amber-200 px-2 py-0.5 text-[11px] font-semibold text-amber-800">
-                                Siguiente paso
-                              </span>
-                            )}
-                          </div>
-                          <span
-                            className={`text-xs font-semibold ${
-                              item.done ? "text-emerald-700" : "text-amber-700"
-                            }`}
-                          >
-                            {item.done ? "Listo" : "Pendiente"}
-                          </span>
-                        </div>
-                        {item.key === "status" ? (
-                          <div className="mt-2">
+                    const isLocked = !item.done && !isNextStep;
+
+                    // Status step always shows the start button (enabled or not)
+                    if (item.key === "status") {
+                      return (
+                        <div
+                          key={item.key}
+                          className={`rounded-xl px-4 py-4 flex items-center gap-4 ${
+                            canStartTournament
+                              ? "border-2 border-zinc-800 bg-white shadow-sm"
+                              : "border border-zinc-200 bg-zinc-50 opacity-50 select-none"
+                          }`}
+                        >
+                          <div className="shrink-0 text-5xl font-black text-zinc-400 leading-none w-10 text-center">{index + 1}</div>
+                          <div className="flex-1 flex flex-col gap-2 min-w-0">
+                            <div className="text-sm font-semibold text-zinc-900">{item.label}</div>
                             {canStartTournament ? (
                               <Button
                                 onClick={() => setConfirmStartModalOpen(true)}
                                 disabled={startingTournament}
+                                variant="secondary"
                                 className="w-full"
                               >
                                 {startingTournament ? "Iniciando..." : startLabel}
                               </Button>
                             ) : (
-                              <p className="text-xs text-zinc-500">
-                                Completá los pasos anteriores para habilitarlo.
-                              </p>
+                              <span className="text-xs text-zinc-400">Completá los pasos anteriores primero</span>
                             )}
                           </div>
-                        ) : !item.done && (
-                          <div className="mt-2">
-                            <div className="flex flex-wrap items-center gap-1 text-xs">
-                              <button
-                                type="button"
-                                onClick={item.onAction}
-                                className="text-xs font-semibold text-zinc-700 underline decoration-dotted hover:text-zinc-900"
-                              >
-                                {item.actionLabel}
-                              </button>
-                              {item.secondaryActionLabel && item.onSecondaryAction && (
-                                <>
-                                  <span className="text-zinc-500">o</span>
-                                  <button
-                                    type="button"
-                                    onClick={item.onSecondaryAction}
-                                    disabled={item.secondaryDisabled}
-                                    className="text-xs font-semibold text-zinc-700 underline decoration-dotted hover:text-zinc-900 disabled:cursor-not-allowed disabled:opacity-60"
-                                  >
-                                    {item.secondaryActionLabel}
-                                  </button>
-                                </>
-                              )}
+                        </div>
+                      );
+                    }
+
+                    if (item.done) {
+                      return (
+                        <div
+                          key={item.key}
+                          className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-4 flex items-center gap-4"
+                        >
+                          <div className="shrink-0 text-5xl font-black text-emerald-400 leading-none w-10 text-center">{index + 1}</div>
+                          <div className="flex-1 flex flex-col gap-1 min-w-0">
+                            <div className="flex items-center gap-1.5">
+                              <svg className="h-4 w-4 text-emerald-600 shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" aria-hidden>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                              </svg>
+                              <span className="text-sm font-semibold text-emerald-800">{item.label}</span>
                             </div>
                           </div>
-                        )}
+                        </div>
+                      );
+                    }
+
+                    if (isLocked) {
+                      return (
+                        <div
+                          key={item.key}
+                          className="rounded-xl border border-zinc-200 bg-zinc-50 px-4 py-4 flex items-center gap-4 opacity-50 select-none"
+                        >
+                          <div className="shrink-0 text-5xl font-black text-zinc-400 leading-none w-10 text-center">{index + 1}</div>
+                          <div className="flex-1 flex flex-col gap-1 min-w-0">
+                            <span className="text-sm text-zinc-500">{item.label}</span>
+                          </div>
+                        </div>
+                      );
+                    }
+
+
+                    return (
+                      <div
+                        key={item.key}
+                        className="rounded-xl border-2 border-zinc-800 bg-white shadow-sm px-4 py-4 flex items-center gap-4"
+                      >
+                        <div className="shrink-0 text-5xl font-black text-zinc-400 leading-none w-10 text-center">{index + 1}</div>
+                        <div className="flex-1 flex flex-col gap-2 min-w-0">
+                          <div className="text-sm font-semibold text-zinc-900">{item.label}</div>
+                          <Button
+                            onClick={item.onAction}
+                            variant="secondary"
+                            className="w-full"
+                          >
+                            {item.actionLabel}
+                          </Button>
+                          {item.secondaryActionLabel && item.onSecondaryAction && (
+                            <button
+                              type="button"
+                              onClick={item.onSecondaryAction}
+                              disabled={item.secondaryDisabled}
+                              className="text-xs text-zinc-500 underline hover:text-zinc-700 text-center disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                              o {item.secondaryActionLabel}
+                            </button>
+                          )}
+                        </div>
                       </div>
                     );
                   })}
@@ -1820,45 +1884,26 @@ async function load(options?: { silent?: boolean }) {
                     )}
                   </div>
 
-                  {hasDescription && (
-                    <div className="space-y-2">
-                      <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                        Descripción y reglas
-                      </div>
-                      <div className="relative rounded-xl border border-zinc-200 bg-zinc-50/70 p-3">
-                        <div
-                          className={`whitespace-pre-wrap text-sm text-zinc-600 ${
-                            hasLongDescription && !descriptionExpanded
-                              ? "max-h-28 overflow-hidden"
-                              : ""
-                          }`}
-                        >
-                          {trimmedDescription}
-                        </div>
-                        {hasLongDescription && !descriptionExpanded && (
-                          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-10 rounded-b-xl bg-gradient-to-t from-zinc-50/95 to-transparent" />
-                        )}
-                      </div>
-                      {hasLongDescription && (
-                        <button
-                          type="button"
-                          onClick={() => setDescriptionExpanded((prev) => !prev)}
-                          className="text-xs font-semibold text-zinc-700 underline decoration-dotted hover:text-zinc-900"
-                        >
-                          {descriptionExpanded ? "Ver menos" : "Ver descripción completa"}
-                        </button>
-                      )}
-                    </div>
-                  )}
+                  <div className="space-y-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowRules(v => !v)}
+                      className="flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-zinc-500 hover:text-zinc-700 transition-colors"
+                    >
+                      Reglas de la competencia
+                      <svg className={`h-3 w-3 transition-transform ${showRules ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" aria-hidden>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+                      </svg>
+                    </button>
+                    {showRules && <RulesSummary type={competitionType} />}
+                  </div>
                 </div>
 
                 <div className="w-full max-w-sm space-y-3">
                   <div className="space-y-2">
-                    <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                      Acciones de la competencia
-                    </div>
+
                     <div className="flex flex-wrap items-center justify-end gap-2">
-                      <Button variant="secondary" onClick={openEditModal}>
+                      <Button variant="secondary" onClick={openEditModal} disabled={status !== "upcoming"}>
                         Editar competencia
                       </Button>
                       <Button variant="secondary" onClick={copyPublicLink}>
@@ -1879,12 +1924,12 @@ async function load(options?: { silent?: boolean }) {
             <div id="teams-section" className="md:col-span-2">
               <Card className="bg-white/95">
               <div className="p-6 space-y-4">
-                <div className="flex flex-wrap items-start justify-between gap-2">
-                  <div>
-                    <div className="text-sm font-semibold text-zinc-800">Cargar parejas</div>
-                    <div className="text-xs text-zinc-600">
-                      Cargá los datos de ambos jugadores y creá el equipo.
-                    </div>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <span className="text-base font-semibold text-zinc-900">Parejas</span>
+                    <span className="rounded-full border border-zinc-200 bg-zinc-100 px-2 py-0.5 text-xs text-zinc-600">
+                      {filteredTeams.length}
+                    </span>
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
                     <Button
@@ -1937,12 +1982,6 @@ async function load(options?: { silent?: boolean }) {
                   </div>
                 )}
 
-                <div className="flex items-center gap-2 text-sm font-semibold text-zinc-700">
-                  <span>Parejas</span>
-                  <span className="rounded-full border border-zinc-200 bg-zinc-100 px-2 py-0.5 text-xs text-zinc-600">
-                    {filteredTeams.length}
-                  </span>
-                </div>
                 <div className="flex flex-wrap items-center gap-3">
                   {groups.length > 0 && (
                     <div className="flex items-center gap-2">
@@ -2023,15 +2062,35 @@ async function load(options?: { silent?: boolean }) {
                     className="w-48"
                   />
                 </div>
-                <div className="max-h-64 overflow-y-auto space-y-2 pr-1">
+                <div className={`space-y-2 pr-1 ${filteredTeams.length > 0 ? "max-h-64 overflow-y-auto" : ""}`}>
                   
 
                   {filteredTeams.length === 0 ? (
-                    <div className="text-sm text-zinc-600">
-                      {teams.length === 0
-                        ? "No hay equipos creados."
-                        : "No hay equipos para el filtro seleccionado."}
-                    </div>
+                    teams.length === 0 ? (
+                      <div className="flex flex-col items-center gap-3 py-10 text-center">
+                        <svg className="h-10 w-10 text-zinc-300" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" aria-hidden>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z" />
+                        </svg>
+                        <div>
+                          <div className="text-sm font-semibold text-zinc-700">Aún no hay parejas cargadas</div>
+                          <div className="text-xs text-zinc-400 mt-0.5">Agregá la primera pareja para empezar</div>
+                        </div>
+                        {status === "upcoming" && (
+                          <div className="flex flex-col items-center gap-2">
+                            <Button onClick={openPairModal}>+ Agregar primera pareja</Button>
+                            <button
+                              type="button"
+                              onClick={() => importInputRef.current?.click()}
+                              className="text-xs text-zinc-500 underline hover:text-zinc-700"
+                            >
+                              o importar desde Excel/CSV
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="text-sm text-zinc-600">No hay equipos para el filtro seleccionado.</div>
+                    )
                   ) : (
                     <div className="space-y-2">
                       {filteredTeams.map((team) => {
@@ -2174,30 +2233,16 @@ async function load(options?: { silent?: boolean }) {
             
           </div>
 
-          <Card className="bg-white/95">
-            <div className="p-3">
-              <div className="rounded-2xl border border-red-200 bg-red-50 px-3 py-2.5">
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                  <div className="space-y-0.5">
-                    <div className="text-xs font-semibold uppercase tracking-wide text-red-700">
-                      Zona de peligro
-                    </div>
-                    <div className="text-sm text-red-700">
-                      Esta accion elimina la competencia y sus datos asociados.
-                    </div>
-                  </div>
-                  <Button
-                    variant="secondary"
-                    onClick={() => setConfirmDeleteModalOpen(true)}
-                    disabled={deletingTournament}
-                    className="!border-red-300 !bg-red-50 !text-red-700 font-semibold hover:!bg-red-100 sm:shrink-0"
-                  >
-                    {deletingTournament ? "Eliminando..." : "Eliminar competencia"}
-                  </Button>
-                </div>
-              </div>
-            </div>
-          </Card>
+          <div className="flex justify-end">
+            <button
+              type="button"
+              onClick={() => setConfirmDeleteModalOpen(true)}
+              disabled={deletingTournament}
+              className="text-xs text-red-400 border border-red-200 rounded-lg px-3 py-1.5 hover:border-red-400 hover:text-red-600 hover:bg-red-50 transition-colors disabled:opacity-50"
+            >
+              {deletingTournament ? "Eliminando..." : "Eliminar competencia"}
+            </button>
+          </div>
         </>
       )}
     </div>

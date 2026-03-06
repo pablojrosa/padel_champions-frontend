@@ -50,7 +50,7 @@ export default function RegisterPage() {
               Registro
             </div>
             <h1 className="text-3xl font-semibold">Crear cuenta</h1>
-            <p className="text-sm text-zinc-300">Creá tu cuenta de organizador.</p>
+            <p className="text-sm text-zinc-300">Crea tu cuenta de organizador.</p>
           </div>
 
           <Card className="bg-white/95">

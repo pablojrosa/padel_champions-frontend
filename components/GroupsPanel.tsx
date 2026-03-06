@@ -350,7 +350,7 @@ const GroupsPanel = forwardRef<GroupsPanelHandle, Props>(function GroupsPanel({
     ref,
     () => ({
       openGenerateModal: () => {
-        if (disabled || generating || allDivisionsGenerated) return;
+        if (disabled || generating) return;
         setManualOpen(true);
       },
     }),
@@ -673,6 +673,33 @@ const GroupsPanel = forwardRef<GroupsPanelHandle, Props>(function GroupsPanel({
     }
   }
 
+  const [deletingGroupId, setDeletingGroupId] = useState<number | null>(null);
+
+  async function deleteGroupWithTeams(groupId: number, groupName: string) {
+    if (status !== "upcoming") return;
+
+    const confirmed = window.confirm(
+      `Vas a eliminar la zona "${groupName}" y liberar todas sus parejas.\n\n¿Deseás continuar?`
+    );
+
+    if (!confirmed) return;
+
+    setDeletingGroupId(groupId);
+    try {
+      await api(`/tournaments/${tournamentId}/groups/${groupId}?force=true`, {
+        method: "DELETE",
+      });
+      const updatedGroups = await api<TournamentGroupOut[]>(
+        `/tournaments/${tournamentId}/groups`
+      );
+      setGroups(updatedGroups);
+    } catch (err: any) {
+      alert(err?.message ?? "No se pudo eliminar la zona");
+    } finally {
+      setDeletingGroupId(null);
+    }
+  }
+
   function openMoveModal(teamId: number, sourceGroupId: number, targetGroupId?: number) {
     setMoveTeamId(teamId);
     setMoveSourceGroupId(sourceGroupId);
@@ -822,7 +849,7 @@ const GroupsPanel = forwardRef<GroupsPanelHandle, Props>(function GroupsPanel({
     setGenerateSuccess(null);
     setActiveGeneration("manual");
     await onGenerateManual({ teams_per_group: teamsPerGroup, ...payload });
-    setGenerateSuccess("Zonas guardadas. Podés continuar con otra categoría.");
+    setGenerateSuccess("Zonas guardadas. Puedes continuar con otra categoria.");
   }
 
   const panelSensors = useSensors(
@@ -887,9 +914,6 @@ const GroupsPanel = forwardRef<GroupsPanelHandle, Props>(function GroupsPanel({
           </div>
           <div className="flex flex-wrap items-center gap-3">
             <div className="flex items-center gap-2">
-              <span className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                Navegacion
-              </span>
               <Button
                 variant="secondary"
                 onClick={() => window.location.assign(`/tournaments/${tournamentId}/matches`)}
@@ -901,20 +925,11 @@ const GroupsPanel = forwardRef<GroupsPanelHandle, Props>(function GroupsPanel({
             <div className="hidden h-6 w-px bg-zinc-200 md:block" />
 
             <div className="flex items-center gap-2">
-              <span className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                Acciones
-              </span>
-              {allDivisionsGenerated ? (
-                <Button
-                  onClick={() => window.location.assign(`/tournaments/${tournamentId}/matches`)}
-                >
-                  Ir a cargar partidos
-                </Button>
-              ) : (
+              {!disabled && (
                 <>
                   <Button
                     onClick={() => setManualOpen(true)}
-                    disabled={disabled || generating}
+                    disabled={generating}
                   >
                     {generating ? "Generando..." : "Generar zonas"}
                   </Button>
@@ -922,7 +937,7 @@ const GroupsPanel = forwardRef<GroupsPanelHandle, Props>(function GroupsPanel({
                     <Button
                       variant="secondary"
                       onClick={() => setGenerateOpen(true)}
-                      disabled={disabled || generating}
+                      disabled={generating}
                     >
                       {generating && activeGeneration === "ai"
                         ? getAiGeneratingLabel()
@@ -931,20 +946,18 @@ const GroupsPanel = forwardRef<GroupsPanelHandle, Props>(function GroupsPanel({
                   )}
                 </>
               )}
+              {allDivisionsGenerated && (
+                <Button
+                  variant={disabled ? "primary" : "secondary"}
+                  onClick={() => window.location.assign(`/tournaments/${tournamentId}/matches`)}
+                >
+                  Ir a cargar partidos
+                </Button>
+              )}
             </div>
           </div>
         </div>
 
-        {generateSuccess && (
-          <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">
-            {generateSuccess}
-          </div>
-        )}
-        {showAllGeneratedNotice && (
-          <div className="rounded-xl border border-emerald-300 bg-emerald-100 p-3 text-sm text-emerald-900">
-            Perfecto: ya generaste todas las zonas para todas las categorias y generos.
-          </div>
-        )}
 
         {/* Groups */}
         {(categories.length > 0 || genders.length > 0) && (
@@ -1012,12 +1025,17 @@ const GroupsPanel = forwardRef<GroupsPanelHandle, Props>(function GroupsPanel({
                     )}
                   </div>
                   <div className="flex items-center gap-2">
-                    {status === "upcoming" && g.teams.length === 0 && (
+                    {status === "upcoming" && (
                       <button
-                        onClick={() => removeEmptyGroup(g.id, g.name)}
-                        className="rounded-lg border border-zinc-200 px-2 py-1 text-xs text-zinc-600 hover:bg-zinc-50"
+                        onClick={() =>
+                          g.teams.length === 0
+                            ? removeEmptyGroup(g.id, g.name)
+                            : deleteGroupWithTeams(g.id, g.name)
+                        }
+                        disabled={deletingGroupId === g.id}
+                        className="rounded-lg border border-red-200 px-2 py-1 text-xs text-red-600 hover:bg-red-50 disabled:opacity-50"
                       >
-                        Eliminar
+                        {deletingGroupId === g.id ? "Eliminando..." : "Eliminar zona"}
                       </button>
                     )}
                     <Link
@@ -1228,7 +1246,7 @@ const GroupsPanel = forwardRef<GroupsPanelHandle, Props>(function GroupsPanel({
             </Button>
             <Button
               onClick={submitGenerate}
-              disabled={generating || !generateValidation.canSubmit || allDivisionsGenerated}
+              disabled={generating || !generateValidation.canSubmit}
             >
               {generating && activeGeneration === "ai"
                 ? getAiGeneratingLabel()
@@ -1245,6 +1263,7 @@ const GroupsPanel = forwardRef<GroupsPanelHandle, Props>(function GroupsPanel({
         teams={teams}
         persistedAssignedIds={persistedAssignedTeamIds}
         allDivisionsGenerated={allDivisionsGenerated}
+        existingGroups={groups}
         generating={generating && activeGeneration === "manual"}
         defaultCategory={firstPendingDivision?.category}
         defaultGender={firstPendingDivision?.gender}

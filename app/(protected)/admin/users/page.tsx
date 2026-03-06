@@ -228,7 +228,7 @@ export default function AdminUsersPage() {
           <div>
             <h1 className="text-3xl font-semibold">Cuentas de clientes</h1>
             <p className="text-sm text-zinc-300">
-              Creá, editá y eliminá cuentas desde un solo lugar.
+              Crea, edita y elimina cuentas desde un solo lugar.
             </p>
           </div>
           <Button variant="secondary" onClick={() => setCreateOpen(true)}>

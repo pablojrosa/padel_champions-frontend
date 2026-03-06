@@ -21,7 +21,7 @@ type TournamentFieldErrors = {
 type CompetitionType = "tournament" | "league" | "flash";
 type StatusFilter = "all" | TournamentStatus;
 type SortOption = "recent" | "name_asc" | "name_desc" | "start_asc" | "start_desc";
-type CreateFlowStep = 1 | 2 | 3 | 4 | 5;
+type CreateFlowStep = 1 | 2 | 3 | 4;
 
 const dateFormatter = new Intl.DateTimeFormat("es-AR", {
   day: "2-digit",
@@ -58,20 +58,20 @@ const competitionTypeOptions: { value: CompetitionType; label: string }[] = [
   { value: "flash", label: "Relámpago" },
 ];
 const competitionTypeHints: Record<CompetitionType, string> = {
-  tournament: "Grupos + eliminatorias en 1 jornada. El más completo.",
-  league: "Todos contra todos a lo largo de la temporada.",
-  flash: "Eliminatoria directa. Resultados en pocas horas.",
+  tournament: "Ideal para torneos que duran un fin de semana.",
+  league: "Ideal para ligas en donde se juega 1 vez por semana.",
+  flash: "Ideal para torneos relámpago que se juegan en 1 solo día.",
 };
-const competitionTypeStructure: Record<CompetitionType, string> = {
-  tournament: "Fase de grupos → Llaves",
-  league: "Tabla de posiciones",
-  flash: "Eliminatoria directa",
+const competitionTypeNamePlaceholders: Record<CompetitionType, string> = {
+  tournament: "Ej: Torneo Apertura 2026",
+  league: "Ej: Liga Apertura 2026",
+  flash: "Ej: Relámpago Verano 2026",
 };
-const createFlowSteps: { step: 1 | 2 | 3 | 4; label: string; focus: string }[] = [
+
+const createFlowSteps: { step: 1 | 2 | 3; label: string; focus: string }[] = [
   { step: 1, label: "Nombre", focus: "Dale vida a tu competencia" },
   { step: 2, label: "Formato", focus: "¿Cómo van a jugar?" },
-  { step: 3, label: "Reglas", focus: "¿Bajo qué condiciones?" },
-  { step: 4, label: "Confirmar", focus: "¡Casi listos, revisá!" },
+  { step: 3, label: "Confirmar", focus: "Casi listo, revisa." },
 ];
 const totalCreateFlowSteps = createFlowSteps.length;
 
@@ -117,27 +117,25 @@ function getErrorMessage(error: unknown, fallback: string) {
 
 const defaultDescriptionByType: Record<CompetitionType, string> = {
   tournament:
-    "Reglas de la competencia:\n" +
-    "- Partidos al mejor de 3 sets (gana quien llega a 2).\n" +
-    "- Puntos en fase de grupos:\n" +
-    "  - 2-0: 3 pts\n" +
-    "  - 2-1: 2 pts\n" +
-    "  - 1-2: 1 pt\n" +
-    "  - 0-2: 0 pts\n" +
-    "- Criterios de clasificación: puntos, diferencia de sets, diferencia de games.",
+    "Reglas del torneo\n" +
+    "- Los partidos se juegan al mejor de 3 sets.\n" +
+    "- Si una pareja gana por 2 sets a 0, suma 3 puntos.\n" +
+    "- Si una pareja gana por 2 sets a 1, suma 2 puntos.\n" +
+    "- Si una pareja pierde por 1 set a 2, suma 1 punto.\n" +
+    "- Si una pareja pierde por 0 sets a 2, suma 0 puntos.\n" +
+    "- Desempate: puntos, diferencia de sets y diferencia de games.",
   league:
-    "Reglas de la liga:\n" +
-    "- Partidos al mejor de 3 sets (gana quien llega a 2).\n" +
-    "- Puntos por partido:\n" +
-    "  - Victoria: 3 pts\n" +
-    "  - Derrota: 0 pts\n" +
-    "- Criterios de clasificación: puntos, diferencia de sets, diferencia de games.\n" +
-    "- Formato: todos contra todos (round-robin).",
+    "Reglas de la liga\n" +
+    "- Los partidos se juegan al mejor de 3 sets.\n" +
+    "- Cada victoria suma 3 puntos.\n" +
+    "- Cada derrota suma 0 puntos.\n" +
+    "- Desempate: puntos, diferencia de sets y diferencia de games.\n" +
+    "- Formato todos contra todos.",
   flash:
-    "Reglas del relámpago:\n" +
+    "Reglas del relámpago\n" +
     "- Formato de eliminación directa.\n" +
-    "- Partidos al mejor de 3 sets (gana quien llega a 2).\n" +
-    "- Sin fase de grupos: se resuelve en llaves directas.",
+    "- Los partidos se juegan al mejor de 3 sets.\n" +
+    "- No hay fase de grupos.",
 };
 
 export default function TournamentsPage() {
@@ -157,7 +155,7 @@ export default function TournamentsPage() {
   const [courtsCount, setCourtsCount] = useState("1");
   const [creating, setCreating] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<TournamentFieldErrors>({});
-  const [showStandardRulesPreview, setShowStandardRulesPreview] = useState(false);
+
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [createFlowStep, setCreateFlowStep] = useState<CreateFlowStep>(1);
   const [lastCreatedTournament, setLastCreatedTournament] = useState<{
@@ -177,7 +175,6 @@ export default function TournamentsPage() {
     setCompetitionType("tournament");
     setMatchDurationMinutes("90");
     setCourtsCount("1");
-    setShowStandardRulesPreview(false);
     setFieldErrors({});
     setCreateError(null);
   }
@@ -365,8 +362,7 @@ export default function TournamentsPage() {
   const currentCreateFlowVisualStep = Math.min(createFlowStep, totalCreateFlowSteps) as
     | 1
     | 2
-    | 3
-    | 4;
+    | 3;
   const visibleCreateFlowSteps =
     competitionType === "league"
       ? createFlowSteps.filter((step) => step.step !== 2)
@@ -401,19 +397,14 @@ export default function TournamentsPage() {
     }
 
     if (createFlowStep === 3) {
-      setCreateFlowStep(4);
-      return;
-    }
-
-    if (createFlowStep === 4) {
       const created = await createTournament();
       if (!created) return;
-      setCreateFlowStep(5);
+      setCreateFlowStep(4);
     }
   }
 
   function handleCreateFlowBack() {
-    if (createFlowStep <= 1 || createFlowStep === 5) return;
+    if (createFlowStep <= 1 || createFlowStep === 4) return;
     if (competitionType === "league" && createFlowStep === 3) {
       setCreateFlowStep(1);
       return;
@@ -422,6 +413,7 @@ export default function TournamentsPage() {
   }
   const activeCreateStepMeta =
     visibleCreateFlowSteps[currentVisibleStepIndex] ?? visibleCreateFlowSteps[0];
+  const hasCompetitions = !loading && items.length > 0;
 
   return (
     <div className="space-y-8">
@@ -431,8 +423,20 @@ export default function TournamentsPage() {
             Gestión
           </div>
           <h1 className="text-3xl font-semibold">Competencias</h1>
-          <p className="text-sm text-zinc-300">Creá y administrá tus competencias.</p>
+          <p className="text-sm text-zinc-300">Crea y administra tus competencias.</p>
         </div>
+        {!loading && (
+          <div className="flex flex-wrap items-center gap-2">
+            <Button variant="secondary" onClick={() => router.push("/dashboard")}>
+              Volver al tablero
+            </Button>
+            {hasCompetitions && (
+              <Button variant="green" onClick={openCreateModal} className="gap-2 whitespace-nowrap">
+                + Nueva competencia
+              </Button>
+            )}
+          </div>
+        )}
       </div>
 
       {pageError && !createModalOpen && (
@@ -444,15 +448,15 @@ export default function TournamentsPage() {
       <Modal
         open={createModalOpen}
         title={
-          createFlowStep === 5
-            ? "¡Competencia lista para jugar!"
+          createFlowStep === 4
+            ? ""
             : `Nueva competencia · Paso ${currentVisibleStepIndex + 1}/${visibleCreateFlowTotal}`
         }
         onClose={closeCreateModal}
         className="max-w-3xl"
       >
         <div className="space-y-5">
-          {createFlowStep !== 5 && (
+          {createFlowStep !== 4 && (
             <div className="space-y-3 rounded-xl border border-zinc-200 bg-zinc-50/70 p-3">
               <div>
                 <div className="text-[11px] font-semibold uppercase tracking-[0.15em] text-zinc-500">
@@ -470,10 +474,10 @@ export default function TournamentsPage() {
               </div>
               <div
                 className={`grid gap-2 ${
-                  visibleCreateFlowTotal === 2 ? "md:grid-cols-2" : "md:grid-cols-4"
+                  visibleCreateFlowTotal === 2 ? "grid-cols-2" : "grid-cols-3"
                 }`}
               >
-                {visibleCreateFlowSteps.map((step) => {
+                {visibleCreateFlowSteps.map((step, index) => {
                   const isActive = currentCreateFlowVisualStep === step.step;
                   const isCompleted = currentCreateFlowVisualStep > step.step;
                   return (
@@ -495,7 +499,7 @@ export default function TournamentsPage() {
                           {step.label}
                         </span>
                       ) : (
-                        <>{step.step}. {step.label}</>
+                        <>{index + 1}. {step.label}</>
                       )}
                     </div>
                   );
@@ -512,7 +516,7 @@ export default function TournamentsPage() {
                 </label>
                 <Input
                   id="tournament-name-modal"
-                  placeholder="Ej: Liga Apertura 2026"
+                  placeholder={competitionTypeNamePlaceholders[competitionType]}
                   value={name}
                   onChange={(e) => {
                     setName(e.target.value);
@@ -536,7 +540,6 @@ export default function TournamentsPage() {
                         type="button"
                         onClick={() => {
                           setCompetitionType(option.value);
-                          setShowStandardRulesPreview(false);
                           setFieldErrors((prev) => ({
                             ...prev,
                             matchDurationMinutes: undefined,
@@ -570,9 +573,7 @@ export default function TournamentsPage() {
                         <p className={`mt-1 text-xs ${active ? "text-zinc-300" : "text-zinc-500"}`}>
                           {competitionTypeHints[option.value]}
                         </p>
-                        <div className={`mt-2 text-[10px] font-semibold uppercase tracking-wider ${active ? "text-zinc-400" : "text-zinc-400"}`}>
-                          {competitionTypeStructure[option.value]}
-                        </div>
+
                       </button>
                     );
                   })}
@@ -647,48 +648,16 @@ export default function TournamentsPage() {
                 </div>
               )}
               <p className="text-xs text-zinc-400">
-                Podés ajustar estos valores después desde la configuración de la competencia.
+                Puedes ajustar estos valores después desde la configuración de la competencia.
               </p>
             </div>
           )}
 
           {createFlowStep === 3 && (
             <div className="space-y-4">
-              <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-3">
-                <div className="text-sm font-semibold text-zinc-900">Reglas del formato</div>
-                <p className="mt-1 text-xs text-zinc-600">
-                  Esta competencia se jugará con las reglas estándar.
-                </p>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => setShowStandardRulesPreview((prev) => !prev)}
-                className="flex items-center gap-1 text-xs text-zinc-500 hover:text-zinc-800 underline underline-offset-2 transition-colors"
-              >
-                <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" aria-hidden>
-                  <path strokeLinecap="round" strokeLinejoin="round" d={showStandardRulesPreview ? "M4.5 15.75l7.5-7.5 7.5 7.5" : "M19.5 8.25l-7.5 7.5-7.5-7.5"} />
-                </svg>
-                {showStandardRulesPreview ? "Ocultar reglas" : "Ver reglas"}
-              </button>
-
-              {showStandardRulesPreview && (
-                <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-3 space-y-1">
-                  <pre className="whitespace-pre-wrap font-sans text-xs text-zinc-500">{currentTypeDefaultDescription}</pre>
-                </div>
-              )}
-
-              <p className="text-xs text-zinc-400">
-                Podés revisar el detalle completo de las reglas en esta sección.
-              </p>
-            </div>
-          )}
-
-          {createFlowStep === 4 && (
-            <div className="space-y-4">
               <div className="grid gap-2 md:grid-cols-2">
                 <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-3">
-                  <div className="text-[11px] uppercase tracking-[0.15em] text-zinc-500">Competencia</div>
+                  <div className="text-[11px] uppercase tracking-[0.15em] text-zinc-500">Nombre</div>
                   <div className="mt-1 text-sm font-semibold text-zinc-900">{name || "-"}</div>
                 </div>
                 <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-3">
@@ -722,44 +691,28 @@ export default function TournamentsPage() {
             </div>
           )}
 
-          {createFlowStep === 5 && (
-            <div className="space-y-4">
-              <div className="rounded-2xl border border-emerald-200 bg-gradient-to-br from-emerald-50 to-white p-6 text-center">
-                <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full border-2 border-emerald-300 bg-emerald-100">
-                  <svg
-                    className="h-7 w-7 text-emerald-600"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    strokeWidth={2.5}
-                    stroke="currentColor"
-                    aria-hidden
-                  >
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
-                  </svg>
-                </div>
-                <div className="text-xl font-bold text-zinc-900">
-                  {lastCreatedTournament?.name ?? "Tu competencia"} está lista
-                </div>
-                <p className="mt-1 text-sm text-zinc-500">
-                  La creaste en menos de 1 minuto. El primer paso es cargar las parejas.
-                </p>
+          {createFlowStep === 4 && (
+            <div className="rounded-2xl border border-emerald-200 bg-gradient-to-br from-emerald-50 to-white p-6 text-center">
+              <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full border-2 border-emerald-300 bg-emerald-100">
+                <svg
+                  className="h-7 w-7 text-emerald-600"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  strokeWidth={2.5}
+                  stroke="currentColor"
+                  aria-hidden
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                </svg>
               </div>
-
-              <div className="rounded-xl border border-zinc-200 bg-white p-4">
-                <div className="text-xs font-semibold uppercase tracking-[0.15em] text-zinc-400 mb-3">
-                  ¿Qué sigue?
-                </div>
-                <div className="flex items-center gap-3 rounded-lg border border-zinc-100 bg-zinc-50 px-3 py-2.5">
-                  <div className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-zinc-200 text-xs font-bold text-zinc-600">
-                    1
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="text-sm font-medium text-zinc-900">Cargar parejas</div>
-                    <div className="text-xs text-zinc-500">Subí un CSV o ingresalas una por una.</div>
-                  </div>
-                  <div className="flex-shrink-0 text-xs text-zinc-400">~2 min</div>
-                </div>
+              <div className="text-xl font-bold text-zinc-900">
+                {competitionType === "league" ? "Tu liga" : competitionType === "flash" ? "Tu relámpago" : "Tu torneo"}{" "}
+                <span className="text-zinc-900">{lastCreatedTournament?.name}</span>{" "}
+                {competitionType === "league" ? "está lista" : "está listo"}
               </div>
+              <p className="mt-1 text-sm text-zinc-500">
+                El próximo paso es cargar las parejas.
+              </p>
             </div>
           )}
 
@@ -770,7 +723,7 @@ export default function TournamentsPage() {
           )}
 
           <div className="flex flex-wrap items-center justify-between gap-2">
-            {createFlowStep === 5 ? (
+            {createFlowStep === 4 ? (
               <>
                 <Button
                   className="ml-auto"
@@ -804,7 +757,7 @@ export default function TournamentsPage() {
                     />
                   )}
                   <span>
-                    {createFlowStep === 4
+                    {createFlowStep === 3
                       ? creating
                         ? "Creando competencia..."
                         : "Crear competencia"
@@ -822,17 +775,14 @@ export default function TournamentsPage() {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="text-sm font-semibold text-zinc-200">
             Competencias
-            {!loading && items.length > 0 && (
+            {hasCompetitions && (
               <span className="ml-2 text-xs font-normal text-zinc-400">
                 {filteredAndSortedItems.length} de {items.length}
               </span>
             )}
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="green" onClick={openCreateModal} className="gap-2 whitespace-nowrap">
-              + Nueva competencia
-            </Button>
-            {!loading && items.length > 0 && (
+            {hasCompetitions && (
               <>
                 <Input
                   id="search-tournaments"
@@ -861,7 +811,7 @@ export default function TournamentsPage() {
         </div>
 
         {/* Pills de estado (solo si hay competencias) */}
-        {!loading && items.length > 0 && (
+        {hasCompetitions && (
           <div className="flex flex-wrap gap-1.5">
             {statusFilterOptions.map((opt) => (
               <button
@@ -905,7 +855,7 @@ export default function TournamentsPage() {
                 </div>
                 <div className="space-y-1">
                   <div className="text-base font-semibold text-zinc-200">Todavía no tenés competencias</div>
-                  <p className="text-sm text-zinc-400">Creá la primera y empezá a organizar tus torneos.</p>
+                  <p className="text-sm text-zinc-400">Crea la primera y empieza a organizar tus torneos.</p>
                 </div>
                 <Button variant="green" onClick={openCreateModal}>+ Nueva competencia</Button>
               </div>

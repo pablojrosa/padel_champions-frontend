@@ -14,7 +14,7 @@ import {
 import { restrictToWindowEdges } from "@dnd-kit/modifiers";
 import { useDraggable, useDroppable } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
-import type { Team } from "@/lib/types";
+import type { Team, TournamentGroupOut } from "@/lib/types";
 import Modal from "@/components/ui/Modal";
 import Button from "@/components/ui/Button";
 
@@ -266,6 +266,7 @@ type Props = {
   teams: Team[];
   persistedAssignedIds: Set<number>;
   allDivisionsGenerated: boolean;
+  existingGroups?: TournamentGroupOut[];
   generating: boolean;
   defaultCategory?: string | null;
   defaultGender?: string | null;
@@ -278,6 +279,7 @@ export default function ZonesDragModal({
   teams,
   persistedAssignedIds,
   allDivisionsGenerated,
+  existingGroups = [],
   generating,
   defaultCategory,
   defaultGender,
@@ -296,10 +298,24 @@ export default function ZonesDragModal({
     { id: "zone-2", name: "Grupo 2", teamIds: [] },
   ];
 
-  // Reset state when modal opens
+  // Reset state when modal opens, pre-populating existing group assignments
   useEffect(() => {
     if (!open) return;
-    setZonesMap({});
+    const initialZonesMap: Record<string, ManualZone[]> = {};
+    for (const group of existingGroups) {
+      if (group.teams.length === 0) continue;
+      const firstPlayer = group.teams[0]?.players[0];
+      const cat = firstPlayer?.category ?? null;
+      const gen = firstPlayer?.gender ?? null;
+      const key = `${cat ?? ""}::${gen ?? ""}`;
+      if (!initialZonesMap[key]) initialZonesMap[key] = [];
+      initialZonesMap[key].push({
+        id: `zone-existing-${group.id}`,
+        name: group.name,
+        teamIds: group.teams.map((t) => t.id),
+      });
+    }
+    setZonesMap(initialZonesMap);
     setCategory(defaultCategory ?? "all");
     setGender(defaultGender ?? "all");
     setError(null);
@@ -563,15 +579,6 @@ export default function ZonesDragModal({
             )}
 
             <div className="ml-auto flex items-center gap-3">
-              <span className="text-xs text-zinc-500">
-                {assignedCount}/{totalPool} asignadas
-              </span>
-              <div className="h-2 w-28 overflow-hidden rounded-full bg-zinc-200">
-                <div
-                  className="h-full rounded-full bg-zinc-900 transition-all duration-300"
-                  style={{ width: `${progressPercent}%` }}
-                />
-              </div>
               <span className="text-xs font-medium text-zinc-600">
                 {readyZones}/{zones.length} zonas listas
               </span>
@@ -676,7 +683,7 @@ export default function ZonesDragModal({
               </Button>
               <Button
                 onClick={handleSubmit}
-                disabled={generating || !canSubmit || allDivisionsGenerated}
+                disabled={generating || !canSubmit}
               >
                 {generating ? "Generando..." : "Generar zonas"}
               </Button>
