@@ -182,14 +182,14 @@ export default function Navbar() {
                     href="/profile"
                     onClick={() => setMenuOpen(false)}
                   >
-                    Club
+                    Mi club
                   </Link>
                   <Link
                     className="block rounded-lg px-3 py-2 text-sm text-zinc-800 hover:bg-zinc-50"
-                    href="/ayuda"
+                    href="/tournaments"
                     onClick={() => setMenuOpen(false)}
                   >
-                    Ayuda
+                    Competencias
                   </Link>
                   <Link
                     className="block rounded-lg px-3 py-2 text-sm text-zinc-800 hover:bg-zinc-50"
@@ -200,17 +200,10 @@ export default function Navbar() {
                   </Link>
                   <Link
                     className="block rounded-lg px-3 py-2 text-sm text-zinc-800 hover:bg-zinc-50"
-                    href="/tournaments"
+                    href="/ayuda"
                     onClick={() => setMenuOpen(false)}
                   >
-                    Competencias
-                  </Link>
-                  <Link
-                    className="block sm:hidden rounded-lg px-3 py-2 text-sm text-zinc-800 hover:bg-zinc-50"
-                    href="/soporte"
-                    onClick={() => setMenuOpen(false)}
-                  >
-                    Soporte
+                    Preguntas frecuentes
                   </Link>
                 </>
               )}
@@ -223,7 +216,7 @@ export default function Navbar() {
                   router.replace("/");
                 }}
               >
-                Logout
+                Cerrar sesión
               </button>
             </div>
           )}

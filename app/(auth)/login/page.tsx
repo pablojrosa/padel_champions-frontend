@@ -95,7 +95,7 @@ function LoginForm() {
             </div>
             <h1 className="text-3xl font-semibold">Login</h1>
             <p className="text-sm text-zinc-300">
-              Accedé para gestionar tus torneos.
+              Accede para gestionar tus torneos.
             </p>
           </div>
 

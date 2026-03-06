@@ -1878,7 +1878,7 @@ export default function TournamentPlayoffsPage() {
       ({ stage }) => bulkScheduleByStage[stage].enabled
     );
     if (selectedStages.length === 0) {
-      errors.stages = "Seleccioná al menos una instancia para programar.";
+      errors.stages = "Selecciona al menos una instancia para programar.";
     }
 
     const parseConfig = (
@@ -1894,15 +1894,15 @@ export default function TournamentPlayoffsPage() {
     } | null => {
       let hasError = false;
       if (!config.date) {
-        errors[`${prefix}.date`] = "Seleccioná una fecha.";
+        errors[`${prefix}.date`] = "Selecciona una fecha.";
         hasError = true;
       }
       if (!config.hour) {
-        errors[`${prefix}.hour`] = "Seleccioná una hora.";
+        errors[`${prefix}.hour`] = "Selecciona una hora.";
         hasError = true;
       }
       if (!BULK_MINUTE_OPTIONS.includes(config.minute)) {
-        errors[`${prefix}.minute`] = "Elegí un minuto válido.";
+        errors[`${prefix}.minute`] = "Elige un minuto valido.";
         hasError = true;
       }
       const firstCourt = Number(config.firstCourt);
@@ -1988,7 +1988,7 @@ export default function TournamentPlayoffsPage() {
       const configPrefix = useGlobal ? "base" : `stage.${stage}`;
       const parsed = parseConfig(sourceConfig, configPrefix);
       if (!parsed) {
-        errors[`stage.${stage}.__stage`] = "Completá la configuración de esta instancia.";
+        errors[`stage.${stage}.__stage`] = "Completa la configuracion de esta instancia.";
         return;
       }
 
@@ -2951,7 +2951,7 @@ export default function TournamentPlayoffsPage() {
                         {STAGE_LABELS[manualStage]}
                       </div>
                       <div className="text-xs text-zinc-500">
-                        Armá el cuadro completo desde esta instancia. Los cupos marcados como
+                        Arma el cuadro completo desde esta instancia. Los cupos marcados como
                         ganador se completan cuando exista ese resultado.
                       </div>
                       {manualInitialTeamOptions.length > 0 && (
@@ -3592,8 +3592,8 @@ export default function TournamentPlayoffsPage() {
               {bulkScheduleStep === 1
                 ? "Definí la configuración general de programación para playoffs."
                 : bulkScheduleStep === 2
-                ? "Elegí qué instancias programar y, si querés, sobrescribí la configuración base."
-                : "Revisá el resumen final antes de aplicar la programación."}
+                ? "Elige que instancias programar y, si quieres, sobrescribe la configuracion base."
+                : "Revisa el resumen final antes de aplicar la programacion."}
             </div>
           </div>
 
@@ -3929,7 +3929,7 @@ export default function TournamentPlayoffsPage() {
               </div>
               {Object.keys(bulkSchedulePlanPreview.errors).length > 0 && (
                 <div className="rounded-xl border border-red-300 bg-red-100 p-3 text-sm text-red-800">
-                  Hay configuraciones pendientes. Volvé al paso anterior y corregí los campos marcados.
+                  Hay configuraciones pendientes. Vuelve al paso anterior y corrige los campos marcados.
                 </div>
               )}
             </div>
@@ -3946,8 +3946,8 @@ export default function TournamentPlayoffsPage() {
               {bulkScheduleStep === 1
                 ? "Definí la base y continuá."
                 : bulkScheduleStep === 2
-                ? "Seleccioná instancias y validá overrides."
-                : "Si está todo correcto, aplicá la programación."}
+                ? "Selecciona instancias y valida overrides."
+                : "Si esta todo correcto, aplica la programacion."}
             </div>
             <div className="flex justify-end gap-2">
               {bulkScheduleStep > 1 && (
@@ -4001,7 +4001,7 @@ export default function TournamentPlayoffsPage() {
             </div>
 
             <div className="text-sm text-zinc-600">
-              ¿Querés revisar la grilla o ajustar un partido puntual?
+              Quieres revisar la grilla o ajustar un partido puntual?
             </div>
 
             <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">

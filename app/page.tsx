@@ -74,7 +74,7 @@ export default function HomePage() {
             Organizar los mejores torneos.
           </span>
           <h1 className="text-4xl font-semibold leading-tight md:text-5xl">
-            Gestioná tus torneos de pádel <span className="text-emerald-400">como nadie</span>.
+            Gestiona tus torneos de padel <span className="text-emerald-400">como nadie</span>.
           </h1>
           <p className="text-base text-zinc-300 md:text-lg">
           Planillas impresas, WhatsApp explotado, resultados a mano. No va más. <br />
@@ -101,7 +101,7 @@ export default function HomePage() {
             </div>
             <div>
               <div className="text-lg font-semibold text-white">En segundos</div>
-              Armá las zonas.
+              Arma las zonas.
             </div>
             <div>
               <div className="text-lg font-semibold text-white">En 1 click</div>
@@ -141,7 +141,7 @@ export default function HomePage() {
               </div>
             </div>
             <div className="rounded-2xl border border-dashed border-zinc-700/70 bg-zinc-950/60 px-4 py-3 text-xs text-zinc-500 transition duration-300 hover:border-emerald-400/40 hover:text-emerald-200">
-              Programá partidos en segundos con fecha, hora y cancha.
+              Programa partidos en segundos con fecha, hora y cancha.
             </div>
           </div>
         </div>
@@ -536,9 +536,9 @@ export default function HomePage() {
         </div>
 
         <div className="rounded-3xl border border-zinc-800 bg-zinc-900/70 p-8 text-center">
-          <h2 className="text-2xl font-semibold">Empezá tu torneo ahora</h2>
+          <h2 className="text-2xl font-semibold">Empieza tu torneo ahora</h2>
           <p className="mt-2 text-sm text-zinc-400">
-            Creá tu cuenta y armá tu primer torneo con parejas, grupos y partidos en minutos.
+            Crea tu cuenta y arma tu primer torneo con parejas, grupos y partidos en minutos.
           </p>
           <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
             <Link

@@ -17,6 +17,7 @@ import type {
 } from "@/lib/types";
 
 type IdParam = { id: string };
+type CompetitionType = "tournament" | "league" | "flash";
 type PlayoffStage = Exclude<Match["stage"], "group">;
 type SeedLabel = {
   seedA: string;
@@ -56,6 +57,28 @@ const STAGE_TEAM_COUNTS: Record<Match["stage"], number> = {
 
 const URL_CANDIDATE_REGEX = /((?:https?:\/\/|www\.)[^\s<>"']+)/gi;
 const URL_STRICT_REGEX = /^(?:https?:\/\/|www\.)[^\s<>"']+$/i;
+const defaultDescriptionByType: Record<CompetitionType, string> = {
+  tournament:
+    "Reglas del torneo\n" +
+    "- Los partidos se juegan al mejor de 3 sets.\n" +
+    "- Si una pareja gana por 2 sets a 0, suma 3 puntos.\n" +
+    "- Si una pareja gana por 2 sets a 1, suma 2 puntos.\n" +
+    "- Si una pareja pierde por 1 set a 2, suma 1 punto.\n" +
+    "- Si una pareja pierde por 0 sets a 2, suma 0 puntos.\n" +
+    "- Desempate: puntos, diferencia de sets y diferencia de games.",
+  league:
+    "Reglas de la liga\n" +
+    "- Los partidos se juegan al mejor de 3 sets.\n" +
+    "- Cada victoria suma 3 puntos.\n" +
+    "- Cada derrota suma 0 puntos.\n" +
+    "- Desempate: puntos, diferencia de sets y diferencia de games.\n" +
+    "- Formato todos contra todos.",
+  flash:
+    "Reglas del relámpago\n" +
+    "- Formato de eliminación directa.\n" +
+    "- Los partidos se juegan al mejor de 3 sets.\n" +
+    "- No hay fase de grupos.",
+};
 
 function splitUrlAndTrailingPunctuation(candidate: string) {
   let url = candidate;
@@ -514,7 +537,8 @@ export default function PublicTournamentPage() {
     });
   }, [matches, query, divisionFilter, teamsById]);
   const hasActiveFilters = query.trim().length > 0 || divisionFilter !== "all";
-  const descriptionText = tournament?.description?.trim() ?? "";
+  const competitionType = (tournament?.competition_type ?? "tournament") as CompetitionType;
+  const descriptionText = defaultDescriptionByType[competitionType];
   const descriptionContent = useMemo(
     () => renderDescriptionWithLinks(descriptionText),
     [descriptionText]
@@ -1458,7 +1482,7 @@ export default function PublicTournamentPage() {
             ) : (
               <Card className="bg-white/95">
                 <div className="p-5 text-sm text-zinc-400">
-                  Zonas comprimidas. Usá “Mostrar zonas” para ver la tabla completa.
+                  Zonas comprimidas. Usa &quot;Mostrar zonas&quot; para ver la tabla completa.
                 </div>
               </Card>
             )}

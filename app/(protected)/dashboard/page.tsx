@@ -149,73 +149,73 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-8">
-      <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
-        <div className="space-y-2">
-          <div className="text-xs uppercase tracking-[0.3em] text-zinc-400">
-            Panel principal
-          </div>
-          <h1 className="text-3xl font-semibold">Bienvenido de nuevo</h1>
-          <p className="text-sm text-zinc-300">
-            Revisá el estado general y entrá rápido a las competencias.
-          </p>
+      <div className="space-y-2">
+        <div className="text-xs uppercase tracking-[0.3em] text-zinc-400">
+          Panel principal
         </div>
-        <div className="text-xs text-zinc-400">
-          {loading ? "Actualizando métricas..." : "Actualizado ahora"}
-        </div>
+        <h1 className="text-3xl font-semibold">Bienvenido de nuevo</h1>
+        <p className="text-sm text-zinc-300">
+          Revisa el estado general y entra rápido a las competencias.
+        </p>
       </div>
 
       <Card className="bg-gradient-to-br from-amber-50 via-amber-100/70 to-amber-50 ring-amber-200/70">
         <div className="p-6 space-y-4">
-          <div className="space-y-1">
-            <div className="text-xs uppercase tracking-[0.28em] text-amber-700/70">
-              Acciones rápidas
-            </div>
-            <div className="text-sm text-zinc-700">
-              Entrá directo a las secciones clave de gestión.
-            </div>
+          <div className="text-xs uppercase tracking-[0.28em] text-amber-700/70">
+            Acciones rápidas
           </div>
-          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+
+          <div className="max-w-2xl">
             <Link
               href="/tournaments"
-              className="rounded-xl border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold text-zinc-800 transition hover:-translate-y-0.5 hover:shadow-sm"
+              className="group flex h-full flex-col rounded-2xl border border-white/70 bg-white/90 p-5 shadow-sm transition hover:-translate-y-1 hover:shadow-lg"
             >
-              Competencias
+              <div className="flex items-start justify-between gap-4">
+                <div className="space-y-2">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-amber-700/80">
+                    Organización de torneos
+                  </div>
+                  <div className="text-lg font-semibold text-zinc-900">Competencias</div>
+                  <p className="max-w-xs text-sm text-zinc-600">
+                    Crea y administra cada torneo desde un solo lugar.
+                  </p>
+                </div>
+                <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-2xl bg-amber-100 text-amber-700">
+                  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" strokeWidth={1.8} stroke="currentColor" aria-hidden>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 18.75h-9m9 0a3 3 0 013 3h-15a3 3 0 013-3m9 0v-3.375c0-.621-.503-1.125-1.125-1.125h-.871M7.5 18.75v-3.375c0-.621.504-1.125 1.125-1.125h.872m5.007 0H9.497m5.007 0a7.454 7.454 0 01-.982-3.172M9.497 14.25a7.454 7.454 0 00.981-3.172M5.25 4.236c-.982.143-1.954.317-2.916.52A6.003 6.003 0 007.73 9.728M5.25 4.236V4.5c0 2.108.966 3.99 2.48 5.228M5.25 4.236V2.721C7.456 2.41 9.71 2.25 12 2.25c2.291 0 4.545.16 6.75.47v1.516M7.73 9.728a6.726 6.726 0 002.748 1.35M18.75 4.236c.982.143 1.954.317 2.916.52a6.003 6.003 0 01-5.395 4.972M18.75 4.236V4.5a9.02 9.02 0 01-2.48 5.228m2.48-5.492a23.278 23.278 0 00-2.48.492m-8.52 0a7.454 7.454 0 00-.982 3.172" />
+                  </svg>
+                </div>
+              </div>
+              <div className="mt-auto pt-5 inline-flex items-center gap-2 text-sm font-semibold text-amber-900">
+                Abrir competencias
+                <svg className="h-4 w-4 transition group-hover:translate-x-0.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" aria-hidden>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5l7.5 7.5-7.5 7.5M3 12h18" />
+                </svg>
+              </div>
             </Link>
-            <Link
-              href="/players"
-              className="rounded-xl border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold text-zinc-800 transition hover:-translate-y-0.5 hover:shadow-sm"
-            >
-              Jugadores
-            </Link>
-            <Link
-              href="/soporte"
-              className="rounded-xl border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold text-zinc-800 transition hover:-translate-y-0.5 hover:shadow-sm"
-            >
-              Soporte
-            </Link>
-            <Link
-              href="/ayuda"
-              className="rounded-xl border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold text-zinc-800 transition hover:-translate-y-0.5 hover:shadow-sm"
-            >
-              Ayuda
-            </Link>
-            {isAdmin && (
-              <Link
-                href="/admin/users"
-                className="rounded-xl border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold text-zinc-800 transition hover:-translate-y-0.5 hover:shadow-sm"
-              >
-                Admin usuarios
-              </Link>
-            )}
-            {isAdmin && (
-              <Link
-                href="/admin/pagos"
-                className="rounded-xl border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold text-zinc-800 transition hover:-translate-y-0.5 hover:shadow-sm"
-              >
-                Admin pagos
-              </Link>
-            )}
           </div>
+
+          {isAdmin && (
+            <div className="rounded-2xl border border-amber-200/80 bg-white/50 p-3">
+              <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                Administración
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Link
+                  href="/admin/users"
+                  className="rounded-xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 transition hover:-translate-y-0.5 hover:shadow-sm"
+                >
+                  Admin usuarios
+                </Link>
+                <Link
+                  href="/admin/pagos"
+                  className="rounded-xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 transition hover:-translate-y-0.5 hover:shadow-sm"
+                >
+                  Admin pagos
+                </Link>
+              </div>
+            </div>
+          )}
         </div>
       </Card>
 
@@ -309,7 +309,7 @@ export default function DashboardPage() {
                       ? "Vence hoy"
                       : daysLeft === 1
                       ? "Vence mañana"
-                      : `Vence en ${daysLeft} dias`;
+                      : `Vence en ${daysLeft} días`;
                   const urgencyTextColor =
                     daysLeft <= 1
                       ? "text-red-600"

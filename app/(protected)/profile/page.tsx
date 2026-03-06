@@ -249,7 +249,7 @@ export default function ProfilePage() {
             </div>
           ) : (
             <div className="rounded-xl border border-dashed border-zinc-300 p-8 text-center text-sm text-zinc-500">
-              Seleccioná una imagen para previsualizar.
+              Selecciona una imagen para previsualizar.
             </div>
           )}
           <div className="flex flex-wrap items-center justify-end gap-2">
