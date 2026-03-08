@@ -187,6 +187,7 @@ type Props = {
 
 export type GroupsPanelHandle = {
   openGenerateModal: () => void;
+  openGenerateAiModal: () => void;
 };
 
 const GroupsPanel = forwardRef<GroupsPanelHandle, Props>(function GroupsPanel({
@@ -353,8 +354,12 @@ const GroupsPanel = forwardRef<GroupsPanelHandle, Props>(function GroupsPanel({
         if (disabled || generating) return;
         setManualOpen(true);
       },
+      openGenerateAiModal: () => {
+        if (disabled || generating || !aiEnabled) return;
+        setGenerateOpen(true);
+      },
     }),
-    [disabled, generating, allDivisionsGenerated]
+    [disabled, generating, aiEnabled]
   );
 
   useEffect(() => {

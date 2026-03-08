@@ -525,7 +525,6 @@ export default function TournamentPlayoffsPage() {
   const [scheduleError, setScheduleError] = useState<string | null>(null);
   const [scheduling, setScheduling] = useState(false);
   const [bulkScheduleOpen, setBulkScheduleOpen] = useState(false);
-  const [bulkScheduleStep, setBulkScheduleStep] = useState<1 | 2 | 3>(1);
   const [bulkScheduleBaseConfig, setBulkScheduleBaseConfig] = useState<BulkScheduleBaseConfig>(
     {
       date: "",
@@ -546,6 +545,9 @@ export default function TournamentPlayoffsPage() {
   const [bulkScheduling, setBulkScheduling] = useState(false);
   const [bulkScheduleError, setBulkScheduleError] = useState<string | null>(null);
   const [bulkScheduleMessage, setBulkScheduleMessage] = useState<string | null>(null);
+  const [resetPlayoffsOpen, setResetPlayoffsOpen] = useState(false);
+  const [resettingPlayoffs, setResettingPlayoffs] = useState(false);
+  const [resetPlayoffsError, setResetPlayoffsError] = useState<string | null>(null);
   const [bulkScheduleSuccess, setBulkScheduleSuccess] = useState<{
     scheduledCount: number;
     totalCount: number;
@@ -1845,6 +1847,20 @@ export default function TournamentPlayoffsPage() {
     return `${hour}:${minute}`;
   }
 
+  function formatBulkDateLabel(value: string) {
+    const [year, month, day] = value.split("-");
+    if (!year || !month || !day) return value || "Sin fecha";
+    return `${day}/${month}/${year}`;
+  }
+
+  function formatBulkCourtRange(firstCourtValue: string, courtsCountValue: string) {
+    const firstCourt = Number(firstCourtValue);
+    const courtsCount = Number(courtsCountValue);
+    if (!Number.isFinite(firstCourt) || firstCourt <= 0) return "—";
+    if (!Number.isFinite(courtsCount) || courtsCount <= 1) return String(firstCourt);
+    return `${firstCourt} a ${firstCourt + courtsCount - 1}`;
+  }
+
   function clearBulkFieldErrors(keys: string[]) {
     setBulkScheduleFieldErrors((prev) => {
       const next = { ...prev };
@@ -2009,11 +2025,11 @@ export default function TournamentPlayoffsPage() {
         const slotEnd = cursor + durationMinutes;
         if (slotEnd > 24 * 60) {
           errors[`stage.${stage}.__stage`] =
-            "No hay bloques libres suficientes antes de las 23:59. Adelantá la hora o ajustá canchas.";
+            "No hay slots libres suficientes: las canchas pueden estar ocupadas por otras categorías/géneros. Adelantá la hora, usá más canchas o canchas distintas.";
           if (!useGlobal) {
-            errors[`stage.${stage}.hour`] = "Excede el fin del día.";
+            errors[`stage.${stage}.hour`] = "No hay tiempo suficiente antes de las 00:00 con esta hora de inicio.";
           } else {
-            errors["base.hour"] = "Con la configuración base, alguna instancia excede 23:59.";
+            errors["base.hour"] = "Alguna categoría/género no tiene canchas disponibles a tiempo. Verificá que no estén ocupadas por otras ya programadas.";
           }
           return;
         }
@@ -2087,21 +2103,11 @@ export default function TournamentPlayoffsPage() {
     tournamentMatchDurationMinutes,
   ]);
 
-  function validateBulkStep(step: 1 | 2 | 3) {
+  function validateBulkSchedule() {
     const plan = buildBulkSchedulePlan();
-    const scopedErrors: Record<string, string> = {};
-
-    if (step === 1) {
-      Object.entries(plan.errors).forEach(([key, message]) => {
-        if (key.startsWith("base.")) scopedErrors[key] = message;
-      });
-    } else {
-      Object.assign(scopedErrors, plan.errors);
-    }
-
-    setBulkScheduleFieldErrors(scopedErrors);
+    setBulkScheduleFieldErrors(plan.errors);
     return {
-      ok: Object.keys(scopedErrors).length === 0,
+      ok: Object.keys(plan.errors).length === 0,
       plan,
     };
   }
@@ -2141,7 +2147,6 @@ export default function TournamentPlayoffsPage() {
       courtsCount: suggestedCourts,
     });
     setBulkStageGapMinutes(DEFAULT_BULK_STAGE_GAP_MINUTES);
-    setBulkScheduleStep(1);
     setBulkScheduleFieldErrors({});
     setBulkScheduleError(null);
     setBulkScheduleMessage(null);
@@ -2151,7 +2156,6 @@ export default function TournamentPlayoffsPage() {
 
   function closeBulkScheduleModal() {
     setBulkScheduleOpen(false);
-    setBulkScheduleStep(1);
     setBulkScheduleFieldErrors({});
     setBulkScheduleError(null);
   }
@@ -2190,7 +2194,7 @@ export default function TournamentPlayoffsPage() {
   }
 
   async function saveBulkSchedule() {
-    const validation = validateBulkStep(3);
+    const validation = validateBulkSchedule();
     if (!validation.ok) {
       return;
     }
@@ -2287,23 +2291,6 @@ export default function TournamentPlayoffsPage() {
     }
   }
 
-  function goToNextBulkStep() {
-    const validation = validateBulkStep(bulkScheduleStep);
-    if (!validation.ok) return;
-    setBulkScheduleStep((prev) => {
-      if (prev === 1) return 2;
-      if (prev === 2) return 3;
-      return 3;
-    });
-  }
-
-  function goToPreviousBulkStep() {
-    setBulkScheduleStep((prev) => {
-      if (prev === 3) return 2;
-      return 1;
-    });
-  }
-
   const bulkSchedulePlanPreview = useMemo(() => buildBulkSchedulePlan(), [buildBulkSchedulePlan]);
   const bulkSummaryByStage = useMemo(() => {
     const map = new Map<PlayoffStage, BulkScheduleStageSummary>();
@@ -2312,6 +2299,10 @@ export default function TournamentPlayoffsPage() {
     });
     return map;
   }, [bulkSchedulePlanPreview]);
+  const enabledBulkStages = useMemo(
+    () => schedulablePlayoffStages.filter(({ stage }) => bulkScheduleByStage[stage].enabled),
+    [schedulablePlayoffStages, bulkScheduleByStage]
+  );
 
   async function saveSchedule() {
     if (!scheduleMatch) return;
@@ -2688,6 +2679,25 @@ export default function TournamentPlayoffsPage() {
     }
   }
 
+  async function handleResetPlayoffs() {
+    setResettingPlayoffs(true);
+    setResetPlayoffsError(null);
+    try {
+      const params = new URLSearchParams();
+      if (categoryFilter !== "all") params.set("category", categoryFilter);
+      if (genderFilter !== "all") params.set("gender", genderFilter);
+      const query = params.toString() ? `?${params.toString()}` : "";
+      await api(`/tournaments/${tournamentId}/reset-playoffs${query}`, { method: "DELETE" });
+      setMatches((prev) => prev.filter((m) => m.stage === "group"));
+      setStatus("groups_finished");
+      setResetPlayoffsOpen(false);
+    } catch (err: any) {
+      setResetPlayoffsError(err?.message ?? "No se pudieron eliminar los playoffs.");
+    } finally {
+      setResettingPlayoffs(false);
+    }
+  }
+
   const canEdit = status === "ongoing" || status === "groups_finished";
   const isFlashCompetition = competitionType === "flash";
   const confirmStageAutoOptions = useMemo(() => {
@@ -2716,7 +2726,8 @@ export default function TournamentPlayoffsPage() {
     !hasPlayoffs ||
     pendingPlayoffStages.length > 0 ||
     !!bulkScheduleMessage ||
-    (!hasPlayoffs && !!actionError);
+    (!hasPlayoffs && !!actionError) ||
+    (hasPlayoffs && canEdit);
   const hasPlayoffBracket = PLAYOFF_STAGES.some(
     (stage) => (matchesByStage.get(stage) ?? []).length > 0
   );
@@ -2911,6 +2922,23 @@ export default function TournamentPlayoffsPage() {
                     <div className="text-xs text-zinc-500">
                       Carga en bloque 8vos, cuartos, semis y final.
                     </div>
+                  </div>
+                )}
+
+                {hasPlayoffs && canEdit && (
+                  <div className="flex items-center gap-3 border-t border-zinc-100 pt-3">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setResetPlayoffsError(null);
+                        setResetPlayoffsOpen(true);
+                      }}
+                      disabled={generating || bulkScheduling || resettingPlayoffs}
+                      className="text-xs text-red-500 hover:text-red-700 underline decoration-dotted disabled:opacity-40"
+                    >
+                      Regenerar playoffs
+                    </button>
+                    <span className="text-xs text-zinc-400">Elimina las llaves actuales y vuelve al estado de grupos terminados.</span>
                   </div>
                 )}
               </div>
@@ -3442,6 +3470,40 @@ export default function TournamentPlayoffsPage() {
       )}
 
       <Modal
+        open={resetPlayoffsOpen}
+        title="Regenerar playoffs"
+        onClose={() => {
+          if (!resettingPlayoffs) setResetPlayoffsOpen(false);
+        }}
+      >
+        <div className="space-y-4">
+          <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-900">
+            Esto eliminará todos los partidos de playoffs actuales. Esta acción no se puede deshacer. ¿Confirmas?
+          </div>
+          {resetPlayoffsError && (
+            <div className="rounded-xl border border-red-300 bg-red-100 p-3 text-sm text-red-800">
+              {resetPlayoffsError}
+            </div>
+          )}
+          <div className="flex justify-end gap-2">
+            <Button
+              variant="secondary"
+              onClick={() => setResetPlayoffsOpen(false)}
+              disabled={resettingPlayoffs}
+            >
+              Cancelar
+            </Button>
+            <Button
+              onClick={handleResetPlayoffs}
+              disabled={resettingPlayoffs}
+            >
+              {resettingPlayoffs ? "Eliminando..." : "Confirmar y regenerar"}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
         open={!!confirmStage}
         title={confirmStage ? `Generar ${STAGE_LABELS[confirmStage]}` : "Generar playoffs"}
         onClose={() => {
@@ -3557,61 +3619,23 @@ export default function TournamentPlayoffsPage() {
         open={bulkScheduleOpen}
         title="Programar horarios de llaves"
         onClose={closeBulkScheduleModal}
-        className="max-w-5xl"
+        className="max-w-6xl"
       >
         <form
-          className="space-y-4"
+          className="space-y-5 max-h-[80vh] overflow-y-auto pr-1"
           onSubmit={(event) => {
             event.preventDefault();
             if (bulkScheduling) return;
-            if (bulkScheduleStep < 3) {
-              goToNextBulkStep();
-              return;
-            }
             saveBulkSchedule();
           }}
         >
-          <div className="space-y-2">
-            <div className="flex items-center justify-between text-xs font-semibold uppercase tracking-wide text-zinc-500">
-              <span>Paso {bulkScheduleStep} de 3</span>
-              <span>
-                {bulkScheduleStep === 1
-                  ? "Configuración base"
-                  : bulkScheduleStep === 2
-                  ? "Instancias"
-                  : "Confirmación"}
-              </span>
-            </div>
-            <div className="h-2 rounded-full bg-zinc-200">
-              <div
-                className="h-full rounded-full bg-zinc-900 transition-all"
-                style={{ width: `${(bulkScheduleStep / 3) * 100}%` }}
-              />
-            </div>
+          <div className="space-y-4">
             <div className="text-sm text-zinc-600">
-              {bulkScheduleStep === 1
-                ? "Definí la configuración general de programación para playoffs."
-                : bulkScheduleStep === 2
-                ? "Elige que instancias programar y, si quieres, sobrescribe la configuracion base."
-                : "Revisa el resumen final antes de aplicar la programacion."}
+              Elegí el arranque general. Si una instancia necesita algo distinto, la ajustás abajo.
             </div>
-          </div>
 
-          {bulkScheduleStep === 1 && (
-            <div className="space-y-3">
-              <div className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2">
-                <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                  Duración por partido
-                </div>
-                <div className="text-sm font-semibold text-zinc-800">
-                  {tournamentMatchDurationMinutes} minutos
-                </div>
-                <div className="text-xs text-zinc-500">
-                  Este valor se toma desde la configuración del torneo.
-                </div>
-              </div>
-
-              <div className="grid gap-2 [grid-template-columns:repeat(auto-fit,minmax(170px,1fr))]">
+            <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-4">
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[1.05fr_1fr_0.8fr_0.8fr_0.9fr]">
                 <div className="space-y-1">
                   <div className="text-xs font-semibold text-zinc-500">Fecha</div>
                   <Input
@@ -3624,43 +3648,43 @@ export default function TournamentPlayoffsPage() {
                     <div className="text-xs text-red-600">{bulkScheduleFieldErrors["base.date"]}</div>
                   )}
                 </div>
+
                 <div className="space-y-1">
-                  <div className="text-xs font-semibold text-zinc-500">Hora</div>
-                  <select
-                    className="w-full rounded-xl border border-zinc-400 bg-white px-3 py-2 text-sm font-medium text-zinc-900 shadow-sm focus:border-zinc-700 focus:outline-none focus:ring-2 focus:ring-zinc-900/15"
-                    value={bulkScheduleBaseConfig.hour}
-                    onChange={(e) => updateBulkBaseConfig({ hour: e.target.value })}
-                    disabled={bulkScheduling}
-                  >
-                    <option value="">Hora</option>
-                    {HOURS.map((hour) => (
-                      <option key={`bulk-base-hour-${hour}`} value={hour}>
-                        {hour}
-                      </option>
-                    ))}
-                  </select>
-                  {bulkScheduleFieldErrors["base.hour"] && (
-                    <div className="text-xs text-red-600">{bulkScheduleFieldErrors["base.hour"]}</div>
+                  <div className="text-xs font-semibold text-zinc-500">Hora de inicio</div>
+                  <div className="grid grid-cols-[minmax(0,1fr)_100px] gap-2">
+                    <select
+                      className="w-full rounded-xl border border-zinc-400 bg-white px-3 py-2 text-sm font-medium text-zinc-900 shadow-sm focus:border-zinc-700 focus:outline-none focus:ring-2 focus:ring-zinc-900/15"
+                      value={bulkScheduleBaseConfig.hour}
+                      onChange={(e) => updateBulkBaseConfig({ hour: e.target.value })}
+                      disabled={bulkScheduling}
+                    >
+                      <option value="">Hora</option>
+                      {HOURS.map((hour) => (
+                        <option key={`bulk-base-hour-${hour}`} value={hour}>
+                          {hour}
+                        </option>
+                      ))}
+                    </select>
+                    <select
+                      className="w-full rounded-xl border border-zinc-400 bg-white px-3 py-2 text-sm font-medium text-zinc-900 shadow-sm focus:border-zinc-700 focus:outline-none focus:ring-2 focus:ring-zinc-900/15"
+                      value={bulkScheduleBaseConfig.minute}
+                      onChange={(e) => updateBulkBaseConfig({ minute: e.target.value })}
+                      disabled={bulkScheduling}
+                    >
+                      {BULK_MINUTE_OPTIONS.map((minute) => (
+                        <option key={`bulk-base-minute-${minute}`} value={minute}>
+                          :{minute}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  {(bulkScheduleFieldErrors["base.hour"] || bulkScheduleFieldErrors["base.minute"]) && (
+                    <div className="text-xs text-red-600">
+                      {bulkScheduleFieldErrors["base.hour"] || bulkScheduleFieldErrors["base.minute"]}
+                    </div>
                   )}
                 </div>
-                <div className="space-y-1">
-                  <div className="text-xs font-semibold text-zinc-500">Minuto</div>
-                  <select
-                    className="w-full rounded-xl border border-zinc-400 bg-white px-3 py-2 text-sm font-medium text-zinc-900 shadow-sm focus:border-zinc-700 focus:outline-none focus:ring-2 focus:ring-zinc-900/15"
-                    value={bulkScheduleBaseConfig.minute}
-                    onChange={(e) => updateBulkBaseConfig({ minute: e.target.value })}
-                    disabled={bulkScheduling}
-                  >
-                    {BULK_MINUTE_OPTIONS.map((minute) => (
-                      <option key={`bulk-base-minute-${minute}`} value={minute}>
-                        {minute}
-                      </option>
-                    ))}
-                  </select>
-                  {bulkScheduleFieldErrors["base.minute"] && (
-                    <div className="text-xs text-red-600">{bulkScheduleFieldErrors["base.minute"]}</div>
-                  )}
-                </div>
+
                 <div className="space-y-1">
                   <div className="text-xs font-semibold text-zinc-500">Cancha inicial</div>
                   <Input
@@ -3676,8 +3700,9 @@ export default function TournamentPlayoffsPage() {
                     </div>
                   )}
                 </div>
+
                 <div className="space-y-1">
-                  <div className="text-xs font-semibold text-zinc-500">Canchas paralelas</div>
+                  <div className="text-xs font-semibold text-zinc-500">Canchas</div>
                   <Input
                     type="number"
                     min={1}
@@ -3691,10 +3716,9 @@ export default function TournamentPlayoffsPage() {
                     </div>
                   )}
                 </div>
+
                 <div className="space-y-1">
-                  <div className="text-xs font-semibold text-zinc-500">
-                    Descanso entre instancias (min)
-                  </div>
+                  <div className="text-xs font-semibold text-zinc-500">Descanso (min)</div>
                   <Input
                     type="number"
                     min={0}
@@ -3709,16 +3733,24 @@ export default function TournamentPlayoffsPage() {
                   )}
                 </div>
               </div>
-            </div>
-          )}
 
-          {bulkScheduleStep === 2 && (
-            <div className="space-y-3 max-h-[420px] overflow-y-auto pr-1">
+              <div className="mt-3 text-xs text-zinc-500">
+                Duración por partido: {tournamentMatchDurationMinutes} min. Canchas usadas:{" "}
+                {formatBulkCourtRange(
+                  bulkScheduleBaseConfig.firstCourt,
+                  bulkScheduleBaseConfig.courtsCount
+                )}
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <div className="text-sm font-semibold text-zinc-900">Instancias</div>
               {bulkScheduleFieldErrors.stages && (
                 <div className="rounded-xl border border-red-300 bg-red-100 p-3 text-sm text-red-800">
                   {bulkScheduleFieldErrors.stages}
                 </div>
               )}
+
               {schedulablePlayoffStages.map(({ stage, matches }) => {
                 const config = bulkScheduleByStage[stage];
                 const summary = bulkSummaryByStage.get(stage);
@@ -3726,161 +3758,159 @@ export default function TournamentPlayoffsPage() {
                   ? Number(bulkScheduleBaseConfig.courtsCount)
                   : Number(config.courtsCount);
                 const slotsCount = Math.ceil(matches.length / Math.max(1, effectiveCourts || 1));
+                const sourceDate = config.useGlobal ? bulkScheduleBaseConfig.date : config.date;
+                const liveStageError = bulkSchedulePlanPreview.errors[`stage.${stage}.__stage`];
+
                 return (
-                  <div key={stage} className="rounded-xl border border-zinc-200 p-3 space-y-3">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <label className="flex items-center gap-2 text-sm font-semibold text-zinc-800">
+                  <div key={stage} className="rounded-xl border border-zinc-200 bg-white p-4">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                      <label className="flex items-start gap-3">
                         <input
                           type="checkbox"
                           checked={config.enabled}
-                          onChange={(e) =>
-                            updateBulkStageConfig(stage, { enabled: e.target.checked })
+                          onChange={(e) => updateBulkStageConfig(stage, { enabled: e.target.checked })}
+                          disabled={bulkScheduling}
+                          className="mt-1"
+                        />
+                        <div className="space-y-1">
+                          <div className="text-sm font-semibold text-zinc-900">
+                            {STAGE_LABELS[stage]}
+                          </div>
+                          <div className="text-xs text-zinc-500">
+                            {matches.length} partido(s) · {slotsCount} bloque(s)
+                            {summary ? ` · ${summary.firstTime}` : ""}
+                          </div>
+                        </div>
+                      </label>
+
+                      {config.enabled && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            updateBulkStageConfig(stage, { useGlobal: !config.useGlobal })
                           }
                           disabled={bulkScheduling}
-                        />
-                        {STAGE_LABELS[stage]}
-                      </label>
-                      <div className="text-xs text-zinc-500">
-                        {matches.length} partido(s) pendiente(s) · {slotsCount} bloque(s)
-                        {summary ? ` · inicio ${summary.firstTime}` : ""}
-                      </div>
+                          className="text-xs font-medium text-zinc-600 underline underline-offset-2 disabled:opacity-50"
+                        >
+                          {config.useGlobal ? "Ajustar esta instancia" : "Usar configuración general"}
+                        </button>
+                      )}
                     </div>
 
                     {config.enabled && (
-                      <div className="space-y-3">
-                        <label className="inline-flex items-center gap-2 text-xs font-semibold text-zinc-700">
-                          <input
-                            type="checkbox"
-                            checked={config.useGlobal}
-                            onChange={(e) =>
-                              updateBulkStageConfig(stage, { useGlobal: e.target.checked })
-                            }
-                            disabled={bulkScheduling}
-                          />
-                          Usar configuración base
-                        </label>
+                      <div className="mt-3 space-y-3">
+                        <div className="text-xs text-zinc-600">
+                          {summary ? (
+                            <>
+                              {formatBulkDateLabel(sourceDate)} · {summary.firstTime} a{" "}
+                              {summary.lastTime} · canchas {summary.firstCourt} a{" "}
+                              {summary.lastCourt}
+                              {summary.adjustedByMinutes > 0
+                                ? ` · ajustado +${summary.adjustedByMinutes} min`
+                                : ""}
+                            </>
+                          ) : (
+                            "Completá los datos para ver el horario final de esta instancia."
+                          )}
+                        </div>
 
-                        {config.useGlobal ? (
-                          <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-2 text-xs text-zinc-600">
-                            Config base: fecha {bulkScheduleBaseConfig.date || "—"} · cancha{" "}
-                            {bulkScheduleBaseConfig.firstCourt || "—"} ·{" "}
-                            {bulkScheduleBaseConfig.courtsCount || "—"} canchas
-                          </div>
-                        ) : (
-                          <div className="space-y-2">
-                            <div className="grid gap-2 [grid-template-columns:repeat(auto-fit,minmax(140px,1fr))]">
-                              <div className="space-y-1">
-                                <div className="text-xs font-semibold text-zinc-500">Fecha</div>
-                                <Input
-                                  type="date"
-                                  value={config.date}
-                                  onChange={(e) =>
-                                    updateBulkStageConfig(stage, { date: e.target.value })
-                                  }
-                                  disabled={bulkScheduling}
-                                />
-                                {bulkScheduleFieldErrors[`stage.${stage}.date`] && (
-                                  <div className="text-xs text-red-600">
-                                    {bulkScheduleFieldErrors[`stage.${stage}.date`]}
-                                  </div>
-                                )}
-                              </div>
-                              <div className="space-y-1">
-                                <div className="text-xs font-semibold text-zinc-500">Hora</div>
-                                <select
-                                  className="w-full rounded-xl border border-zinc-400 bg-white px-3 py-2 text-sm font-medium text-zinc-900 shadow-sm focus:border-zinc-700 focus:outline-none focus:ring-2 focus:ring-zinc-900/15"
-                                  value={config.hour}
-                                  onChange={(e) =>
-                                    updateBulkStageConfig(stage, { hour: e.target.value })
-                                  }
-                                  disabled={bulkScheduling}
-                                >
-                                  <option value="">Hora</option>
-                                  {HOURS.map((hour) => (
-                                    <option key={`${stage}-hour-${hour}`} value={hour}>
-                                      {hour}
-                                    </option>
-                                  ))}
-                                </select>
-                                {bulkScheduleFieldErrors[`stage.${stage}.hour`] && (
-                                  <div className="text-xs text-red-600">
-                                    {bulkScheduleFieldErrors[`stage.${stage}.hour`]}
-                                  </div>
-                                )}
-                              </div>
-                              <div className="space-y-1">
-                                <div className="text-xs font-semibold text-zinc-500">Minuto</div>
-                                <select
-                                  className="w-full rounded-xl border border-zinc-400 bg-white px-3 py-2 text-sm font-medium text-zinc-900 shadow-sm focus:border-zinc-700 focus:outline-none focus:ring-2 focus:ring-zinc-900/15"
-                                  value={config.minute}
-                                  onChange={(e) =>
-                                    updateBulkStageConfig(stage, { minute: e.target.value })
-                                  }
-                                  disabled={bulkScheduling}
-                                >
-                                  {BULK_MINUTE_OPTIONS.map((minute) => (
-                                    <option key={`${stage}-minute-${minute}`} value={minute}>
-                                      {minute}
-                                    </option>
-                                  ))}
-                                </select>
-                                {bulkScheduleFieldErrors[`stage.${stage}.minute`] && (
-                                  <div className="text-xs text-red-600">
-                                    {bulkScheduleFieldErrors[`stage.${stage}.minute`]}
-                                  </div>
-                                )}
-                              </div>
-                              <div className="space-y-1">
-                                <div className="text-xs font-semibold text-zinc-500">
-                                  Cancha inicial
+                        {!config.useGlobal && (
+                          <div className="grid gap-2 [grid-template-columns:repeat(auto-fit,minmax(140px,1fr))] rounded-xl bg-zinc-50 p-3">
+                            <div className="space-y-1">
+                              <div className="text-xs font-semibold text-zinc-500">Fecha</div>
+                              <Input
+                                type="date"
+                                value={config.date}
+                                onChange={(e) => updateBulkStageConfig(stage, { date: e.target.value })}
+                                disabled={bulkScheduling}
+                              />
+                              {bulkScheduleFieldErrors[`stage.${stage}.date`] && (
+                                <div className="text-xs text-red-600">
+                                  {bulkScheduleFieldErrors[`stage.${stage}.date`]}
                                 </div>
-                                <Input
-                                  type="number"
-                                  min={1}
-                                  value={config.firstCourt}
-                                  onChange={(e) =>
-                                    updateBulkStageConfig(stage, { firstCourt: e.target.value })
-                                  }
-                                  disabled={bulkScheduling}
-                                />
-                                {bulkScheduleFieldErrors[`stage.${stage}.firstCourt`] && (
-                                  <div className="text-xs text-red-600">
-                                    {bulkScheduleFieldErrors[`stage.${stage}.firstCourt`]}
-                                  </div>
-                                )}
-                              </div>
-                              <div className="space-y-1">
-                                <div className="text-xs font-semibold text-zinc-500">
-                                  Canchas paralelas
-                                </div>
-                                <Input
-                                  type="number"
-                                  min={1}
-                                  value={config.courtsCount}
-                                  onChange={(e) =>
-                                    updateBulkStageConfig(stage, { courtsCount: e.target.value })
-                                  }
-                                  disabled={bulkScheduling}
-                                />
-                                {bulkScheduleFieldErrors[`stage.${stage}.courtsCount`] && (
-                                  <div className="text-xs text-red-600">
-                                    {bulkScheduleFieldErrors[`stage.${stage}.courtsCount`]}
-                                  </div>
-                                )}
-                              </div>
+                              )}
                             </div>
-                            {summary && summary.adjustedByMinutes > 0 && (
-                              <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-2 text-xs text-zinc-700">
-                                Ajuste automático de inicio: +{summary.adjustedByMinutes} min por
-                                descanso entre instancias o disponibilidad de canchas.
-                              </div>
-                            )}
+                            <div className="space-y-1">
+                              <div className="text-xs font-semibold text-zinc-500">Hora</div>
+                              <select
+                                className="w-full rounded-xl border border-zinc-400 bg-white px-3 py-2 text-sm font-medium text-zinc-900 shadow-sm focus:border-zinc-700 focus:outline-none focus:ring-2 focus:ring-zinc-900/15"
+                                value={config.hour}
+                                onChange={(e) => updateBulkStageConfig(stage, { hour: e.target.value })}
+                                disabled={bulkScheduling}
+                              >
+                                <option value="">Hora</option>
+                                {HOURS.map((hour) => (
+                                  <option key={`${stage}-hour-${hour}`} value={hour}>
+                                    {hour}
+                                  </option>
+                                ))}
+                              </select>
+                              {bulkScheduleFieldErrors[`stage.${stage}.hour`] && (
+                                <div className="text-xs text-red-600">
+                                  {bulkScheduleFieldErrors[`stage.${stage}.hour`]}
+                                </div>
+                              )}
+                            </div>
+                            <div className="space-y-1">
+                              <div className="text-xs font-semibold text-zinc-500">Minuto</div>
+                              <select
+                                className="w-full rounded-xl border border-zinc-400 bg-white px-3 py-2 text-sm font-medium text-zinc-900 shadow-sm focus:border-zinc-700 focus:outline-none focus:ring-2 focus:ring-zinc-900/15"
+                                value={config.minute}
+                                onChange={(e) => updateBulkStageConfig(stage, { minute: e.target.value })}
+                                disabled={bulkScheduling}
+                              >
+                                {BULK_MINUTE_OPTIONS.map((minute) => (
+                                  <option key={`${stage}-minute-${minute}`} value={minute}>
+                                    {minute}
+                                  </option>
+                                ))}
+                              </select>
+                              {bulkScheduleFieldErrors[`stage.${stage}.minute`] && (
+                                <div className="text-xs text-red-600">
+                                  {bulkScheduleFieldErrors[`stage.${stage}.minute`]}
+                                </div>
+                              )}
+                            </div>
+                            <div className="space-y-1">
+                              <div className="text-xs font-semibold text-zinc-500">Cancha inicial</div>
+                              <Input
+                                type="number"
+                                min={1}
+                                value={config.firstCourt}
+                                onChange={(e) =>
+                                  updateBulkStageConfig(stage, { firstCourt: e.target.value })
+                                }
+                                disabled={bulkScheduling}
+                              />
+                              {bulkScheduleFieldErrors[`stage.${stage}.firstCourt`] && (
+                                <div className="text-xs text-red-600">
+                                  {bulkScheduleFieldErrors[`stage.${stage}.firstCourt`]}
+                                </div>
+                              )}
+                            </div>
+                            <div className="space-y-1">
+                              <div className="text-xs font-semibold text-zinc-500">Canchas</div>
+                              <Input
+                                type="number"
+                                min={1}
+                                value={config.courtsCount}
+                                onChange={(e) =>
+                                  updateBulkStageConfig(stage, { courtsCount: e.target.value })
+                                }
+                                disabled={bulkScheduling}
+                              />
+                              {bulkScheduleFieldErrors[`stage.${stage}.courtsCount`] && (
+                                <div className="text-xs text-red-600">
+                                  {bulkScheduleFieldErrors[`stage.${stage}.courtsCount`]}
+                                </div>
+                              )}
+                            </div>
                           </div>
                         )}
 
-                        {bulkScheduleFieldErrors[`stage.${stage}.__stage`] && (
+                        {(bulkScheduleFieldErrors[`stage.${stage}.__stage`] || liveStageError) && (
                           <div className="rounded-xl border border-red-300 bg-red-100 px-3 py-2 text-xs text-red-800">
-                            {bulkScheduleFieldErrors[`stage.${stage}.__stage`]}
+                            {bulkScheduleFieldErrors[`stage.${stage}.__stage`] || liveStageError}
                           </div>
                         )}
                       </div>
@@ -3889,51 +3919,46 @@ export default function TournamentPlayoffsPage() {
                 );
               })}
             </div>
-          )}
 
-          {bulkScheduleStep === 3 && (
-            <div className="space-y-3">
-              <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-3">
-                <div className="text-sm font-semibold text-zinc-800">
-                  Se programarán {bulkSchedulePlanPreview.tasks.length} partido(s)
-                </div>
-                <div className="text-xs text-zinc-500">
-                  Duración por partido: {tournamentMatchDurationMinutes} min · Descanso entre
-                  instancias: {bulkStageGapMinutes || "0"} min.
-                </div>
+            <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-4">
+              <div className="text-sm font-semibold text-zinc-900">Vista previa</div>
+              <div className="mt-1 text-xs text-zinc-500">
+                Se programarán {bulkSchedulePlanPreview.tasks.length} partido(s) en{" "}
+                {enabledBulkStages.length} instancia(s).
               </div>
-              <div className="space-y-2">
-                {bulkSchedulePlanPreview.summaries.map((summary) => (
-                  <div key={`summary-${summary.stage}`} className="rounded-xl border border-zinc-200 p-3">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div className="text-sm font-semibold text-zinc-800">
-                        {STAGE_LABELS[summary.stage]}
-                      </div>
-                      <div className="text-xs text-zinc-500">
-                        {summary.matchCount} partido(s) · {summary.slotCount} bloque(s)
-                      </div>
-                    </div>
-                    <div className="mt-2 text-xs text-zinc-600">
-                      Horario: {summary.firstTime} - {summary.lastTime} · Canchas: {summary.firstCourt} a{" "}
-                      {summary.lastCourt}
-                    </div>
-                    {summary.adjustedByMinutes > 0 && (
-                      <div className="mt-1 text-xs text-amber-700">
-                        Inicio ajustado automáticamente +{summary.adjustedByMinutes} min para
-                        respetar descanso entre instancias y disponibilidad de canchas (desde{" "}
-                        {summary.configuredStartTime}).
-                      </div>
-                    )}
+
+              <div className="mt-3 space-y-2">
+                {enabledBulkStages.length === 0 ? (
+                  <div className="text-sm text-zinc-500">
+                    Seleccioná al menos una instancia para ver el resumen.
                   </div>
-                ))}
+                ) : (
+                  enabledBulkStages.map(({ stage }) => {
+                    const config = bulkScheduleByStage[stage];
+                    const summary = bulkSummaryByStage.get(stage);
+                    const sourceDate = config.useGlobal ? bulkScheduleBaseConfig.date : config.date;
+                    const liveStageError = bulkSchedulePlanPreview.errors[`stage.${stage}.__stage`];
+
+                    return (
+                      <div key={`preview-${stage}`} className="text-sm text-zinc-700">
+                        <span className="font-semibold text-zinc-900">{STAGE_LABELS[stage]}</span>
+                        {" · "}
+                        {summary
+                          ? `${formatBulkDateLabel(sourceDate)} · ${summary.firstTime} a ${summary.lastTime} · canchas ${summary.firstCourt}-${summary.lastCourt}`
+                          : liveStageError || "Faltan datos para calcular esta instancia."}
+                      </div>
+                    );
+                  })
+                )}
               </div>
+
               {Object.keys(bulkSchedulePlanPreview.errors).length > 0 && (
-                <div className="rounded-xl border border-red-300 bg-red-100 p-3 text-sm text-red-800">
-                  Hay configuraciones pendientes. Vuelve al paso anterior y corrige los campos marcados.
+                <div className="mt-3 rounded-xl border border-red-300 bg-red-100 p-3 text-xs text-red-800">
+                  Ajustá los campos marcados antes de programar.
                 </div>
               )}
             </div>
-          )}
+          </div>
 
           {bulkScheduleError && (
             <div className="rounded-xl border border-red-300 bg-red-100 p-3 text-sm text-red-800">
@@ -3941,43 +3966,21 @@ export default function TournamentPlayoffsPage() {
             </div>
           )}
 
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-col gap-3 border-t border-zinc-200 pt-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="text-xs text-zinc-500">
-              {bulkScheduleStep === 1
-                ? "Definí la base y continuá."
-                : bulkScheduleStep === 2
-                ? "Selecciona instancias y valida overrides."
-                : "Si esta todo correcto, aplica la programacion."}
+              Revisá el preview. Si algo cambia por disponibilidad de canchas, lo vas a ver acá
+              mismo antes de aplicar.
             </div>
             <div className="flex justify-end gap-2">
-              {bulkScheduleStep > 1 && (
-                <Button
-                  variant="secondary"
-                  type="button"
-                  onClick={goToPreviousBulkStep}
-                  disabled={bulkScheduling}
-                >
-                  Volver
-                </Button>
-              )}
-              {bulkScheduleStep < 3 ? (
-                <Button type="button" onClick={goToNextBulkStep} disabled={bulkScheduling}>
-                  Continuar
-                </Button>
-              ) : (
-                <Button type="submit" disabled={bulkScheduling}>
-                  {bulkScheduling
-                    ? "Programando..."
-                    : `Programar ${bulkSchedulePlanPreview.tasks.length} partidos`}
-                </Button>
-              )}
+              <Button variant="secondary" onClick={closeBulkScheduleModal} type="button">
+                Cancelar
+              </Button>
+              <Button type="submit" disabled={bulkScheduling}>
+                {bulkScheduling
+                  ? "Programando..."
+                  : `Programar ${bulkSchedulePlanPreview.tasks.length} partidos`}
+              </Button>
             </div>
-          </div>
-
-          <div className="flex justify-end gap-2 border-t border-zinc-200 pt-3">
-            <Button variant="secondary" onClick={closeBulkScheduleModal} type="button">
-              Cancelar
-            </Button>
           </div>
         </form>
       </Modal>

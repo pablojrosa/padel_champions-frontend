@@ -108,6 +108,14 @@ export default function TournamentMatchesPage() {
   const [nameQuery, setNameQuery] = useState("");
   const [onlyConstraintConflicts, setOnlyConstraintConflicts] = useState(false);
 
+  const [selectedMatchIds, setSelectedMatchIds] = useState<Set<number>>(new Set());
+  const [bulkScheduleOpen, setBulkScheduleOpen] = useState(false);
+  const [bulkDate, setBulkDate] = useState("");
+  const [bulkHour, setBulkHour] = useState(DEFAULT_SCHEDULE_HOUR);
+  const [bulkMinute, setBulkMinute] = useState(DEFAULT_SCHEDULE_MINUTE);
+  const [bulkScheduling, setBulkScheduling] = useState(false);
+  const [bulkScheduleError, setBulkScheduleError] = useState<string | null>(null);
+
   const teamsById = useMemo(() => {
     const map = new Map<number, Team>();
     teams.forEach((team) => map.set(team.id, team));
@@ -373,6 +381,100 @@ export default function TournamentMatchesPage() {
       court: "1",
       reason: "No se encontro hueco libre: se usa un horario base.",
     };
+  }
+
+  function toggleMatchSelection(matchId: number) {
+    if (blockedMatchIds.has(matchId)) return;
+    setSelectedMatchIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(matchId)) next.delete(matchId);
+      else next.add(matchId);
+      return next;
+    });
+  }
+
+  function clearSelection() {
+    setSelectedMatchIds(new Set());
+  }
+
+  function openBulkScheduleModal() {
+    setBulkDate(toLocalIsoDate(new Date()));
+    setBulkHour(DEFAULT_SCHEDULE_HOUR);
+    setBulkMinute(DEFAULT_SCHEDULE_MINUTE);
+    setBulkScheduleError(null);
+    setBulkScheduleOpen(true);
+  }
+
+  function closeBulkScheduleModal() {
+    setBulkScheduleOpen(false);
+    setBulkScheduleError(null);
+  }
+
+  async function saveBulkSchedule() {
+    if (!bulkDate || !bulkHour || !bulkMinute) {
+      setBulkScheduleError("Selecciona fecha y horario.");
+      return;
+    }
+    if (bulkTeamConflicts.length > 0) {
+      setBulkScheduleError("Hay partidos con conflicto de pareja. Deselectionalos o elegí otro horario.");
+      return;
+    }
+
+    const time = `${bulkHour}:${bulkMinute}`;
+    const occupiedCourts = new Set(
+      matches
+        .filter(
+          (m) =>
+            (m.scheduled_date ?? "") === bulkDate &&
+            normalizeTime(m.scheduled_time) === time &&
+            m.court_number && m.court_number > 0
+        )
+        .map((m) => m.court_number as number)
+    );
+
+    const matchIds = Array.from(selectedMatchIds);
+    const courtAssignments = new Map<number, number>();
+    let court = 1;
+    for (const matchId of matchIds) {
+      while (occupiedCourts.has(court)) court++;
+      courtAssignments.set(matchId, court);
+      occupiedCourts.add(court);
+      court++;
+    }
+
+    setBulkScheduling(true);
+    setBulkScheduleError(null);
+
+    try {
+      const updatedMatches: Match[] = [];
+      for (const matchId of matchIds) {
+        const courtNumber = courtAssignments.get(matchId)!;
+        const res = await api<{ updated: Match; swapped: Match | null }>(
+          `/matches/${matchId}/schedule`,
+          {
+            method: "POST",
+            body: { scheduled_date: bulkDate, scheduled_time: time, court_number: courtNumber },
+          }
+        );
+        updatedMatches.push(res.updated);
+        if (res.swapped) updatedMatches.push(res.swapped);
+      }
+      setMatches((prev) =>
+        prev.map((m) => {
+          const updated = updatedMatches.find((u) => u.id === m.id);
+          return updated ?? m;
+        })
+      );
+      setScheduleMessage(
+        `${matchIds.length} partido${matchIds.length !== 1 ? "s" : ""} programado${matchIds.length !== 1 ? "s" : ""} el ${bulkDate} a las ${time}.`
+      );
+      clearSelection();
+      closeBulkScheduleModal();
+    } catch (err: any) {
+      setBulkScheduleError(err?.message ?? "No se pudieron programar los partidos.");
+    } finally {
+      setBulkScheduling(false);
+    }
   }
 
   function openScheduleModal(match: Match) {
@@ -701,6 +803,57 @@ export default function TournamentMatchesPage() {
     competitionType === "flash" &&
     tournamentStatus !== "finished" &&
     unscheduledMatches.length > 0;
+
+  const blockedMatchIds = useMemo(() => {
+    const blocked = new Set<number>();
+    const selectedTeamIds = new Set<number>();
+    for (const id of selectedMatchIds) {
+      const m = matches.find((x) => x.id === id);
+      if (m?.team_a_id) selectedTeamIds.add(m.team_a_id);
+      if (m?.team_b_id) selectedTeamIds.add(m.team_b_id);
+    }
+    for (const m of unscheduledMatches) {
+      if (selectedMatchIds.has(m.id)) continue;
+      if (
+        (typeof m.team_a_id === "number" && selectedTeamIds.has(m.team_a_id)) ||
+        (typeof m.team_b_id === "number" && selectedTeamIds.has(m.team_b_id))
+      ) {
+        blocked.add(m.id);
+      }
+    }
+    return blocked;
+  }, [selectedMatchIds, matches, unscheduledMatches]);
+
+  const bulkTimeValue = bulkHour && bulkMinute ? `${bulkHour}:${bulkMinute}` : "";
+
+  const bulkTeamConflicts = useMemo(() => {
+    if (!bulkDate || !bulkTimeValue || selectedMatchIds.size === 0) return [];
+    const conflicts: { matchId: number; teamLabel: string; conflictMatchCode: string }[] = [];
+    for (const matchId of selectedMatchIds) {
+      const match = matches.find((m) => m.id === matchId);
+      if (!match) continue;
+      const teamIds = [match.team_a_id, match.team_b_id].filter(
+        (id): id is number => typeof id === "number"
+      );
+      for (const teamId of teamIds) {
+        const conflictMatch = matches.find(
+          (m) =>
+            !selectedMatchIds.has(m.id) &&
+            (m.scheduled_date ?? "") === bulkDate &&
+            normalizeTime(m.scheduled_time) === bulkTimeValue &&
+            (m.team_a_id === teamId || m.team_b_id === teamId)
+        );
+        if (conflictMatch) {
+          conflicts.push({
+            matchId,
+            teamLabel: getTeamLabel(teamId),
+            conflictMatchCode: getMatchCode(conflictMatch),
+          });
+        }
+      }
+    }
+    return conflicts;
+  }, [selectedMatchIds, matches, bulkDate, bulkTimeValue]);
   const groupStageComplete = useMemo(() => {
     if (groups.length === 0) return false;
 
@@ -810,6 +963,114 @@ export default function TournamentMatchesPage() {
       ) ?? null
     );
   }, [matches, scheduleMatch, scheduleDate, scheduleTimeValue, scheduleCourt]);
+  const scheduleTeamConflict = useMemo((): { match: Match; teamId: number; teamLabel: string } | null => {
+    if (!scheduleMatch || !scheduleDate || !scheduleTimeValue) return null;
+    const teamIds = [scheduleMatch.team_a_id, scheduleMatch.team_b_id].filter(
+      (id): id is number => typeof id === "number"
+    );
+    if (teamIds.length === 0) return null;
+    for (const match of matches) {
+      if (match.id === scheduleMatch.id) continue;
+      if ((match.scheduled_date ?? "") !== scheduleDate) continue;
+      if (normalizeTime(match.scheduled_time) !== scheduleTimeValue) continue;
+      for (const teamId of teamIds) {
+        if (match.team_a_id === teamId || match.team_b_id === teamId) {
+          const team = teamsById.get(teamId);
+          const names = team?.players?.map((p) => p.name).filter(Boolean) ?? [];
+          const teamLabel = names.length > 0 ? names.join(" / ") : `Pareja #${teamId}`;
+          return { match, teamId, teamLabel };
+        }
+      }
+    }
+    return null;
+  }, [matches, scheduleMatch, scheduleDate, scheduleTimeValue, teamsById]);
+  const scheduleConflictSuggestion = useMemo((): ScheduleSuggestion | null => {
+    if (!scheduleMatch) return null;
+    if (!scheduleConflictMatch && !scheduleTeamConflict) return null;
+    const MATCH_DURATION_MINUTES = 90;
+    const otherScheduled = matches
+      .filter((m) => m.id !== scheduleMatch.id && !!m.scheduled_date && !!m.scheduled_time)
+      .map((m) => ({
+        date: m.scheduled_date as string,
+        time: normalizeTime(m.scheduled_time),
+        court: m.court_number && m.court_number > 0 ? m.court_number : 1,
+      }))
+      .filter((m) => !!m.time);
+    const maxKnownCourt = Math.max(1, ...otherScheduled.map((m) => m.court));
+    if (scheduleConflictMatch && scheduleDate && scheduleTimeValue) {
+      const occupiedCourtsAtTime = new Set(
+        otherScheduled
+          .filter((m) => m.date === scheduleDate && m.time === scheduleTimeValue)
+          .map((m) => m.court)
+      );
+      for (let c = 1; c <= maxKnownCourt + 1; c++) {
+        if (!occupiedCourtsAtTime.has(c)) {
+          return {
+            date: scheduleDate,
+            hour: scheduleHour,
+            minute: scheduleMinute,
+            court: String(c),
+            reason: "Misma hora, cancha alternativa.",
+          };
+        }
+      }
+      const courtNumber = Number(scheduleCourt);
+      if (Number.isFinite(courtNumber) && courtNumber > 0) {
+        const currentMinutes = toMinutes(scheduleTimeValue);
+        if (currentMinutes !== null) {
+          const startMinutes = currentMinutes + MATCH_DURATION_MINUTES;
+          for (let mins = startMinutes; mins <= 23 * 60; mins += 30) {
+            const hh = String(Math.floor(mins / 60)).padStart(2, "0");
+            const mm = String(mins % 60).padStart(2, "0");
+            const timeStr = `${hh}:${mm}`;
+            const isOccupied = otherScheduled.some(
+              (m) => m.date === scheduleDate && m.time === timeStr && m.court === courtNumber
+            );
+            if (!isOccupied) {
+              return {
+                date: scheduleDate,
+                hour: hh,
+                minute: mm,
+                court: scheduleCourt,
+                reason: "Misma cancha, primer horario libre.",
+              };
+            }
+          }
+        }
+      }
+      return null;
+    }
+    if (scheduleTeamConflict) {
+      const { match: conflictMatch, teamLabel } = scheduleTeamConflict;
+      const conflictTime = normalizeTime(conflictMatch.scheduled_time);
+      const conflictDate = conflictMatch.scheduled_date;
+      if (!conflictTime || !conflictDate) return null;
+      const conflictMinutes = toMinutes(conflictTime);
+      if (conflictMinutes === null) return null;
+      const earliestMinutes = conflictMinutes + MATCH_DURATION_MINUTES;
+      for (let mins = earliestMinutes; mins <= 23 * 60; mins += 30) {
+        const hh = String(Math.floor(mins / 60)).padStart(2, "0");
+        const mm = String(mins % 60).padStart(2, "0");
+        const timeStr = `${hh}:${mm}`;
+        const occupiedCourts = new Set(
+          otherScheduled.filter((m) => m.date === conflictDate && m.time === timeStr).map((m) => m.court)
+        );
+        for (let c = 1; c <= maxKnownCourt + 1; c++) {
+          if (!occupiedCourts.has(c)) {
+            return {
+              date: conflictDate,
+              hour: hh,
+              minute: mm,
+              court: String(c),
+              reason: `Primera franja libre para ${teamLabel} después de su partido.`,
+            };
+          }
+        }
+      }
+      return null;
+    }
+    return null;
+  }, [scheduleMatch, scheduleConflictMatch, scheduleTeamConflict, scheduleDate, scheduleHour, scheduleMinute, scheduleCourt, scheduleTimeValue, matches]);
   const scheduleSuggestionApplied =
     !!scheduleSuggestion &&
     scheduleDate === scheduleSuggestion.date &&
@@ -842,6 +1103,9 @@ export default function TournamentMatchesPage() {
       setActiveTab("unscheduled");
     }
   }, [isFlash, activeTab]);
+  useEffect(() => {
+    setSelectedMatchIds(new Set());
+  }, [activeTab]);
   const matchesForTab =
     activeTab === "unscheduled"
       ? unscheduledMatches
@@ -1028,6 +1292,49 @@ export default function TournamentMatchesPage() {
                 </div>
               </div>
 
+              {activeTab === "unscheduled" && !isFlash && unscheduledMatches.length > 0 && canSchedule && (
+                <div className="flex items-center justify-between rounded-xl border border-zinc-200 bg-zinc-50 px-4 py-2">
+                  <label className="flex cursor-pointer select-none items-center gap-2 text-sm text-zinc-600">
+                    <input
+                      type="checkbox"
+                      checked={
+                        selectedMatchIds.size > 0 &&
+                        unscheduledMatches.every(
+                          (m) => selectedMatchIds.has(m.id) || blockedMatchIds.has(m.id)
+                        )
+                      }
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setSelectedMatchIds(
+                            new Set(unscheduledMatches.filter((m) => !blockedMatchIds.has(m.id)).map((m) => m.id))
+                          );
+                        } else {
+                          clearSelection();
+                        }
+                      }}
+                      className="h-4 w-4 rounded border-zinc-300"
+                    />
+                    {selectedMatchIds.size > 0
+                      ? `${selectedMatchIds.size} seleccionado${selectedMatchIds.size !== 1 ? "s" : ""}`
+                      : "Seleccionar todos"}
+                  </label>
+                  {selectedMatchIds.size > 0 && (
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={clearSelection}
+                        className="text-xs text-zinc-500 underline decoration-dotted hover:text-zinc-700"
+                      >
+                        Limpiar selección
+                      </button>
+                      <Button onClick={openBulkScheduleModal}>
+                        Programar {selectedMatchIds.size} en simultáneo
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              )}
+
               {matches.length === 0 ? (
                 <div className="text-sm text-zinc-600">No hay partidos cargados.</div>
               ) : matchesForTab.length === 0 ? (
@@ -1035,12 +1342,28 @@ export default function TournamentMatchesPage() {
               ) : (
                 matchesForTab.map((match, listIndex) => {
                   const matchConflicts = constraintConflictsByMatchId.get(match.id) ?? [];
+                  const isUnscheduledTab = activeTab === "unscheduled" && !isFlash && canSchedule;
+                  const isSelected = selectedMatchIds.has(match.id);
+                  const isBlocked = blockedMatchIds.has(match.id);
                   return (
                     <div
                       key={match.id}
-                      className="rounded-2xl border border-zinc-200 p-4"
+                      className={`rounded-2xl border p-4 ${isSelected ? "border-zinc-400 bg-zinc-50" : "border-zinc-200"}`}
                     >
-                      <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                      <div className="flex gap-3">
+                        {isUnscheduledTab && (
+                          <div className="flex shrink-0 items-start pt-0.5">
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              disabled={isBlocked}
+                              onChange={() => toggleMatchSelection(match.id)}
+                              title={isBlocked ? "Una pareja de este partido ya está en otra selección" : undefined}
+                              className="h-4 w-4 cursor-pointer rounded border-zinc-300 disabled:cursor-not-allowed disabled:opacity-40"
+                            />
+                          </div>
+                        )}
+                      <div className="flex flex-1 flex-col gap-2 md:flex-row md:items-center md:justify-between">
                         <div>
                           <div className="text-xs text-zinc-500">
                             {getStageLabel(match)} · Partido {getMatchCode(match)}
@@ -1122,6 +1445,7 @@ export default function TournamentMatchesPage() {
                             );
                           })()}
                         </div>
+                      </div>
                       </div>
                     </div>
                   );
@@ -1226,10 +1550,65 @@ export default function TournamentMatchesPage() {
               {scheduleError}
             </div>
           )}
-          {scheduleConflictMatch && (
-            <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-              Conflicto detectado: ya existe un partido en la misma fecha, hora y cancha
-              (Partido {getMatchCode(scheduleConflictMatch)}).
+          {(scheduleConflictMatch || scheduleTeamConflict) && (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 space-y-2">
+              {scheduleConflictMatch && (
+                <div>
+                  <span className="font-semibold">Cancha ocupada:</span> la cancha {scheduleCourt} ya tiene
+                  programado el partido {getMatchCode(scheduleConflictMatch)} ({getTeamLabel(scheduleConflictMatch.team_a_id)} vs{" "}
+                  {getTeamLabel(scheduleConflictMatch.team_b_id)}) a las {scheduleHour}:{scheduleMinute}.
+                </div>
+              )}
+              {scheduleTeamConflict && (
+                <div>
+                  <span className="font-semibold">{scheduleTeamConflict.teamLabel}</span> ya tiene partido
+                  a las {scheduleHour}:{scheduleMinute} (Partido {getMatchCode(scheduleTeamConflict.match)}).
+                </div>
+              )}
+              {scheduleConflictSuggestion && (
+                <div className="pt-2 border-t border-amber-200 space-y-2">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-amber-700">Recomendacion</div>
+                  <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-3 text-sm font-medium">
+                    <span className="flex items-center gap-1">
+                      <svg className="w-3.5 h-3.5 shrink-0" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+                        <rect x="2" y="3" width="12" height="11" rx="1.5"/>
+                        <path d="M2 6.5h12"/>
+                        <path d="M5 2v2M11 2v2"/>
+                      </svg>
+                      {formatShortDate(scheduleConflictSuggestion.date)}
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <svg className="w-3.5 h-3.5 shrink-0" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+                        <circle cx="8" cy="8" r="6"/>
+                        <path d="M8 5v3.5l2.5 1.5"/>
+                      </svg>
+                      {scheduleConflictSuggestion.hour}:{scheduleConflictSuggestion.minute}
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <svg className="w-3.5 h-3.5 shrink-0" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+                        <circle cx="8" cy="8" r="6"/>
+                        <path d="M3.5 4.5C5 6 5 10 3.5 11.5" strokeLinecap="round"/>
+                        <path d="M12.5 4.5C11 6 11 10 12.5 11.5" strokeLinecap="round"/>
+                      </svg>
+                      Cancha {scheduleConflictSuggestion.court}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setScheduleDate(scheduleConflictSuggestion.date);
+                      setScheduleHour(scheduleConflictSuggestion.hour);
+                      setScheduleMinute(scheduleConflictSuggestion.minute);
+                      setScheduleCourt(scheduleConflictSuggestion.court);
+                    }}
+                    className="shrink-0 rounded-lg border border-amber-400 bg-transparent px-3 py-1 text-xs font-semibold text-amber-900 hover:bg-amber-100 transition-colors"
+                  >
+                    Aplicar
+                  </button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -1242,6 +1621,115 @@ export default function TournamentMatchesPage() {
             </Button>
           </div>
         </form>
+      </Modal>
+
+      <Modal
+        open={bulkScheduleOpen}
+        title={`Programar ${selectedMatchIds.size} partido${selectedMatchIds.size !== 1 ? "s" : ""} en simultáneo`}
+        onClose={closeBulkScheduleModal}
+        className="max-w-xl"
+      >
+        <div className="space-y-4">
+          <div className="grid gap-2 md:grid-cols-2">
+            <Input
+              type="date"
+              value={bulkDate}
+              onChange={(e) => setBulkDate(e.target.value)}
+            />
+            <div className="grid grid-cols-2 gap-2">
+              <select
+                className="w-full rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900"
+                value={bulkHour}
+                onChange={(e) => setBulkHour(e.target.value)}
+              >
+                {HOURS.map((hour) => (
+                  <option key={hour} value={hour}>
+                    {hour}
+                  </option>
+                ))}
+              </select>
+              <select
+                className="w-full rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900"
+                value={bulkMinute}
+                onChange={(e) => setBulkMinute(e.target.value)}
+              >
+                {MINUTES.map((minute) => (
+                  <option key={minute} value={minute}>
+                    {minute}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {bulkDate && bulkTimeValue && bulkTeamConflicts.length === 0 && selectedMatchIds.size > 0 && (() => {
+            const time = bulkTimeValue;
+            const occupied = new Set(
+              matches
+                .filter(
+                  (m) =>
+                    (m.scheduled_date ?? "") === bulkDate &&
+                    normalizeTime(m.scheduled_time) === time &&
+                    m.court_number && m.court_number > 0
+                )
+                .map((m) => m.court_number as number)
+            );
+            const assignments: { matchId: number; court: number }[] = [];
+            let c = 1;
+            for (const matchId of selectedMatchIds) {
+              while (occupied.has(c)) c++;
+              assignments.push({ matchId, court: c });
+              occupied.add(c);
+              c++;
+            }
+            return (
+              <div className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs text-zinc-600 space-y-1">
+                <div className="font-semibold text-zinc-700">Canchas asignadas automáticamente:</div>
+                {assignments.map(({ matchId, court }) => {
+                  const match = matches.find((m) => m.id === matchId);
+                  if (!match) return null;
+                  return (
+                    <div key={matchId} className="flex items-center justify-between">
+                      <span>{getMatchCode(match)} · {getTeamLabel(match.team_a_id)} vs {getTeamLabel(match.team_b_id)}</span>
+                      <span className="ml-2 shrink-0 font-semibold">Cancha {court}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })()}
+
+          {bulkTeamConflicts.length > 0 && (
+            <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800 space-y-1">
+              <div className="font-semibold">Conflictos de horario:</div>
+              {bulkTeamConflicts.map((c, i) => (
+                <div key={i}>
+                  <span className="font-medium">{c.teamLabel}</span> ya tiene el partido {c.conflictMatchCode} programado a esa hora.
+                </div>
+              ))}
+            </div>
+          )}
+
+          {bulkScheduleError && (
+            <div className="rounded-xl border border-red-300 bg-red-100 p-3 text-sm text-red-800">
+              {bulkScheduleError}
+            </div>
+          )}
+
+          <div className="flex justify-end gap-2">
+            <Button variant="secondary" onClick={closeBulkScheduleModal} type="button">
+              Cancelar
+            </Button>
+            <Button
+              onClick={() => { void saveBulkSchedule(); }}
+              disabled={bulkScheduling || bulkTeamConflicts.length > 0}
+            >
+              {bulkScheduling
+                ? "Guardando..."
+                : `Programar ${selectedMatchIds.size} partido${selectedMatchIds.size !== 1 ? "s" : ""}`}
+            </Button>
+          </div>
+        </div>
       </Modal>
 
       <Modal

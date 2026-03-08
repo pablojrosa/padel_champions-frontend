@@ -88,6 +88,8 @@ const IMPORT_TEMPLATE_SAMPLE = [
   "Damas",
   "No puede viernes",
 ];
+const IMPORT_PAIRS_TOOLTIP =
+  "La forma mas rapida de cargar parejas, desde un archivo tipo Excel.";
 
 const HEADER_FIELD_MAP: Record<string, string> = {
   nombrejugador1: "p1_first_name",
@@ -129,6 +131,22 @@ function formatDate(value: string | null | undefined) {
   return dateFormatter.format(parsed);
 }
 
+function normalizeScheduleConstraints(value?: string | null) {
+  return (value ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
+function hasScheduleRestrictions(value?: string | null) {
+  const normalized = normalizeScheduleConstraints(value);
+  if (!normalized) return false;
+  return !/^(sin\s+restricciones?(?:\s+horarias?)?|sin\s+problemas?(?:\s+(?:de|con)\s+horarios?)?|sin\s+limitaciones?(?:\s+horarias?)?|disponibilidad\s+completa|libre)$/.test(
+    normalized
+  );
+}
+
 function CompetitionTypeIcon({
   type,
   className = "",
@@ -154,6 +172,32 @@ function CompetitionTypeIcon({
     <svg className={className} fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" aria-hidden>
       <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 18.75h-9m9 0a3 3 0 013 3h-15a3 3 0 013-3m9 0v-3.375c0-.621-.503-1.125-1.125-1.125h-.871M7.5 18.75v-3.375c0-.621.504-1.125 1.125-1.125h.872m5.007 0H9.497m5.007 0a7.454 7.454 0 01-.982-3.172M9.497 14.25a7.454 7.454 0 00.981-3.172M5.25 4.236c-.982.143-1.954.317-2.916.52A6.003 6.003 0 007.73 9.728M5.25 4.236V4.5c0 2.108.966 3.99 2.48 5.228M5.25 4.236V2.721C7.456 2.41 9.71 2.25 12 2.25c2.291 0 4.545.16 6.75.47v1.516M7.73 9.728a6.726 6.726 0 002.748 1.35M18.75 4.236c.982.143 1.954.317 2.916.52a6.003 6.003 0 01-5.395 4.972M18.75 4.236V4.5a9.02 9.02 0 01-2.48 5.228m2.48-5.492a23.278 23.278 0 00-2.48.492m-8.52 0a7.454 7.454 0 00-.982 3.172" />
     </svg>
+  );
+}
+
+function HelpTooltip({
+  text,
+  className = "",
+}: {
+  text: string;
+  className?: string;
+}) {
+  return (
+    <span className={`group relative inline-flex ${className}`}>
+      <button
+        type="button"
+        aria-label="Mas informacion"
+        className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-zinc-300 bg-white text-[11px] font-bold text-zinc-500 transition-colors hover:border-zinc-400 hover:text-zinc-700 focus:outline-none focus:ring-2 focus:ring-zinc-300"
+      >
+        ?
+      </button>
+      <span
+        role="tooltip"
+        className="pointer-events-none absolute left-1/2 top-full z-20 mt-2 w-max max-w-[18rem] -translate-x-1/2 rounded-lg border border-zinc-200 bg-zinc-900 px-3 py-2 text-center text-[11px] leading-snug text-white opacity-0 shadow-lg transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100"
+      >
+        {text}
+      </span>
+    </span>
   );
 }
 
@@ -208,6 +252,7 @@ export default function TournamentDetailPage() {
   const [pairCategory, setPairCategory] = useState("");
   const [pairGender, setPairGender] = useState("");
   const [pairScheduleConstraints, setPairScheduleConstraints] = useState("");
+  const [pairHasScheduleRestrictions, setPairHasScheduleRestrictions] = useState(false);
   const [importingPairs, setImportingPairs] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
   const [importSummary, setImportSummary] = useState<{
@@ -238,6 +283,7 @@ export default function TournamentDetailPage() {
   const [confirmStartModalOpen, setConfirmStartModalOpen] = useState(false);
   const [confirmDeleteModalOpen, setConfirmDeleteModalOpen] = useState(false);
   const [deleteConfirmName, setDeleteConfirmName] = useState("");
+  const [teamToDelete, setTeamToDelete] = useState<number | null>(null);
   const [startSuccessModalOpen, setStartSuccessModalOpen] = useState(false);
   const [startSuccessCopyMessage, setStartSuccessCopyMessage] = useState<string | null>(null);
   const [copyMessage, setCopyMessage] = useState<string | null>(null);
@@ -246,6 +292,7 @@ export default function TournamentDetailPage() {
   const [editName, setEditName] = useState("");
   const [editCompetitionType, setEditCompetitionType] = useState<CompetitionType>("tournament");
   const [editLocation, setEditLocation] = useState("");
+  const [editStartDate, setEditStartDate] = useState("");
   const [editMatchDurationMinutes, setEditMatchDurationMinutes] = useState("90");
   const [editCourtsCount, setEditCourtsCount] = useState("1");
   const [savingEdit, setSavingEdit] = useState(false);
@@ -259,12 +306,12 @@ export default function TournamentDetailPage() {
   const [editP2Id, setEditP2Id] = useState<number | null>(null);
   const [editP1FirstName, setEditP1FirstName] = useState("");
   const [editP1LastName, setEditP1LastName] = useState("");
-  const [editP1Category, setEditP1Category] = useState("");
   const [editP2FirstName, setEditP2FirstName] = useState("");
   const [editP2LastName, setEditP2LastName] = useState("");
-  const [editP2Category, setEditP2Category] = useState("");
+  const [editPairCategory, setEditPairCategory] = useState("");
   const [editPairGender, setEditPairGender] = useState("");
   const [editScheduleConstraints, setEditScheduleConstraints] = useState("");
+  const [editPairHasScheduleRestrictions, setEditPairHasScheduleRestrictions] = useState(false);
 
   const categories = ["8va","7ma", "6ta", "5ta", "4ta", "3ra", "2da", "1ra"];
   const genders = [
@@ -417,6 +464,7 @@ async function load(options?: { silent?: boolean }) {
     setEditName(tournament.name ?? "");
     setEditCompetitionType((tournament.competition_type ?? "tournament") as CompetitionType);
     setEditLocation(tournament.location ?? "");
+    setEditStartDate(tournament.start_date?.slice(0, 10) ?? "");
     setEditMatchDurationMinutes(String(tournament.match_duration_minutes ?? 90));
     setEditCourtsCount(String(tournament.courts_count ?? 1));
     setEditError(null);
@@ -425,13 +473,13 @@ async function load(options?: { silent?: boolean }) {
   async function deleteTeam(teamId: number) {
     const team = teams.find((t) => t.id === teamId);
     if (team?.pending) return;
-  
-    const confirmed = window.confirm(
-      `¿Eliminar el equipo #${teamId}?\n\nLos jugadores seguirán registrados en la competencia.`
-    );
-  
-    if (!confirmed) return;
-  
+    setTeamToDelete(teamId);
+  }
+
+  async function confirmDeleteTeam() {
+    if (teamToDelete === null) return;
+    const teamId = teamToDelete;
+    setTeamToDelete(null);
     setDeletingTeamId(teamId);
     setError(null);
   
@@ -464,6 +512,7 @@ async function load(options?: { silent?: boolean }) {
     setPairCategory("");
     setPairGender("");
     setPairScheduleConstraints("");
+    setPairHasScheduleRestrictions(false);
     setPairError(null);
     setPairOpen(true);
   }
@@ -479,12 +528,13 @@ async function load(options?: { silent?: boolean }) {
     setEditP2Id(p2?.id ?? player2?.id ?? null);
     setEditP1FirstName(p1?.first_name ?? "");
     setEditP1LastName(p1?.last_name ?? "");
-    setEditP1Category(p1?.category ?? "");
     setEditP2FirstName(p2?.first_name ?? "");
     setEditP2LastName(p2?.last_name ?? "");
-    setEditP2Category(p2?.category ?? "");
+    setEditPairCategory(p1?.category ?? p2?.category ?? "");
     setEditPairGender(p1?.gender ?? p2?.gender ?? "");
-    setEditScheduleConstraints(team.schedule_constraints ?? "");
+    const teamHasRestrictions = hasScheduleRestrictions(team.schedule_constraints);
+    setEditPairHasScheduleRestrictions(teamHasRestrictions);
+    setEditScheduleConstraints(teamHasRestrictions ? team.schedule_constraints ?? "" : "");
     setEditPairError(null);
     setEditPairOpen(true);
   }
@@ -493,11 +543,8 @@ async function load(options?: { silent?: boolean }) {
     if (!editTeamId || !editP1Id || !editP2Id) return;
     if (
       !editP1FirstName.trim() ||
-      !editP1LastName.trim() ||
-      !editP1Category ||
       !editP2FirstName.trim() ||
-      !editP2LastName.trim() ||
-      !editP2Category ||
+      !editPairCategory ||
       !editPairGender
     ) {
       setEditPairError("Completa los datos de ambos jugadores.");
@@ -521,18 +568,19 @@ async function load(options?: { silent?: boolean }) {
                 player_id: editP1Id,
                 first_name: editP1FirstName.trim(),
                 last_name: editP1LastName.trim(),
-                category: editP1Category,
+                category: editPairCategory,
                 gender: editPairGender,
               },
               {
                 player_id: editP2Id,
                 first_name: editP2FirstName.trim(),
                 last_name: editP2LastName.trim(),
-                category: editP2Category,
+                category: editPairCategory,
                 gender: editPairGender,
               },
             ],
-            schedule_constraints: editScheduleConstraints.trim()
+            schedule_constraints:
+              editPairHasScheduleRestrictions && editScheduleConstraints.trim()
               ? editScheduleConstraints.trim()
               : null,
           },
@@ -585,7 +633,8 @@ async function load(options?: { silent?: boolean }) {
       id: tempId,
       tournament_id: tournamentId,
       pending: true,
-      schedule_constraints: pairScheduleConstraints.trim()
+      schedule_constraints:
+        pairHasScheduleRestrictions && pairScheduleConstraints.trim()
         ? pairScheduleConstraints.trim()
         : null,
       players: [
@@ -625,7 +674,8 @@ async function load(options?: { silent?: boolean }) {
               category: pairCategory,
               gender: pairGender,
             },
-            schedule_constraints: pairScheduleConstraints.trim()
+            schedule_constraints:
+              pairHasScheduleRestrictions && pairScheduleConstraints.trim()
               ? pairScheduleConstraints.trim()
               : null,
           },
@@ -1004,6 +1054,7 @@ async function load(options?: { silent?: boolean }) {
           competition_type: editCompetitionType,
           description: fixedDescriptionByType[editCompetitionType],
           location: editLocation.trim() ? editLocation.trim() : null,
+          start_date: editStartDate || null,
           match_duration_minutes:
             editCompetitionType === "tournament"
               ? Math.trunc(parsedMatchDuration)
@@ -1133,7 +1184,7 @@ async function load(options?: { silent?: boolean }) {
   const readinessItems = [
     {
       key: "teams",
-      label: `Cargá las parejas al ${competitionType === "league" ? "liga" : competitionType === "flash" ? "relámpago" : "torneo"}`,
+      label: `Carga las parejas al ${competitionType === "league" ? "liga" : competitionType === "flash" ? "relámpago" : "torneo"}`,
       done: hasRequiredTeams,
       countInPending: true,
       actionLabel: "Cargar pareja",
@@ -1155,7 +1206,11 @@ async function load(options?: { silent?: boolean }) {
       done: hasGeneratedGroups,
       countInPending: true,
       actionLabel:
-        competitionType === "flash" ? "Crear zonas" : "Ir a zonas",
+        competitionType === "tournament"
+          ? "Zonas manualmente"
+          : competitionType === "flash"
+          ? "Crear zonas"
+          : "Ir a zonas",
       onAction: () => {
         if (groupsPanelRef.current) {
           groupsPanelRef.current.openGenerateModal();
@@ -1166,7 +1221,7 @@ async function load(options?: { silent?: boolean }) {
     },
     {
       key: "status",
-      label: "Estado listo para iniciar",
+      label: "Inicia la competencia",
       done: canStartTournament,
       countInPending: false,
       actionLabel: startLabel,
@@ -1275,6 +1330,19 @@ async function load(options?: { silent?: boolean }) {
                 value={editLocation}
                 onChange={(e) => setEditLocation(e.target.value)}
               />
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-zinc-500">
+                  Fecha de inicio
+                </label>
+                <Input
+                  type="date"
+                  value={editStartDate}
+                  onChange={(e) => setEditStartDate(e.target.value)}
+                />
+                <p className="text-xs text-zinc-400">
+                  Si la dejas vacia, se completa con la fecha del primer partido que programes.
+                </p>
+              </div>
               {(editCompetitionType === "tournament" || editCompetitionType === "flash") && (
                 <div className="grid gap-2 md:grid-cols-2">
                   {editCompetitionType === "tournament" && (
@@ -1371,13 +1439,13 @@ async function load(options?: { silent?: boolean }) {
               </div>
 
               <div className="space-y-2">
-                <div className="text-sm font-medium text-zinc-900">Genero</div>
+                <div className="text-sm font-medium text-zinc-900">Género</div>
                 <select
                   className="w-full rounded-xl border border-zinc-300 bg-zinc-50 px-3 py-2 text-sm text-zinc-900 shadow-sm focus:border-zinc-900 focus:outline-none focus:ring-2 focus:ring-zinc-900/20"
                   value={pairGender}
                   onChange={(e) => setPairGender(e.target.value)}
                 >
-                  <option value="">Seleccionar genero</option>
+                  <option value="">Seleccionar género</option>
                   {genders.map((g) => (
                     <option key={g.value} value={g.value}>
                       {g.label}
@@ -1390,13 +1458,28 @@ async function load(options?: { silent?: boolean }) {
                 <div className="text-sm font-medium text-zinc-900">
                   Limitantes de horarios
                 </div>
-                <textarea
-                  className="w-full rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 outline-none focus:border-zinc-900 focus:ring-2 focus:ring-zinc-900/20"
-                  placeholder="Ej: solo lunes y miercoles despues de las 20hs"
-                  value={pairScheduleConstraints}
-                  onChange={(e) => setPairScheduleConstraints(e.target.value)}
-                  rows={3}
-                />
+                <label className="flex items-center gap-3 rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-700">
+                  <input
+                    type="checkbox"
+                    checked={pairHasScheduleRestrictions}
+                    onChange={(e) => setPairHasScheduleRestrictions(e.target.checked)}
+                    className="h-4 w-4 rounded border-zinc-300 text-zinc-900 focus:ring-zinc-900/20"
+                  />
+                  <span>Esta pareja tiene restricciones horarias</span>
+                </label>
+                {pairHasScheduleRestrictions ? (
+                  <textarea
+                    className="w-full rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 outline-none focus:border-zinc-900 focus:ring-2 focus:ring-zinc-900/20"
+                    placeholder="Ej: viernes despues de las 19 y sábado sin problemas"
+                    value={pairScheduleConstraints}
+                    onChange={(e) => setPairScheduleConstraints(e.target.value)}
+                    rows={3}
+                  />
+                ) : (
+                  <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+                    Sin problemas de horarios.
+                  </div>
+                )}
               </div>
 
               {pairError && (
@@ -1424,50 +1507,30 @@ async function load(options?: { silent?: boolean }) {
             <div className="space-y-4">
               <div className="space-y-2">
                 <div className="text-sm font-medium text-zinc-900">Jugador 1</div>
-                <div className="grid gap-2 md:grid-cols-2">
-                  <Input
-                    placeholder="Nombre"
-                    value={editP1FirstName}
-                    onChange={(e) => setEditP1FirstName(e.target.value)}
-                  />
-                  <Input
-                    placeholder="Apellido"
-                    value={editP1LastName}
-                    onChange={(e) => setEditP1LastName(e.target.value)}
-                  />
-                </div>
-                <select
-                  className="w-full rounded-xl border border-zinc-300 bg-zinc-50 px-3 py-2 text-sm text-zinc-900 shadow-sm focus:border-zinc-900 focus:outline-none focus:ring-2 focus:ring-zinc-900/20"
-                  value={editP1Category}
-                  onChange={(e) => setEditP1Category(e.target.value)}
-                >
-                  <option value="">Seleccionar categoría</option>
-                  {categories.map((c) => (
-                    <option key={c} value={c}>
-                      {c}
-                    </option>
-                  ))}
-                </select>
+                <Input
+                  placeholder="Nombre"
+                  value={editP1FirstName}
+                  onChange={(e) => setEditP1FirstName(e.target.value)}
+                />
               </div>
 
               <div className="space-y-2">
                 <div className="text-sm font-medium text-zinc-900">Jugador 2</div>
-                <div className="grid gap-2 md:grid-cols-2">
-                  <Input
-                    placeholder="Nombre"
-                    value={editP2FirstName}
-                    onChange={(e) => setEditP2FirstName(e.target.value)}
-                  />
-                  <Input
-                    placeholder="Apellido"
-                    value={editP2LastName}
-                    onChange={(e) => setEditP2LastName(e.target.value)}
-                  />
+                <Input
+                  placeholder="Nombre"
+                  value={editP2FirstName}
+                  onChange={(e) => setEditP2FirstName(e.target.value)}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <div className="text-sm font-medium text-zinc-900">
+                  Categoría
                 </div>
                 <select
                   className="w-full rounded-xl border border-zinc-300 bg-zinc-50 px-3 py-2 text-sm text-zinc-900 shadow-sm focus:border-zinc-900 focus:outline-none focus:ring-2 focus:ring-zinc-900/20"
-                  value={editP2Category}
-                  onChange={(e) => setEditP2Category(e.target.value)}
+                  value={editPairCategory}
+                  onChange={(e) => setEditPairCategory(e.target.value)}
                 >
                   <option value="">Seleccionar categoría</option>
                   {categories.map((c) => (
@@ -1479,13 +1542,13 @@ async function load(options?: { silent?: boolean }) {
               </div>
 
               <div className="space-y-2">
-                <div className="text-sm font-medium text-zinc-900">Genero</div>
+                <div className="text-sm font-medium text-zinc-900">Género</div>
                 <select
                   className="w-full rounded-xl border border-zinc-300 bg-zinc-50 px-3 py-2 text-sm text-zinc-900 shadow-sm focus:border-zinc-900 focus:outline-none focus:ring-2 focus:ring-zinc-900/20"
                   value={editPairGender}
                   onChange={(e) => setEditPairGender(e.target.value)}
                 >
-                  <option value="">Seleccionar genero</option>
+                  <option value="">Seleccionar género</option>
                   {genders.map((g) => (
                     <option key={g.value} value={g.value}>
                       {g.label}
@@ -1498,13 +1561,28 @@ async function load(options?: { silent?: boolean }) {
                 <div className="text-sm font-medium text-zinc-900">
                   Limitantes de horarios
                 </div>
-                <textarea
-                  className="w-full rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 outline-none focus:border-zinc-900 focus:ring-2 focus:ring-zinc-900/20"
-                  placeholder="Ej: solo lunes y miercoles despues de las 20hs"
-                  value={editScheduleConstraints}
-                  onChange={(e) => setEditScheduleConstraints(e.target.value)}
-                  rows={3}
-                />
+                <label className="flex items-center gap-3 rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-700">
+                  <input
+                    type="checkbox"
+                    checked={editPairHasScheduleRestrictions}
+                    onChange={(e) => setEditPairHasScheduleRestrictions(e.target.checked)}
+                    className="h-4 w-4 rounded border-zinc-300 text-zinc-900 focus:ring-zinc-900/20"
+                  />
+                  <span>Esta pareja tiene restricciones horarias</span>
+                </label>
+                {editPairHasScheduleRestrictions ? (
+                  <textarea
+                    className="w-full rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 outline-none focus:border-zinc-900 focus:ring-2 focus:ring-zinc-900/20"
+                    placeholder="Ej: viernes despues de las 19 y sábado sin problemas"
+                    value={editScheduleConstraints}
+                    onChange={(e) => setEditScheduleConstraints(e.target.value)}
+                    rows={3}
+                  />
+                ) : (
+                  <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+                    Sin problemas de horarios.
+                  </div>
+                )}
               </div>
 
               {editPairError && (
@@ -1572,6 +1650,47 @@ async function load(options?: { silent?: boolean }) {
                 <button
                   type="button"
                   onClick={() => { setConfirmDeleteModalOpen(false); setDeleteConfirmName(""); }}
+                  className="text-xs text-zinc-400 hover:text-zinc-600 text-center py-1 transition-colors"
+                >
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          </Modal>
+
+          <Modal
+            open={teamToDelete !== null}
+            onClose={() => setTeamToDelete(null)}
+            className="max-w-sm"
+          >
+            <div className="space-y-5">
+              <div className="space-y-1">
+                <div className="text-base font-semibold text-zinc-900">Eliminar pareja</div>
+                <p className="text-sm text-zinc-500">
+                  {(() => {
+                    const team = teams.find((t) => t.id === teamToDelete);
+                    const name = team
+                      ? `${team.players?.[0]?.name ?? "Jugador"} / ${team.players?.[1]?.name ?? "Jugador"}`
+                      : `#${teamToDelete}`;
+                    return <>¿Deseas eliminar a la pareja <span className="font-semibold text-zinc-700">{name}</span>?</>;
+                  })()}
+                </p>
+              </div>
+              <div className="flex flex-col gap-2">
+                <Button
+                  variant="secondary"
+                  onClick={confirmDeleteTeam}
+                  disabled={deletingTeamId === teamToDelete}
+                  className="w-full gap-2 !border-red-300 !bg-red-50 !text-red-700 hover:!bg-red-100 disabled:!opacity-40"
+                >
+                  {deletingTeamId === teamToDelete && (
+                    <span className="h-4 w-4 animate-spin rounded-full border-2 border-red-300 border-t-red-600" aria-hidden />
+                  )}
+                  Eliminar pareja
+                </Button>
+                <button
+                  type="button"
+                  onClick={() => setTeamToDelete(null)}
                   className="text-xs text-zinc-400 hover:text-zinc-600 text-center py-1 transition-colors"
                 >
                   Cancelar
@@ -1778,7 +1897,7 @@ async function load(options?: { silent?: boolean }) {
                                 {startingTournament ? "Iniciando..." : startLabel}
                               </Button>
                             ) : (
-                              <span className="text-xs text-zinc-400">Completá los pasos anteriores primero</span>
+                              <span className="text-xs text-zinc-400">Completa los pasos previos</span>
                             )}
                           </div>
                         </div>
@@ -1827,22 +1946,46 @@ async function load(options?: { silent?: boolean }) {
                         <div className="shrink-0 text-5xl font-black text-zinc-400 leading-none w-10 text-center">{index + 1}</div>
                         <div className="flex-1 flex flex-col gap-2 min-w-0">
                           <div className="text-sm font-semibold text-zinc-900">{item.label}</div>
-                          <Button
-                            onClick={item.onAction}
-                            variant="secondary"
-                            className="w-full"
-                          >
-                            {item.actionLabel}
-                          </Button>
-                          {item.secondaryActionLabel && item.onSecondaryAction && (
-                            <button
-                              type="button"
-                              onClick={item.onSecondaryAction}
-                              disabled={item.secondaryDisabled}
-                              className="text-xs text-zinc-500 underline hover:text-zinc-700 text-center disabled:cursor-not-allowed disabled:opacity-60"
+                          {item.key === "groups" && competitionType === "tournament" ? (
+                            <div className="grid w-full gap-2 md:grid-cols-2">
+                              <Button
+                                onClick={item.onAction}
+                                variant="secondary"
+                                className="w-full"
+                              >
+                                {item.actionLabel}
+                              </Button>
+                              <Button
+                                onClick={() => groupsPanelRef.current?.openGenerateAiModal()}
+                                variant="secondary"
+                                className="w-full"
+                              >
+                                Zonas con IA
+                              </Button>
+                            </div>
+                          ) : (
+                            <Button
+                              onClick={item.onAction}
+                              variant="secondary"
+                              className="w-full"
                             >
-                              o {item.secondaryActionLabel}
-                            </button>
+                              {item.actionLabel}
+                            </Button>
+                          )}
+                          {item.secondaryActionLabel && item.onSecondaryAction && (
+                            <div className="flex items-center justify-center gap-1.5">
+                              <button
+                                type="button"
+                                onClick={item.onSecondaryAction}
+                                disabled={item.secondaryDisabled}
+                                className="text-xs text-zinc-500 underline hover:text-zinc-700 text-center disabled:cursor-not-allowed disabled:opacity-60"
+                              >
+                                o {item.secondaryActionLabel}
+                              </button>
+                              {item.key === "teams" ? (
+                                <HelpTooltip text={IMPORT_PAIRS_TOOLTIP} />
+                              ) : null}
+                            </div>
                           )}
                         </div>
                       </div>
@@ -1945,6 +2088,7 @@ async function load(options?: { silent?: boolean }) {
                     >
                       {importingPairs ? "Importando..." : "Importar parejas"}
                     </Button>
+                    <HelpTooltip text={IMPORT_PAIRS_TOOLTIP} className="self-center" />
                     <button
                       type="button"
                       onClick={downloadImportTemplate}
