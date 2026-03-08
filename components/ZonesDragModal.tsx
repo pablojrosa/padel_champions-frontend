@@ -34,15 +34,29 @@ function getTeamCategory(team: Team) {
 function getTeamGender(team: Team) {
   return team.players[0]?.gender ?? null;
 }
-function getDivisionLabel(team: Team) {
-  const cat = getTeamCategory(team) ?? "Sin categoría";
-  const gen = getTeamGender(team);
-  const genLabel =
-    gen === "damas" ? "Damas" : gen === "masculino" ? "Masculino" : gen ?? "Sin género";
-  return `${cat} - ${genLabel}`;
+function getTeamConstraintsLabel(team: Team) {
+  return team.schedule_constraints?.trim() || "Sin restricciones horarias";
+}
+function normalizeConstraints(value?: string | null) {
+  return (value ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+}
+function isWildcardTeam(team: Team) {
+  const normalized = normalizeConstraints(team.schedule_constraints);
+  if (!normalized) return true;
+  return /^(sin\s+restricciones?(?:\s+horarias?)?|sin\s+problemas?(?:\s+(?:de|con)\s+horarios?)?|sin\s+limitaciones?(?:\s+horarias?)?|disponibilidad\s+completa|libre)$/.test(
+    normalized
+  );
 }
 function getDivisionKey(team: Team) {
   return `${getTeamCategory(team) ?? ""}::${getTeamGender(team) ?? ""}`;
+}
+
+function getTeamDisplayName(team: Team) {
+  return `${team.players[0]?.name ?? "Jugador"} / ${team.players[1]?.name ?? "Jugador"}`;
 }
 
 // ─── Drag handle icon ─────────────────────────────────────────────────────────
@@ -84,6 +98,7 @@ function DraggableTeamCard({
     id: draggableId,
     data: { team, fromZoneId },
   });
+  const wildcard = isWildcardTeam(team);
 
   return (
     <div
@@ -95,14 +110,29 @@ function DraggableTeamCard({
       }}
       {...listeners}
       {...attributes}
-      className="group flex cursor-grab items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 shadow-sm select-none hover:border-zinc-300 hover:shadow-md active:cursor-grabbing"
+      className={`group relative flex cursor-grab items-center gap-2 rounded-xl border bg-white px-3 py-2 shadow-sm select-none hover:shadow-md active:cursor-grabbing ${
+        wildcard
+          ? "border-emerald-200 hover:border-emerald-300"
+          : "border-zinc-200 hover:border-zinc-300"
+      }`}
     >
+      {wildcard ? (
+        <span
+          className="absolute right-2 top-2 inline-flex h-5 w-5 items-center justify-center rounded-full border border-amber-200 bg-amber-50 text-amber-600"
+          title="Pareja comodin: sin restricciones horarias"
+          aria-label="Pareja comodin: sin restricciones horarias"
+        >
+          <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" aria-hidden>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M11.48 3.499a.562.562 0 011.04 0l2.125 5.111a.563.563 0 00.475.345l5.518.442c.499.04.701.663.321 1.012l-4.204 3.602a.563.563 0 00-.182.557l1.285 5.386a.562.562 0 01-.84.61l-4.725-2.885a.563.563 0 00-.586 0l-4.725 2.886a.562.562 0 01-.84-.611l1.285-5.386a.562.562 0 00-.182-.557l-4.204-3.602a.563.563 0 01.321-1.012l5.518-.442a.563.563 0 00.475-.345L11.48 3.5z" />
+          </svg>
+        </span>
+      ) : null}
       <DragHandle className="flex-shrink-0 text-zinc-300 group-hover:text-zinc-400" />
-      <div className="min-w-0 flex-1">
+      <div className="min-w-0 flex-1 pr-6">
         <div className="truncate text-sm font-medium text-zinc-800">
           {team.players[0]?.name ?? "Jugador"} / {team.players[1]?.name ?? "Jugador"}
         </div>
-        <div className="text-xs text-zinc-500">{getDivisionLabel(team)}</div>
+        <div className="text-xs text-zinc-500">{getTeamConstraintsLabel(team)}</div>
       </div>
     </div>
   );
@@ -245,14 +275,29 @@ function DroppableZone({
 // ─── Floating overlay card during drag ────────────────────────────────────────
 
 function FloatingCard({ team }: { team: Team }) {
+  const wildcard = isWildcardTeam(team);
   return (
-    <div className="flex cursor-grabbing items-center gap-2 rounded-xl border border-zinc-300 bg-white px-3 py-2.5 shadow-2xl ring-1 ring-zinc-200 rotate-2 scale-105 select-none">
+    <div
+      className={`relative flex cursor-grabbing items-center gap-2 rounded-xl border bg-white px-3 py-2.5 shadow-2xl ring-1 ring-zinc-200 rotate-2 scale-105 select-none ${
+        wildcard ? "border-emerald-300" : "border-zinc-300"
+      }`}
+    >
+      {wildcard ? (
+        <span
+          className="absolute right-2 top-2 inline-flex h-5 w-5 items-center justify-center rounded-full border border-amber-200 bg-amber-50 text-amber-600"
+          aria-hidden="true"
+        >
+          <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M11.48 3.499a.562.562 0 011.04 0l2.125 5.111a.563.563 0 00.475.345l5.518.442c.499.04.701.663.321 1.012l-4.204 3.602a.563.563 0 00-.182.557l1.285 5.386a.562.562 0 01-.84.61l-4.725-2.885a.563.563 0 00-.586 0l-4.725 2.886a.562.562 0 01-.84-.611l1.285-5.386a.562.562 0 00-.182-.557l-4.204-3.602a.563.563 0 01.321-1.012l5.518-.442a.563.563 0 00.475-.345L11.48 3.5z" />
+          </svg>
+        </span>
+      ) : null}
       <DragHandle className="flex-shrink-0 text-zinc-400" />
-      <div className="min-w-0">
+      <div className="min-w-0 pr-6">
         <div className="truncate text-sm font-medium text-zinc-800">
           {team.players[0]?.name ?? "Jugador"} / {team.players[1]?.name ?? "Jugador"}
         </div>
-        <div className="text-xs text-zinc-500">{getDivisionLabel(team)}</div>
+        <div className="text-xs text-zinc-500">{getTeamConstraintsLabel(team)}</div>
       </div>
     </div>
   );
@@ -288,6 +333,7 @@ export default function ZonesDragModal({
   const [zonesMap, setZonesMap] = useState<Record<string, ManualZone[]>>({});
   const [category, setCategory] = useState<string>("all");
   const [gender, setGender] = useState<string>("all");
+  const [showOnlyWildcards, setShowOnlyWildcards] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
 
@@ -318,6 +364,7 @@ export default function ZonesDragModal({
     setZonesMap(initialZonesMap);
     setCategory(defaultCategory ?? "all");
     setGender(defaultGender ?? "all");
+    setShowOnlyWildcards(false);
     setError(null);
     setActiveDragId(null);
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -327,6 +374,7 @@ export default function ZonesDragModal({
     if (!open) return;
     setCategory(defaultCategory ?? "all");
     setGender(defaultGender ?? "all");
+    setShowOnlyWildcards(false);
   }, [defaultCategory, defaultGender]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const teamsById = useMemo(() => new Map(teams.map((t) => [t.id, t])), [teams]);
@@ -364,9 +412,21 @@ export default function ZonesDragModal({
       availableTeams.filter((t) => {
         const catMatch = category === "all" || getTeamCategory(t) === category;
         const genMatch = gender === "all" || getTeamGender(t) === gender;
-        return catMatch && genMatch;
+        const wildcardMatch = !showOnlyWildcards || isWildcardTeam(t);
+        return catMatch && genMatch && wildcardMatch;
+      }).sort((a, b) => {
+        const aWildcard = isWildcardTeam(a);
+        const bWildcard = isWildcardTeam(b);
+        if (aWildcard !== bWildcard) {
+          return aWildcard ? 1 : -1;
+        }
+        return getTeamDisplayName(a).localeCompare(getTeamDisplayName(b), "es");
       }),
-    [availableTeams, category, gender]
+    [availableTeams, category, gender, showOnlyWildcards]
+  );
+  const wildcardTeamsCount = useMemo(
+    () => availableTeams.filter((team) => isWildcardTeam(team)).length,
+    [availableTeams]
   );
 
   const totalPool = teams.filter((t) => !persistedAssignedIds.has(t.id)).length;
@@ -577,6 +637,30 @@ export default function ZonesDragModal({
                 <option value="damas">Damas</option>
               </select>
             )}
+            <button
+              type="button"
+              onClick={() => setShowOnlyWildcards((value) => !value)}
+              className={`inline-flex items-center gap-2 rounded-xl border px-3 py-1.5 text-sm transition ${
+                showOnlyWildcards
+                  ? "border-emerald-300 bg-emerald-50 text-emerald-800"
+                  : "border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50"
+              }`}
+            >
+              <span
+                className={`inline-flex h-4 w-4 items-center justify-center rounded-full border text-[10px] ${
+                  showOnlyWildcards
+                    ? "border-amber-300 bg-amber-100 text-amber-600"
+                    : "border-amber-200 bg-amber-50 text-amber-500"
+                }`}
+                aria-hidden="true"
+              >
+                <svg className="h-2.5 w-2.5" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M11.48 3.499a.562.562 0 011.04 0l2.125 5.111a.563.563 0 00.475.345l5.518.442c.499.04.701.663.321 1.012l-4.204 3.602a.563.563 0 00-.182.557l1.285 5.386a.562.562 0 01-.84.61l-4.725-2.885a.563.563 0 00-.586 0l-4.725 2.886a.562.562 0 01-.84-.611l1.285-5.386a.562.562 0 00-.182-.557l-4.204-3.602a.563.563 0 01.321-1.012l5.518-.442a.563.563 0 00.475-.345L11.48 3.5z" />
+                </svg>
+              </span>
+              Sin restricciones de horario
+              <span className="text-xs opacity-70">{wildcardTeamsCount}</span>
+            </button>
 
             <div className="ml-auto flex items-center gap-3">
               <span className="text-xs font-medium text-zinc-600">

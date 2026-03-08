@@ -69,9 +69,9 @@ const competitionTypeNamePlaceholders: Record<CompetitionType, string> = {
 };
 
 const createFlowSteps: { step: 1 | 2 | 3; label: string; focus: string }[] = [
-  { step: 1, label: "Nombre", focus: "Dale vida a tu competencia" },
+  { step: 1, label: "Nombre", focus: "¿Cómo se llama la compatencia?" },
   { step: 2, label: "Formato", focus: "¿Cómo van a jugar?" },
-  { step: 3, label: "Confirmar", focus: "Casi listo, revisa." },
+  { step: 3, label: "Confirmar", focus: "¿Listo para crear la competencia?" },
 ];
 const totalCreateFlowSteps = createFlowSteps.length;
 
