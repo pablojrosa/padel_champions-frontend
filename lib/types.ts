@@ -53,6 +53,7 @@ export type UserProfile = {
   status?: "active" | "inactive";
   last_payment_paid_at?: string | null;
   last_payment_expires_at?: string | null;
+  active_until?: string | null;
 };
 
 export type AdminUser = {
