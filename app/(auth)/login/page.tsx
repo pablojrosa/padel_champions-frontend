@@ -4,17 +4,19 @@ export const dynamic = "force-dynamic";
 
 import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import LandingHeader from "@/components/LandingHeader";
 import Card from "@/components/ui/Card";
 import Input from "@/components/ui/Input";
 import Button from "@/components/ui/Button";
-import { api } from "@/lib/api";
-import { setToken } from "@/lib/auth";
+import GoogleAuthButton from "@/components/GoogleAuthButton";
+import { resolvePostAuthPath, setToken } from "@/lib/auth";
 import type { LoginResponse } from "@/lib/types";
 
 function LoginForm() {
   const router = useRouter();
   const sp = useSearchParams();
   const next = sp.get("next");
+  const googleEnabled = Boolean(process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID);
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -26,6 +28,9 @@ function LoginForm() {
     if (!value) return "No se pudo iniciar sesion.";
     if (/incorrect email or password/i.test(value)) {
       return "Email o contrasena incorrectos.";
+    }
+    if (/use google sign-in for this account/i.test(value)) {
+      return "Esta cuenta usa acceso con Google.";
     }
     if (/login failed/i.test(value)) {
       return "No se pudo iniciar sesion.";
@@ -63,31 +68,27 @@ function LoginForm() {
   
       const isAdmin = Boolean(data.is_admin);
       setToken(data.access_token, isAdmin);
-      let target = next || (isAdmin ? "/admin" : "/dashboard");
-
-      if (!isAdmin && target.startsWith("/admin")) {
-        target = "/dashboard";
-      }
-      if (isAdmin && target === "/dashboard") {
-        target = "/admin";
-      }
-
-      router.replace(target);
-    } catch (err: any) {
-      setError(normalizeLoginError(err?.message));
+      router.replace(resolvePostAuthPath(isAdmin, next));
+    } catch (err: unknown) {
+      setError(
+        normalizeLoginError(err instanceof Error ? err.message : undefined)
+      );
     } finally {
       setSubmitting(false);
     }
   }
 
   return (
-    <div className="relative min-h-screen overflow-hidden bg-zinc-950 text-zinc-100">
+    <main className="relative min-h-screen overflow-hidden bg-zinc-950 text-zinc-100">
       <div className="pointer-events-none absolute inset-0">
         <div className="absolute -left-20 top-24 h-64 w-64 rounded-full bg-emerald-500/20 blur-[120px]" />
         <div className="absolute right-0 top-0 h-80 w-80 rounded-full bg-amber-400/15 blur-[140px]" />
         <div className="absolute bottom-0 left-1/3 h-72 w-72 rounded-full bg-sky-500/15 blur-[140px]" />
       </div>
-      <div className="relative z-10 grid min-h-screen place-items-center p-6">
+
+      <LandingHeader showAuthActions={false} />
+
+      <div className="relative z-10 grid min-h-[calc(100vh-104px)] place-items-center px-6 pb-8 pt-6">
         <div className="w-full max-w-md space-y-5">
           <div className="space-y-2">
             <div className="text-xs uppercase tracking-[0.3em] text-zinc-400">
@@ -131,26 +132,40 @@ function LoginForm() {
                 {submitting ? "Ingresando..." : "Ingresar"}
               </Button>
 
-              <button
-                type="button"
-                className="w-full text-sm text-zinc-600 underline"
-                onClick={() => router.push("/reset-password")}
-              >
-                Olvidé mi contraseña
-              </button>
+              {googleEnabled && (
+                <>
+                  <div className="flex items-center gap-3 pt-1 text-xs uppercase tracking-[0.25em] text-zinc-400">
+                    <div className="h-px flex-1 bg-zinc-200" />
+                    <span>o</span>
+                    <div className="h-px flex-1 bg-zinc-200" />
+                  </div>
 
-              <button
-                type="button"
-                className="w-full text-sm text-zinc-600 underline"
-                onClick={() => router.push("/register")}
-              >
-                Crear cuenta
-              </button>
+                  <GoogleAuthButton mode="login" nextPath={next} />
+                </>
+              )}
+
+              <div className="flex items-center justify-center gap-6 pt-1">
+                <button
+                  type="button"
+                  className="text-sm text-zinc-600 underline"
+                  onClick={() => router.push("/reset-password")}
+                >
+                  Olvidé mi contraseña
+                </button>
+
+                <button
+                  type="button"
+                  className="text-sm text-zinc-600 underline"
+                  onClick={() => router.push("/register")}
+                >
+                  Crear cuenta
+                </button>
+              </div>
             </form>
           </Card>
         </div>
       </div>
-    </div>
+    </main>
   );
 }
 

@@ -4,7 +4,11 @@ import { useState } from "react";
 import Link from "next/link";
 import BrandLogo from "@/components/BrandLogo";
 
-export default function LandingHeader() {
+export default function LandingHeader({
+  showAuthActions = true,
+}: {
+  showAuthActions?: boolean;
+}) {
   const [menuOpen, setMenuOpen] = useState(false);
 
   return (
@@ -19,15 +23,19 @@ export default function LandingHeader() {
             <Link className="whitespace-nowrap text-zinc-300 hover:text-white" href="/blog">
               Blog
             </Link>
-            <Link className="whitespace-nowrap text-zinc-300 hover:text-white" href="/login">
-              Ingresar
-            </Link>
-            <Link
-              className="whitespace-nowrap rounded-full border border-emerald-400/40 bg-emerald-500/20 px-4 py-2 text-sm font-semibold text-emerald-100 hover:bg-emerald-500/30"
-              href="/register"
-            >
-              Comenzar ahora
-            </Link>
+            {showAuthActions && (
+              <>
+                <Link className="whitespace-nowrap text-zinc-300 hover:text-white" href="/login">
+                  Ingresar
+                </Link>
+                <Link
+                  className="whitespace-nowrap rounded-full border border-emerald-400/40 bg-emerald-500/20 px-4 py-2 text-sm font-semibold text-emerald-100 hover:bg-emerald-500/30"
+                  href="/register"
+                >
+                  Comenzar ahora
+                </Link>
+              </>
+            )}
           </nav>
 
           <button
@@ -64,20 +72,24 @@ export default function LandingHeader() {
         >
           Blog
         </Link>
-        <Link
-          className="block rounded-xl bg-emerald-500 px-4 py-2.5 text-center text-sm font-semibold text-zinc-900"
-          href="/register"
-          onClick={() => setMenuOpen(false)}
-        >
-          Comenzar ahora
-        </Link>
-        <Link
-          className="block rounded-xl border border-zinc-700 px-4 py-2.5 text-center text-sm font-semibold text-zinc-200 hover:bg-zinc-900"
-          href="/login"
-          onClick={() => setMenuOpen(false)}
-        >
-          Ya tengo cuenta
-        </Link>
+        {showAuthActions && (
+          <>
+            <Link
+              className="block rounded-xl bg-emerald-500 px-4 py-2.5 text-center text-sm font-semibold text-zinc-900"
+              href="/register"
+              onClick={() => setMenuOpen(false)}
+            >
+              Comenzar ahora
+            </Link>
+            <Link
+              className="block rounded-xl border border-zinc-700 px-4 py-2.5 text-center text-sm font-semibold text-zinc-200 hover:bg-zinc-900"
+              href="/login"
+              onClick={() => setMenuOpen(false)}
+            >
+              Ya tengo cuenta
+            </Link>
+          </>
+        )}
       </nav>
     </header>
   );

@@ -28,3 +28,19 @@ export function getIsAdmin(): boolean {
   if (typeof window === "undefined") return false;
   return localStorage.getItem(ADMIN_KEY) === "1";
 }
+
+export function resolvePostAuthPath(
+  isAdmin: boolean,
+  nextPath?: string | null
+): string {
+  let target = nextPath || (isAdmin ? "/admin" : "/dashboard");
+
+  if (!isAdmin && target.startsWith("/admin")) {
+    target = "/dashboard";
+  }
+  if (isAdmin && target === "/dashboard") {
+    target = "/admin";
+  }
+
+  return target;
+}
