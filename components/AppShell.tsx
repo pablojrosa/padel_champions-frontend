@@ -1,4 +1,5 @@
 import Navbar from "./Navbar";
+import FirstLoginOnboarding from "./FirstLoginOnboarding";
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
   return (
@@ -9,6 +10,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         <div className="ambient-blobs blob-3 absolute bottom-0 left-1/3 h-80 w-80 rounded-full bg-sky-500/10 blur-[140px]" />
       </div>
       <div className="relative z-10">
+        <FirstLoginOnboarding />
         <Navbar />
         <main className="mx-auto w-full max-w-screen-2xl p-4 md:p-6">
           {children}

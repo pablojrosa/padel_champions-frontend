@@ -9,6 +9,7 @@ type Props = {
   children: React.ReactNode;
   className?: string;
   closeOnEscape?: boolean;
+  showCloseButton?: boolean;
 };
 
 export default function Modal({
@@ -18,6 +19,7 @@ export default function Modal({
   children,
   className,
   closeOnEscape = true,
+  showCloseButton = true,
 }: Props) {
   useEffect(() => {
     if (!open || !closeOnEscape) return;
@@ -41,13 +43,17 @@ export default function Modal({
       <div className={`w-full rounded-2xl bg-white shadow-xl ${wrapperClass}`}>
         <div className="flex items-center justify-between border-b border-zinc-200 px-4 py-3">
           <div className="text-sm font-medium text-zinc-900">{title}</div>
-          <button
-            onClick={onClose}
-            className="rounded-lg px-2 py-1 text-sm text-zinc-500 hover:bg-zinc-100"
-            aria-label="Close"
-          >
-            x
-          </button>
+          {showCloseButton ? (
+            <button
+              onClick={onClose}
+              className="rounded-lg px-2 py-1 text-sm text-zinc-500 hover:bg-zinc-100"
+              aria-label="Close"
+            >
+              x
+            </button>
+          ) : (
+            <div className="h-8 w-8" aria-hidden="true" />
+          )}
         </div>
         <div className="p-4">{children}</div>
       </div>
