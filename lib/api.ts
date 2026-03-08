@@ -4,7 +4,6 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL;
 
 if (!API_BASE) {
   // This will show clearly during dev build
-  // eslint-disable-next-line no-console
   console.warn("Missing NEXT_PUBLIC_API_URL env var");
 }
 
@@ -89,7 +88,7 @@ export async function apiMaybe<T>(
 ): Promise<T | null> {
   try {
     return await api<T>(path, opts);
-  } catch (err: any) {
+  } catch (err: unknown) {
     if (err instanceof ApiError && err.status === 404) {
       return null;
     }
@@ -133,6 +132,14 @@ function mapKnownApiError(message: string): string | null {
     [/^Player not found\.?$/i, "Jugador no encontrado."],
     [/^Email already registered\.?$/i, "Ese email ya esta registrado."],
     [/^Incorrect email or password\.?$/i, "Email o contrasena incorrectos."],
+    [/^Use Google sign-in for this account\.?$/i, "Esta cuenta usa acceso con Google."],
+    [/^Google authentication failed\.?$/i, "No se pudo validar el acceso con Google."],
+    [/^Google account email is not verified\.?$/i, "Tu cuenta de Google no tiene el email verificado."],
+    [/^Google sign-in is not configured\.?$/i, "El acceso con Google no esta configurado."],
+    [
+      /^Email already linked to another Google account\.?$/i,
+      "Ese email ya esta vinculado a otra cuenta de Google.",
+    ],
     [/^Could not validate credentials\.?$/i, "No se pudo validar la sesion."],
     [/^Account inactive\.?$/i, "La cuenta esta inactiva."],
     [/^Admin access required\.?$/i, "Esta accion requiere permisos de administrador."],
