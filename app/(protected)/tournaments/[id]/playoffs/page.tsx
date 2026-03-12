@@ -152,6 +152,19 @@ const DEFAULT_MATCH_DURATION_MINUTES = 90;
 const DEFAULT_BULK_STAGE_GAP_MINUTES = "30";
 const BULK_MINUTE_OPTIONS = ["00", "15", "30", "45"];
 
+function toLocalIsoDate(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function resolveGridDefaultDate(startDateRaw: string | null, todayIsoDate: string) {
+  if (!startDateRaw) return todayIsoDate;
+  if (startDateRaw >= todayIsoDate) return startDateRaw;
+  return todayIsoDate;
+}
+
 function createBulkScheduleConfigMap(): Record<PlayoffStage, BulkScheduleStageConfig> {
   return {
     round_of_32: {
@@ -880,6 +893,21 @@ export default function TournamentPlayoffsPage() {
         (match) => !!match.scheduled_time && !!match.scheduled_date
       ),
     [categoryFilteredMatches]
+  );
+  const todayIsoDate = useMemo(() => toLocalIsoDate(new Date()), []);
+  const gridStartDate = useMemo(() => {
+    const dates = Array.from(
+      new Set(
+        scheduledMatches
+          .map((match) => (match.scheduled_date ?? "").slice(0, 10))
+          .filter((date): date is string => /^\d{4}-\d{2}-\d{2}$/.test(date))
+      )
+    ).sort();
+    return dates[0] ?? null;
+  }, [scheduledMatches]);
+  const defaultGridDate = useMemo(
+    () => resolveGridDefaultDate(gridStartDate, todayIsoDate),
+    [gridStartDate, todayIsoDate]
   );
 
   const finalWinner = useMemo(() => {
