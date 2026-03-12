@@ -131,8 +131,14 @@ export type TournamentStatusUpdate = {
   status: TournamentStatus;
 };
 
-export type GroupGenerateRequest = {
+export type DivisionTeamsConfig = {
+  category: string;
+  gender: string;
   teams_per_group: number;
+};
+
+export type GroupGenerateRequest = {
+  teams_per_group_by_division: DivisionTeamsConfig[];
   schedule_windows: {
     date: string;
     start_time: string;
@@ -230,6 +236,16 @@ export type Match = {
   scheduled_time?: string | null;
   scheduled_date?: string | null;
   court_number?: number | null;
+};
+
+export type MatchAvailableSlot = {
+  scheduled_date: string;
+  scheduled_time: string;
+  court_number: number;
+};
+
+export type MatchAvailableSlotsResponse = {
+  slots: MatchAvailableSlot[];
 };
 
 export type PlayoffStage = Exclude<MatchStage, "group">;

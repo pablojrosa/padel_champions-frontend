@@ -397,10 +397,10 @@ async function load(options?: { silent?: boolean }) {
         ? found.teams_per_group
         : null;
     if (persistedTeamsPerGroup) {
-      setTeamsPerGroup(Math.max(3, persistedTeamsPerGroup));
+      setTeamsPerGroup(Math.max(2, persistedTeamsPerGroup));
     } else if (tGroups && tGroups.length > 0) {
       const inferredTeamsPerGroup = Math.max(
-        3,
+        2,
         ...tGroups.map((group) => group.teams.length || 0)
       );
       setTeamsPerGroup(inferredTeamsPerGroup);
@@ -889,7 +889,7 @@ async function load(options?: { silent?: boolean }) {
     }
   }
   async function generateGroupsWithAi(payload: {
-    teams_per_group: number;
+    teams_per_group_by_division: { category: string; gender: string; teams_per_group: number }[];
     schedule_windows: {
       date: string;
       start_time: string;

@@ -27,7 +27,7 @@ import type {
   TournamentStatus,
 } from "@/lib/types";
 
-const TEAM_SIZE_OPTIONS = [3, 4, 5, 6] as const;
+const MIN_TEAMS_PER_GROUP = 2;
 
 function getTeamCategory(team: Team) {
   return team.players[0]?.category ?? null;
@@ -163,7 +163,7 @@ type Props = {
   setTeamsPerGroup: (n: number) => void;
   generating: boolean;
   onGenerateWithAi: (payload: {
-    teams_per_group: number;
+    teams_per_group_by_division: { category: string; gender: string; teams_per_group: number }[];
     schedule_windows: {
       date: string;
       start_time: string;
@@ -225,6 +225,7 @@ const GroupsPanel = forwardRef<GroupsPanelHandle, Props>(function GroupsPanel({
   const [moveError, setMoveError] = useState<string | null>(null);
   const [moving, setMoving] = useState(false);
   const [generateOpen, setGenerateOpen] = useState(false);
+  const [divisionTeamsPerGroup, setDivisionTeamsPerGroup] = useState<Record<string, number>>({});
   const [generateScheduleWindows, setGenerateScheduleWindows] = useState<
     { date: string; start_time: string; end_time: string }[]
   >([{ date: defaultStartDate, start_time: defaultStartTime, end_time: defaultEndTime }]);
@@ -234,6 +235,7 @@ const GroupsPanel = forwardRef<GroupsPanelHandle, Props>(function GroupsPanel({
   const [generateCourtsCount, setGenerateCourtsCount] = useState(defaultCourtsCount);
   const [generateError, setGenerateError] = useState<string | null>(null);
   const [generateSuccess, setGenerateSuccess] = useState<string | null>(null);
+  const [generateSuccessModalOpen, setGenerateSuccessModalOpen] = useState(false);
   const [showAllGeneratedNotice, setShowAllGeneratedNotice] = useState(false);
   const [activeGeneration, setActiveGeneration] = useState<"ai" | "manual" | null>(null);
   const [aiDots, setAiDots] = useState(".");
@@ -321,6 +323,14 @@ const GroupsPanel = forwardRef<GroupsPanelHandle, Props>(function GroupsPanel({
     }
     setGenerateOpen(false);
   }
+
+  function goToMatches() {
+    window.location.assign(`/tournaments/${tournamentId}/matches`);
+  }
+
+  function closeGenerateSuccessModal() {
+    setGenerateSuccessModalOpen(false);
+  }
   const persistedMissingByDivision = useMemo(() => {
     const counts = new Map<string, { category: string | null; gender: string | null; count: number }>();
     teams.forEach((team) => {
@@ -371,6 +381,17 @@ const GroupsPanel = forwardRef<GroupsPanelHandle, Props>(function GroupsPanel({
     setGenerateCourtsCount(defaultCourtsCount);
     setGenerateError(null);
     setGenerateSuccess(null);
+    // Initialize per-division teams_per_group from registered teams
+    const initial: Record<string, number> = {};
+    teams.forEach((team) => {
+      const cat = team.players[0]?.category ?? "sin_categoria";
+      const gen = team.players[0]?.gender ?? "sin_genero";
+      const key = `${cat}::${gen}`;
+      if (!(key in initial)) {
+        initial[key] = teamsPerGroup >= MIN_TEAMS_PER_GROUP ? teamsPerGroup : MIN_TEAMS_PER_GROUP;
+      }
+    });
+    setDivisionTeamsPerGroup(initial);
   }, [
     generateOpen,
     defaultStartDate,
@@ -378,12 +399,14 @@ const GroupsPanel = forwardRef<GroupsPanelHandle, Props>(function GroupsPanel({
     defaultEndTime,
     defaultMatchDurationMinutes,
     defaultCourtsCount,
+    // intentionally omit teams and teamsPerGroup: only initialize on open
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   ]);
   useEffect(() => {
-    if (TEAM_SIZE_OPTIONS.some((value) => value === teamsPerGroup)) {
+    if (Number.isFinite(teamsPerGroup) && teamsPerGroup >= MIN_TEAMS_PER_GROUP) {
       return;
     }
-    setTeamsPerGroup(TEAM_SIZE_OPTIONS[0]);
+    setTeamsPerGroup(MIN_TEAMS_PER_GROUP);
   }, [teamsPerGroup, setTeamsPerGroup]);
   useEffect(() => {
     if (!manualOpen || !allDivisionsGenerated || !generateSuccess) return;
@@ -442,6 +465,47 @@ const GroupsPanel = forwardRef<GroupsPanelHandle, Props>(function GroupsPanel({
     setGenerateScheduleWindows((prev) => prev.filter((_, idx) => idx !== index));
   }
 
+  function decrementTeamsPerGroup() {
+    setTeamsPerGroup(Math.max(MIN_TEAMS_PER_GROUP, teamsPerGroup - 1));
+  }
+
+  function incrementTeamsPerGroup() {
+    setTeamsPerGroup(Math.min(maxTeamsPerGroup, teamsPerGroup + 1));
+  }
+
+  // Per-division helpers for the AI modal
+  const divisions = useMemo(() => {
+    const map = new Map<string, { category: string; gender: string; count: number }>();
+    teams.forEach((team) => {
+      const cat = team.players[0]?.category ?? "sin_categoria";
+      const gen = team.players[0]?.gender ?? "sin_genero";
+      const key = `${cat}::${gen}`;
+      const existing = map.get(key);
+      if (existing) {
+        existing.count += 1;
+      } else {
+        map.set(key, { category: cat, gender: gen, count: 1 });
+      }
+    });
+    return Array.from(map.entries()).map(([key, val]) => ({ key, ...val }));
+  }, [teams]);
+
+  function getDivisionTpg(key: string): number {
+    return divisionTeamsPerGroup[key] ?? MIN_TEAMS_PER_GROUP;
+  }
+
+  function setDivisionTpg(key: string, value: number) {
+    setDivisionTeamsPerGroup((prev) => ({ ...prev, [key]: value }));
+  }
+
+  function getZonesPreview(count: number, tpg: number): string {
+    const full = Math.floor(count / tpg);
+    const remainder = count % tpg;
+    if (remainder === 0) return `${full} zona${full !== 1 ? "s" : ""} de ${tpg}`;
+    if (full === 0) return `1 zona de ${remainder}`;
+    return `${full} zona${full !== 1 ? "s" : ""} de ${tpg} + 1 de ${remainder}`;
+  }
+
   function parseTimeToMinutes(value: string) {
     const parts = value.split(":");
     if (parts.length < 2) return null;
@@ -452,7 +516,6 @@ const GroupsPanel = forwardRef<GroupsPanelHandle, Props>(function GroupsPanel({
   }
 
   const requiredMatches = useMemo(() => {
-    if (teamsPerGroup <= 1) return 0;
     const counts = new Map<string, number>();
     teams.forEach((team) => {
       const first = team.players[0];
@@ -462,16 +525,18 @@ const GroupsPanel = forwardRef<GroupsPanelHandle, Props>(function GroupsPanel({
       counts.set(key, (counts.get(key) ?? 0) + 1);
     });
     let total = 0;
-    counts.forEach((count) => {
-      const fullGroups = Math.floor(count / teamsPerGroup);
-      const remainder = count % teamsPerGroup;
-      total += (fullGroups * teamsPerGroup * (teamsPerGroup - 1)) / 2;
+    counts.forEach((count, key) => {
+      const tpg = divisionTeamsPerGroup[key] ?? MIN_TEAMS_PER_GROUP;
+      if (tpg <= 1) return;
+      const fullGroups = Math.floor(count / tpg);
+      const remainder = count % tpg;
+      total += (fullGroups * tpg * (tpg - 1)) / 2;
       if (remainder > 1) {
         total += (remainder * (remainder - 1)) / 2;
       }
     });
     return total;
-  }, [teams, teamsPerGroup]);
+  }, [teams, divisionTeamsPerGroup]);
 
   const availableSlots = useMemo(() => {
     if (generateMatchDuration <= 0 || generateCourtsCount <= 0) return 0;
@@ -539,7 +604,7 @@ const GroupsPanel = forwardRef<GroupsPanelHandle, Props>(function GroupsPanel({
     );
 
     if (generateMatchDuration <= 0 || generateCourtsCount <= 0) {
-      issues.push("Duracion y canchas deben ser mayores a 0.");
+      issues.push("Duración y canchas deben ser mayores a 0.");
     }
 
     if (
@@ -590,10 +655,14 @@ const GroupsPanel = forwardRef<GroupsPanelHandle, Props>(function GroupsPanel({
     }
     return {
       tone: "good" as const,
-      label: "OK",
+      label: "Perfecto",
       detail: `Hay margen de ${extraSlots} slots sobre los partidos requeridos.`,
     };
   }, [requiredMatches, availableSlots]);
+  const maxTeamsPerGroup = useMemo(
+    () => Math.max(MIN_TEAMS_PER_GROUP, teams.length || 0),
+    [teams.length]
+  );
 
   const allTeams = useMemo(() => {
     return groups.flatMap((group) =>
@@ -834,13 +903,18 @@ const GroupsPanel = forwardRef<GroupsPanelHandle, Props>(function GroupsPanel({
     setActiveGeneration("ai");
     try {
       await onGenerateWithAi({
-        teams_per_group: teamsPerGroup,
+        teams_per_group_by_division: divisions.map(({ category, gender, key }) => ({
+          category,
+          gender,
+          teams_per_group: getDivisionTpg(key),
+        })),
         schedule_windows: generateScheduleWindows,
         match_duration_minutes: generateMatchDuration,
         courts_count: generateCourtsCount,
       });
       setGenerateSuccess("Zonas generadas con exito.");
       setGenerateOpen(false);
+      setGenerateSuccessModalOpen(true);
     } catch (err: unknown) {
       if (isAbortError(err)) {
         setGenerateError("Generacion cancelada por el usuario.");
@@ -921,7 +995,7 @@ const GroupsPanel = forwardRef<GroupsPanelHandle, Props>(function GroupsPanel({
             <div className="flex items-center gap-2">
               <Button
                 variant="secondary"
-                onClick={() => window.location.assign(`/tournaments/${tournamentId}/matches`)}
+                onClick={goToMatches}
               >
                 Ver partidos
               </Button>
@@ -954,7 +1028,7 @@ const GroupsPanel = forwardRef<GroupsPanelHandle, Props>(function GroupsPanel({
               {allDivisionsGenerated && (
                 <Button
                   variant={disabled ? "primary" : "secondary"}
-                  onClick={() => window.location.assign(`/tournaments/${tournamentId}/matches`)}
+                  onClick={goToMatches}
                 >
                   Ir a cargar partidos
                 </Button>
@@ -1088,179 +1162,312 @@ const GroupsPanel = forwardRef<GroupsPanelHandle, Props>(function GroupsPanel({
           open={generateOpen}
           title="Generar zonas con IA"
           onClose={closeGenerateModal}
-          className="max-w-3xl h-[90vh] max-h-[90vh] overflow-hidden"
+          className="max-w-5xl h-[90vh] max-h-[90vh] overflow-hidden"
         >
           <div className="flex h-[calc(90vh-120px)] flex-col gap-4 overflow-hidden">
-          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto pr-1">
-            <div className="sticky top-0 z-10 space-y-3 rounded-xl border border-zinc-200 bg-white/95 p-3 backdrop-blur">
-                <div className="text-sm text-zinc-600">
-                  Definí la ventana horaria para programar los partidos de grupos.
-                  Duracion y canchas se toman desde la configuracion de la competencia.
+            <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+              <div className="grid gap-4 lg:grid-cols-[300px_minmax(0,1fr)]">
+                <div className="space-y-3 lg:sticky lg:top-0 lg:self-start">
+                  <div className="flex flex-col rounded-2xl border border-zinc-200 bg-gradient-to-br from-white to-zinc-50 p-3.5 lg:h-[124px]">
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-zinc-400">
+                      Configuración
+                    </div>
+                    <div className="mt-1.5 text-base font-semibold text-zinc-900">
+                      Armado de zonas
+                    </div>
+                    <div className="mt-1 text-sm leading-5 text-zinc-600">
+                      Ajusta las parejas por zona y define horarios para los partidos de grupos.
+                    </div>
+                  </div>
+
+                  <div className="rounded-2xl border border-zinc-200 bg-white p-3.5 shadow-sm">
+                    <div className="mb-3 flex items-start justify-between gap-3">
+                      <div>
+                        <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-zinc-400">
+                          Parejas por zona
+                        </div>
+                        <div className="mt-1 text-sm text-zinc-600">
+                          Configura por categoría. Mínimo {MIN_TEAMS_PER_GROUP}.
+                        </div>
+                      </div>
+                      <div className="rounded-full border border-zinc-200 bg-zinc-50 px-2.5 py-1 text-xs font-medium text-zinc-600">
+                        Requerido
+                      </div>
+                    </div>
+
+                    <div className="space-y-3">
+                      {divisions.map(({ key, category, gender, count }) => {
+                        const tpg = getDivisionTpg(key);
+                        const genderLabel = gender === "damas" ? "Damas" : gender === "masculino" ? "Masculino" : gender;
+                        return (
+                          <div key={key} className="rounded-xl border border-zinc-100 bg-zinc-50 p-2.5">
+                            <div className="flex items-center justify-between gap-2">
+                              <div>
+                                <div className="text-xs font-semibold text-zinc-700">
+                                  {category} · {genderLabel}
+                                </div>
+                                <div className="text-[11px] text-zinc-500">{count} pareja{count !== 1 ? "s" : ""} · {getZonesPreview(count, tpg)}</div>
+                              </div>
+                              <div className="flex items-center gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => setDivisionTpg(key, Math.max(MIN_TEAMS_PER_GROUP, tpg - 1))}
+                                  disabled={generating || tpg <= MIN_TEAMS_PER_GROUP}
+                                  aria-label={`Restar pareja por zona en ${category} ${genderLabel}`}
+                                  className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-zinc-200 bg-white text-lg font-semibold text-zinc-700 transition hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-40"
+                                >
+                                  -
+                                </button>
+                                <div className="w-8 text-center text-lg font-semibold text-zinc-900">{tpg}</div>
+                                <button
+                                  type="button"
+                                  onClick={() => setDivisionTpg(key, Math.min(count, tpg + 1))}
+                                  disabled={generating || tpg >= count}
+                                  aria-label={`Sumar pareja por zona en ${category} ${genderLabel}`}
+                                  className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-zinc-200 bg-white text-lg font-semibold text-zinc-700 transition hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-40"
+                                >
+                                  +
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-2">
+                    <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-2.5">
+                      <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-400">
+                        Equipos cargados
+                      </div>
+                      <div className="mt-1.5 text-2xl font-semibold text-zinc-900">{teams.length}</div>
+                    </div>
+                    <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-2.5">
+                      <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-400">
+                        Partidos requeridos
+                      </div>
+                      <div className="mt-1.5 text-2xl font-semibold text-zinc-900">{requiredMatches}</div>
+                    </div>
+                    <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-2.5">
+                      <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-400">
+                        Slots disponibles
+                      </div>
+                      <div className="mt-1.5 text-2xl font-semibold text-zinc-900">{availableSlots}</div>
+                    </div>
+                    <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-2.5">
+                      <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-400">
+                        Configuración
+                      </div>
+                      <div className="mt-1.5 text-sm text-zinc-700">
+                        <div>
+                          <span className="font-semibold text-zinc-900">{generateMatchDuration} min</span>
+                        </div>
+                        <div>
+                          <span className="font-semibold text-zinc-900">{generateCourtsCount} canchas</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
                 </div>
-              <div className="grid gap-2 text-xs text-zinc-700 md:grid-cols-4">
-                <div className="rounded-lg border border-zinc-200 bg-zinc-50 px-2 py-1.5">
-                  Equipos cargados:{" "}
-                  <span className="font-semibold text-zinc-900">{teams.length}</span>
+
+                <div className="space-y-4">
+                  <div className="flex flex-col gap-3 lg:h-[136px]">
+                    <div className="flex-1 rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
+                      <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-zinc-400">
+                        Ventanas horarias
+                      </div>
+                      <div className="mt-1 text-sm text-zinc-600">
+                        Definí días y horarios válidos para programar partidos de grupos.
+                      </div>
+                    </div>
+
+                    <div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_auto]">
+                      <div
+                        className={`flex min-h-[48px] items-center rounded-2xl border px-4 py-1.5 ${
+                          generateFeasibility.tone === "good"
+                            ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+                            : generateFeasibility.tone === "warn"
+                            ? "border-amber-200 bg-amber-50 text-amber-900"
+                            : generateFeasibility.tone === "bad"
+                            ? "border-red-200 bg-red-50 text-red-900"
+                            : "border-zinc-200 bg-zinc-50 text-zinc-700"
+                        }`}
+                      >
+                        <div className="text-sm font-medium leading-5">
+                          {generateFeasibility.detail}
+                        </div>
+                      </div>
+                      <div className="flex items-stretch md:justify-end">
+                        <Button
+                          variant="secondary"
+                          onClick={addScheduleWindow}
+                          disabled={generating}
+                          className="min-h-[48px] min-w-[140px] shrink-0"
+                        >
+                          Agregar día
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-3">
+                    {generateScheduleWindows.map((window, index) => {
+                      const windowErrors = generateValidation.perWindowErrors[index] ?? [];
+                      return (
+                        <div
+                          key={`${window.date}-${index}`}
+                          className={`rounded-2xl border p-4 transition-colors ${
+                            windowErrors.length > 0
+                              ? "border-amber-200 bg-amber-50"
+                              : "border-zinc-200 bg-white"
+                          }`}
+                        >
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div>
+                              <div className="text-sm font-semibold text-zinc-900">Día {index + 1}</div>
+                              <div className="text-xs text-zinc-500">
+                                Ventana disponible para programar partidos de grupos.
+                              </div>
+                            </div>
+                            {generateScheduleWindows.length > 1 && (
+                              <Button
+                                variant="secondary"
+                                onClick={() => removeScheduleWindow(index)}
+                                disabled={generating}
+                                className="px-3"
+                              >
+                                Quitar
+                              </Button>
+                            )}
+                          </div>
+
+                          <div className="mt-4 grid gap-3 md:grid-cols-3">
+                            <label className="space-y-1.5">
+                              <span className="text-xs font-medium text-zinc-500">Fecha</span>
+                              <Input
+                                type="date"
+                                value={window.date}
+                                onChange={(e) =>
+                                  updateScheduleWindow(index, "date", e.target.value)
+                                }
+                              />
+                            </label>
+                            <label className="space-y-1.5">
+                              <span className="text-xs font-medium text-zinc-500">Desde</span>
+                              <Input
+                                type="time"
+                                value={window.start_time}
+                                onChange={(e) =>
+                                  updateScheduleWindow(index, "start_time", e.target.value)
+                                }
+                              />
+                            </label>
+                            <label className="space-y-1.5">
+                              <span className="text-xs font-medium text-zinc-500">Hasta</span>
+                              <Input
+                                type="time"
+                                value={window.end_time}
+                                onChange={(e) =>
+                                  updateScheduleWindow(index, "end_time", e.target.value)
+                                }
+                              />
+                            </label>
+                          </div>
+
+                          {windowErrors.length > 0 && (
+                            <div className="mt-3 rounded-xl border border-amber-200 bg-amber-100 px-3 py-2 text-xs text-amber-900">
+                              {windowErrors.join(" ")}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {generateValidation.issues.length > 0 && (
+                    <div className="rounded-2xl border border-amber-300 bg-amber-100 p-4 text-sm text-amber-950">
+                      {generateValidation.issues[0]}
+                    </div>
+                  )}
+
+                  {generateError && (
+                    <div className="rounded-2xl border border-red-300 bg-red-100 p-4 text-sm text-red-800">
+                      {generateError}
+                    </div>
+                  )}
                 </div>
-                <div className="rounded-lg border border-zinc-200 bg-zinc-50 px-2 py-1.5">
-                  Equipos por zona:{" "}
-                  <span className="font-semibold text-zinc-900">{teamsPerGroup}</span>
-                </div>
-                <div className="rounded-lg border border-zinc-200 bg-zinc-50 px-2 py-1.5">
-                  Partidos requeridos:{" "}
-                  <span className="font-semibold text-zinc-900">{requiredMatches}</span>
-                </div>
-                <div className="rounded-lg border border-zinc-200 bg-zinc-50 px-2 py-1.5">
-                  Slots disponibles:{" "}
-                  <span className="font-semibold text-zinc-900">{availableSlots}</span>
-                </div>
-              </div>
-              <div
-                className={`rounded-lg border px-3 py-2 text-xs ${
-                  generateFeasibility.tone === "good"
-                    ? "border-emerald-200 bg-emerald-50 text-emerald-800"
-                    : generateFeasibility.tone === "warn"
-                    ? "border-amber-200 bg-amber-50 text-amber-800"
-                    : generateFeasibility.tone === "bad"
-                    ? "border-red-200 bg-red-50 text-red-800"
-                    : "border-zinc-200 bg-zinc-50 text-zinc-700"
-                }`}
-              >
-                <span className="font-semibold">{generateFeasibility.label}</span>
-                {": "}
-                {generateFeasibility.detail}
               </div>
             </div>
 
-            <div className="space-y-2">
-              <label className="text-xs font-semibold text-zinc-500">
-                Equipos por zona
-              </label>
-              <select
-                className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                value={teamsPerGroup}
-                onChange={(e) => setTeamsPerGroup(Number(e.target.value))}
-                disabled={generating}
-              >
-                {TEAM_SIZE_OPTIONS.map((n) => (
-                  <option key={n} value={n}>
-                    {n}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="text-xs font-semibold text-zinc-500">
-                  Ventanas horarias
-                </div>
+            <div className="flex flex-col gap-3 border-t border-zinc-200 pt-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="text-xs text-zinc-500">
+                Se usa la duracion y cantidad de canchas ya configuradas en la competencia.
+              </div>
+              <div className="flex justify-end gap-2">
+                <Button variant="secondary" onClick={closeGenerateModal}>
+                  Cancelar
+                </Button>
                 <Button
-                  variant="secondary"
-                  onClick={addScheduleWindow}
-                  disabled={generating}
+                  onClick={submitGenerate}
+                  disabled={generating || !generateValidation.canSubmit}
                 >
-                  Agregar dia
+                  {generating && activeGeneration === "ai"
+                    ? getAiGeneratingLabel()
+                    : "Generar zonas ahora"}
                 </Button>
               </div>
-
-              <div className="space-y-3">
-                {generateScheduleWindows.map((window, index) => {
-                  const windowErrors = generateValidation.perWindowErrors[index] ?? [];
-                  return (
-                    <div
-                      key={`${window.date}-${index}`}
-                      className={`rounded-xl border p-3 ${
-                        windowErrors.length > 0
-                          ? "border-amber-200 bg-amber-50"
-                          : "border-zinc-200 bg-zinc-50"
-                      }`}
-                    >
-                      <div className="mb-2 text-xs font-semibold text-zinc-600">
-                        Dia {index + 1}
-                      </div>
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <div className="grid flex-1 gap-2 md:grid-cols-3">
-                          <Input
-                            type="date"
-                            value={window.date}
-                            onChange={(e) =>
-                              updateScheduleWindow(index, "date", e.target.value)
-                            }
-                          />
-                          <Input
-                            type="time"
-                            value={window.start_time}
-                            onChange={(e) =>
-                              updateScheduleWindow(index, "start_time", e.target.value)
-                            }
-                          />
-                          <Input
-                            type="time"
-                            value={window.end_time}
-                            onChange={(e) =>
-                              updateScheduleWindow(index, "end_time", e.target.value)
-                            }
-                          />
-                        </div>
-                        {generateScheduleWindows.length > 1 && (
-                          <Button
-                            variant="secondary"
-                            onClick={() => removeScheduleWindow(index)}
-                            disabled={generating}
-                          >
-                            Quitar
-                          </Button>
-                        )}
-                      </div>
-                      {windowErrors.length > 0 && (
-                        <div className="mt-2 text-xs text-amber-800">
-                          {windowErrors.join(" ")}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
             </div>
-
-            <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-3 text-xs text-zinc-600">
-              Duracion configurada:{" "}
-              <span className="font-semibold">{generateMatchDuration} min</span>
-              {" · "}
-              Canchas configuradas:{" "}
-              <span className="font-semibold">{generateCourtsCount}</span>
-            </div>
-
-            {generateValidation.issues.length > 0 && (
-              <div className="rounded-xl border border-amber-300 bg-amber-100 p-3 text-xs text-amber-900">
-                {generateValidation.issues[0]}
-              </div>
-            )}
-
-            {generateError && (
-              <div className="rounded-xl border border-red-300 bg-red-100 p-3 text-sm text-red-800">
-                {generateError}
-              </div>
-            )}
-          </div>
-
-          <div className="flex justify-end gap-2 border-t border-zinc-200 pt-3">
-            <Button variant="secondary" onClick={closeGenerateModal}>
-              Cancelar
-            </Button>
-            <Button
-              onClick={submitGenerate}
-              disabled={generating || !generateValidation.canSubmit}
-            >
-              {generating && activeGeneration === "ai"
-                ? getAiGeneratingLabel()
-                : "Generar zonas ahora"}
-            </Button>
-          </div>
           </div>
         </Modal>
       )}
+
+      <Modal
+        open={generateSuccessModalOpen}
+        title="Generacion completada"
+        onClose={closeGenerateSuccessModal}
+        className="max-w-md"
+      >
+        <div className="space-y-5">
+          <div className="space-y-3">
+            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
+              <svg
+                className="h-6 w-6"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                aria-hidden="true"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+              </svg>
+            </div>
+            <div>
+              <div className="text-base font-semibold text-zinc-900">
+                La ejecucion fue exitosa
+              </div>
+              <div className="mt-1 text-sm leading-6 text-zinc-600">
+                Se crearon las zonas y se generaron los partidos correctamente.
+              </div>
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-2">
+            <Button variant="secondary" onClick={closeGenerateSuccessModal}>
+              Cancelar
+            </Button>
+            <Button
+              onClick={() => {
+                closeGenerateSuccessModal();
+                goToMatches();
+              }}
+            >
+              Ver partidos
+            </Button>
+          </div>
+        </div>
+      </Modal>
 
       <ZonesDragModal
         open={manualOpen}
