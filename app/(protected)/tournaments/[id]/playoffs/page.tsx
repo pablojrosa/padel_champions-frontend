@@ -1,13 +1,15 @@
 "use client";
 
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
+import ScheduledMatchesGridModal from "@/components/tournaments/ScheduledMatchesGridModal";
 import Card from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
 import Input from "@/components/ui/Input";
 import Modal from "@/components/ui/Modal";
 import { api, ApiError } from "@/lib/api";
 import { clearToken } from "@/lib/auth";
+import { isMatchAllowedByConstraints } from "@/lib/scheduleConstraints";
 import type {
   Match,
   MatchSet,
@@ -120,28 +122,6 @@ const DEFAULT_SETS: EditableSet[] = [
 ];
 const HOURS = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, "0"));
 const MINUTES = Array.from({ length: 60 }, (_, i) => String(i).padStart(2, "0"));
-const COURT_BADGES = [
-  "bg-emerald-100 text-emerald-700",
-  "bg-blue-100 text-blue-700",
-  "bg-purple-100 text-purple-700",
-  "bg-orange-100 text-orange-700",
-  "bg-yellow-100 text-yellow-700",
-  "bg-green-100 text-green-700",
-  "bg-blue-100 text-blue-700",
-  "bg-red-100 text-red-700",
-  "bg-gray-100 text-gray-700",
-  "bg-black-100 text-black-700",
-  "bg-white-100 text-white-700",
-  "bg-brown-100 text-brown-700",
-  "bg-cyan-100 text-cyan-700",
-  "bg-teal-100 text-teal-700",
-  "bg-violet-100 text-violet-700",
-  "bg-sky-100 text-sky-700",
-  "bg-amber-100 text-amber-700",
-  "bg-indigo-100 text-indigo-700",
-  "bg-lime-100 text-lime-700",
-  "bg-fuchsia-100 text-fuchsia-700",
-];
 
 const PLAYOFF_STAGES: PlayoffStage[] = [
   "round_of_32",
@@ -224,32 +204,6 @@ function createBulkScheduleConfigMap(): Record<PlayoffStage, BulkScheduleStageCo
 
 function manualSlotKey(stage: PlayoffStage, matchIndex: number, side: ManualSlotSide) {
   return `${stage}:${matchIndex}:${side}`;
-}
-
-function toLocalIsoDate(date: Date) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
-
-function shiftIsoDate(value: string, days: number) {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
-  const [yearRaw, monthRaw, dayRaw] = value.split("-");
-  const year = Number(yearRaw);
-  const month = Number(monthRaw);
-  const day = Number(dayRaw);
-  if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) {
-    return value;
-  }
-  return toLocalIsoDate(new Date(year, month - 1, day + days));
-}
-
-function resolveGridDefaultDate(startDateRaw: string | null, todayIsoDate: string) {
-  const startDate = startDateRaw?.slice(0, 10) ?? "";
-  const isValidIsoDate = /^\d{4}-\d{2}-\d{2}$/.test(startDate);
-  if (!isValidIsoDate) return todayIsoDate;
-  return todayIsoDate < startDate ? startDate : todayIsoDate;
 }
 
 function parseManualSlotKey(
@@ -555,7 +509,6 @@ export default function TournamentPlayoffsPage() {
   } | null>(null);
   const [gridOpen, setGridOpen] = useState(false);
   const [gridMatch, setGridMatch] = useState<Match | null>(null);
-  const [gridDateFilter, setGridDateFilter] = useState("");
 
   const [manualStage, setManualStage] = useState<PlayoffStage | null>(null);
   const [manualSlotValues, setManualSlotValues] = useState<Record<string, number | "">>({});
@@ -928,98 +881,6 @@ export default function TournamentPlayoffsPage() {
       ),
     [categoryFilteredMatches]
   );
-  const gridStartDate = useMemo(() => {
-    const dates = Array.from(
-      new Set(
-        scheduledMatches
-          .map((match) => (match.scheduled_date ?? "").slice(0, 10))
-          .filter((date): date is string => /^\d{4}-\d{2}-\d{2}$/.test(date))
-      )
-    ).sort();
-    return dates[0] ?? null;
-  }, [scheduledMatches]);
-  const todayIsoDate = useMemo(() => toLocalIsoDate(new Date()), []);
-  const defaultGridDate = useMemo(() => {
-    return resolveGridDefaultDate(gridStartDate, todayIsoDate);
-  }, [gridStartDate, todayIsoDate]);
-  const gridAvailableDates = useMemo(() => {
-    const dates = Array.from(
-      new Set(scheduledMatches.map((match) => match.scheduled_date as string))
-    ).sort();
-    if (!dates.includes(defaultGridDate)) {
-      dates.push(defaultGridDate);
-      dates.sort();
-    }
-    return dates;
-  }, [scheduledMatches, defaultGridDate]);
-  const gridMatchesForDate = useMemo(
-    () =>
-      scheduledMatches.filter(
-        (match) => (match.scheduled_date ?? "") === gridDateFilter
-      ),
-    [scheduledMatches, gridDateFilter]
-  );
-  const gridData = useMemo(() => {
-    const times = Array.from(
-      new Set(
-        gridMatchesForDate
-          .map((match) => normalizeTime(match.scheduled_time))
-          .filter(Boolean)
-      )
-    ).sort();
-    const courtValues = Array.from(
-      new Set(gridMatchesForDate.map((match) => match.court_number ?? -1))
-    ).sort((a, b) => {
-      if (a === -1 && b === -1) return 0;
-      if (a === -1) return 1;
-      if (b === -1) return -1;
-      return a - b;
-    });
-    const courts = courtValues.map((court) => ({
-      key: String(court),
-      label: court === -1 ? "Sin cancha" : `Cancha ${court}`,
-    }));
-    const map = new Map<string, Map<string, Match[]>>();
-
-    gridMatchesForDate.forEach((match) => {
-      const timeKey = normalizeTime(match.scheduled_time);
-      const courtKey = String(match.court_number ?? -1);
-      if (!timeKey) return;
-      if (!map.has(timeKey)) {
-        map.set(timeKey, new Map());
-      }
-      const courtMap = map.get(timeKey)!;
-      if (!courtMap.has(courtKey)) {
-        courtMap.set(courtKey, []);
-      }
-      courtMap.get(courtKey)!.push(match);
-    });
-
-    map.forEach((courtMap) => {
-      courtMap.forEach((matchesInCell) => {
-        matchesInCell.sort((a, b) => a.id - b.id);
-      });
-    });
-
-    return { times, courts, map };
-  }, [gridMatchesForDate]);
-  useEffect(() => {
-    setGridDateFilter((prev) => {
-      if (prev && gridAvailableDates.includes(prev)) return prev;
-      if (gridAvailableDates.includes(defaultGridDate)) return defaultGridDate;
-      return gridAvailableDates[0] ?? defaultGridDate;
-    });
-  }, [gridAvailableDates, defaultGridDate]);
-  useEffect(() => {
-    if (!gridOpen) return;
-    setGridDateFilter(defaultGridDate);
-  }, [gridOpen, defaultGridDate]);
-  const shiftGridDate = (days: number) => {
-    setGridDateFilter((prev) => {
-      const baseDate = /^\d{4}-\d{2}-\d{2}$/.test(prev) ? prev : defaultGridDate;
-      return shiftIsoDate(baseDate, days);
-    });
-  };
 
   const finalWinner = useMemo(() => {
     const finals = matchesByStage.get("final") ?? [];
@@ -1723,11 +1584,16 @@ export default function TournamentPlayoffsPage() {
   function getMatchCode(match: Match) {
     return match.match_code ?? String(match.id);
   }
-  function getCourtBadgeClass(courtNumber?: number | null) {
-    if (!courtNumber || courtNumber <= 0) {
-      return "bg-zinc-100 text-zinc-600";
+  function getMatchCategoryLabel(match: Match) {
+    if (match.category) return match.category;
+    if (typeof match.team_a_id === "number") {
+      const category = teamsById.get(match.team_a_id)?.players?.[0]?.category ?? null;
+      if (category) return category;
     }
-    return COURT_BADGES[(courtNumber - 1) % COURT_BADGES.length];
+    if (typeof match.team_b_id === "number") {
+      return teamsById.get(match.team_b_id)?.players?.[0]?.category ?? null;
+    }
+    return "Sin categoria";
   }
   function getStageLabel(match: Match) {
     if (match.stage === "group") {
@@ -4293,137 +4159,56 @@ export default function TournamentPlayoffsPage() {
         </form>
       </Modal>
 
-      <Modal
-        open={gridOpen}
-        title="Grilla de partidos"
-        onClose={() => setGridOpen(false)}
-        className="max-w-[95vw]"
-        closeOnEscape={!gridMatch}
-      >
-        <div className="space-y-4">
-          {scheduledMatches.length === 0 ? (
-            <div className="text-sm text-zinc-600">
-              No hay partidos programados para mostrar.
-            </div>
-          ) : (
-            <>
-              <div className="flex flex-wrap items-end justify-between gap-3 text-xs text-zinc-500">
-                <div className="space-y-1">
-                  <div>
-                    {gridData.courts.length} canchas · {gridData.times.length} turnos
-                  </div>
-                  <div>Click en un partido para ver el detalle.</div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <label htmlFor="grid-date-filter" className="font-semibold text-zinc-600">
-                    Fecha
-                  </label>
-                  <button
-                    type="button"
-                    onClick={() => shiftGridDate(-1)}
-                    className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-zinc-300 bg-white text-sm font-semibold text-zinc-700 transition hover:border-zinc-400 hover:bg-zinc-50"
-                    aria-label="Ir al dia anterior"
-                  >
-                    {"<"}
-                  </button>
-                  <input
-                    id="grid-date-filter"
-                    type="date"
-                    value={gridDateFilter}
-                    onChange={(event) => setGridDateFilter(event.target.value)}
-                    className="rounded-xl border border-zinc-300 bg-white px-3 py-1.5 text-xs font-medium text-zinc-700 focus:border-zinc-500 focus:outline-none focus:ring-2 focus:ring-zinc-800/15"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => shiftGridDate(1)}
-                    className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-zinc-300 bg-white text-sm font-semibold text-zinc-700 transition hover:border-zinc-400 hover:bg-zinc-50"
-                    aria-label="Ir al dia siguiente"
-                  >
-                    {">"}
-                  </button>
-                </div>
-              </div>
-              {gridData.times.length === 0 || gridData.courts.length === 0 ? (
-                <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-500">
-                  No hay partidos programados para la fecha {formatShortDate(gridDateFilter)}.
-                </div>
-              ) : (
-                <div className="max-h-[70vh] overflow-auto rounded-2xl border border-zinc-200 bg-white">
-                  <div
-                    className="grid gap-2 p-3"
-                    style={{
-                      gridTemplateColumns: `110px repeat(${gridData.courts.length}, minmax(240px, 1fr))`,
-                    }}
-                  >
-                    <div className="sticky top-0 z-10 rounded-lg bg-white/95 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-zinc-400">
-                      Hora
-                    </div>
-                    {gridData.courts.map((court) => (
-                      <div
-                        key={`head-${court.key}`}
-                        className="sticky top-0 z-10 rounded-lg bg-white/95 py-2 text-xs font-semibold text-zinc-700"
-                      >
-                        {court.label}
-                      </div>
-                    ))}
-
-                    {gridData.times.map((slotTime, rowIdx) => {
-                      const rowClass = rowIdx % 2 === 0 ? "bg-white" : "bg-zinc-100";
-                      return (
-                        <Fragment key={`row-${slotTime}`}>
-                          <div
-                            className={`rounded-lg px-2 py-1 text-sm font-medium text-zinc-700 ${rowClass}`}
-                          >
-                            {slotTime}
-                          </div>
-                          {gridData.courts.map((court) => {
-                            const matchesInCell =
-                              gridData.map.get(slotTime)?.get(court.key) ?? [];
-                            return (
-                              <div
-                                key={`cell-${slotTime}-${court.key}`}
-                                className={`min-h-[92px] rounded-2xl border border-zinc-200 p-2 ${rowClass}`}
-                              >
-                                {matchesInCell.length === 0 ? (
-                                  <div className="flex h-full items-center justify-center rounded-xl border border-dashed border-zinc-200 text-xs text-zinc-400">
-                                    Sin partidos
-                                  </div>
-                                ) : (
-                                  <div className="space-y-2">
-                                    {matchesInCell.map((match) => (
-                                      <button
-                                        key={match.id}
-                                        type="button"
-                                        onClick={() => setGridMatch(match)}
-                                        className={`group w-full rounded-xl border p-2 text-left text-xs shadow-sm transition hover:-translate-y-0.5 hover:shadow ${
-                                          match.status === "played"
-                                            ? "border-zinc-200 bg-zinc-100 text-zinc-500"
-                                            : "border-zinc-200 bg-white text-zinc-700 hover:border-zinc-300"
-                                        }`}
-                                      >
-                                        <div className="text-[10px] uppercase tracking-wide text-zinc-400">
-                                          {getStageLabel(match)} · {getMatchCode(match)}
-                                        </div>
-                                        <div className="mt-2 text-sm font-medium text-zinc-900">
-                                          {getMatchTeamLabel(match, "a")} vs {getMatchTeamLabel(match, "b")}
-                                        </div>
-                                      </button>
-                                    ))}
-                                  </div>
-                                )}
-                              </div>
-                            );
-                          })}
-                        </Fragment>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-            </>
-          )}
-        </div>
-      </Modal>
+      {gridOpen && (
+        <ScheduledMatchesGridModal
+          open={gridOpen}
+          onClose={() => setGridOpen(false)}
+          closeOnEscape={!gridMatch}
+          scheduledMatches={scheduledMatches}
+          onMatchSelect={setGridMatch}
+          getStageLabel={getStageLabel}
+          getMatchCode={getMatchCode}
+          getMatchTeamsLabel={(match) =>
+            `${getMatchTeamLabel(match, "a")} vs ${getMatchTeamLabel(match, "b")}`
+          }
+          getMatchCategoryLabel={getMatchCategoryLabel}
+          onMatchReschedule={async (matchId, newDate, newTime, newCourt) => {
+            const res = await api<{ updated: Match; swapped: Match | null }>(
+              `/matches/${matchId}/schedule`,
+              {
+                method: "POST",
+                body: { scheduled_date: newDate, scheduled_time: newTime, court_number: newCourt },
+              }
+            );
+            setMatches((prev) =>
+              prev.map((m) => {
+                if (m.id === res.updated.id) return res.updated;
+                if (res.swapped && m.id === res.swapped.id) return res.swapped;
+                return m;
+              })
+            );
+          }}
+          getConstraintViolations={(matchId, newDate, newTime) => {
+            const match = matches.find((m) => m.id === matchId);
+            if (!match) return [];
+            const violations: { teamLabel: string; constraint: string }[] = [];
+            for (const teamId of [match.team_a_id, match.team_b_id]) {
+              if (typeof teamId !== "number") continue;
+              const team = teamsById.get(teamId);
+              const constraints = (team?.schedule_constraints ?? "").trim();
+              if (!constraints) continue;
+              if (!isMatchAllowedByConstraints(constraints, newDate, newTime)) {
+                const names = team?.players?.map((p) => p.name).filter(Boolean) ?? [];
+                violations.push({
+                  teamLabel: names.length > 0 ? names.join(" / ") : `Pareja #${teamId}`,
+                  constraint: constraints,
+                });
+              }
+            }
+            return violations;
+          }}
+        />
+      )}
 
       <Modal
         open={!!gridMatch}

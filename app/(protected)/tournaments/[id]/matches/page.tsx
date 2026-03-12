@@ -1,8 +1,9 @@
 "use client";
 
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
+import ScheduledMatchesGridModal from "@/components/tournaments/ScheduledMatchesGridModal";
 import Card from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
 import Input from "@/components/ui/Input";
@@ -12,6 +13,8 @@ import { clearToken } from "@/lib/auth";
 import { isMatchAllowedByConstraints } from "@/lib/scheduleConstraints";
 import type {
   Match,
+  MatchAvailableSlot,
+  MatchAvailableSlotsResponse,
   MatchSet,
   Tournament,
   TournamentGroupOut,
@@ -30,6 +33,12 @@ type ScheduleSuggestion = {
   court: string;
   reason: string;
 };
+type ScheduleSlotOption = {
+  date: string;
+  hour: string;
+  minute: string;
+  court: string;
+};
 type MatchConstraintConflict = {
   teamId: number;
   teamLabel: string;
@@ -43,31 +52,76 @@ const DEFAULT_SETS: EditableSet[] = [
 ];
 const DEFAULT_SCHEDULE_HOUR = "18";
 const DEFAULT_SCHEDULE_MINUTE = "00";
+const DEFAULT_SCHEDULE_END_HOUR = "23";
+const DEFAULT_MATCH_DURATION_MINUTES = 90;
+const DEFAULT_COURTS_COUNT = 1;
+const SLOT_STEP_MINUTES = 30;
 const HOURS = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, "0"));
 const MINUTES = Array.from({ length: 60 }, (_, i) => String(i).padStart(2, "0"));
-const COURT_BADGES = [
-  "bg-emerald-100 text-emerald-700",
-  "bg-blue-100 text-blue-700",
-  "bg-purple-100 text-purple-700",
-  "bg-orange-100 text-orange-700",
-  "bg-yellow-100 text-yellow-700",
-  "bg-green-100 text-green-700",
-  "bg-blue-100 text-blue-700",
-  "bg-red-100 text-red-700",
-  "bg-gray-100 text-gray-700",
-  "bg-black-100 text-black-700",
-  "bg-white-100 text-white-700",
-  "bg-brown-100 text-brown-700",
-  "bg-cyan-100 text-cyan-700",
-  "bg-teal-100 text-teal-700",
-  "bg-violet-100 text-violet-700",
-  "bg-sky-100 text-sky-700",
-  "bg-amber-100 text-amber-700",
-  "bg-indigo-100 text-indigo-700",
-  "bg-lime-100 text-lime-700",
-  "bg-fuchsia-100 text-fuchsia-700",
-  
-];
+
+function resolveTeamLabel(teamsById: Map<number, Team>, teamId?: number | null) {
+  if (typeof teamId !== "number") return "Por definir";
+  const team = teamsById.get(teamId);
+  if (!team) return `Team #${teamId}`;
+
+  const names = team.players?.map((player) => player.name).filter(Boolean) ?? [];
+  if (names.length === 0) return `Team #${teamId}`;
+  return names.join(" / ");
+}
+
+function resolveMatchCategory(match: Match, teamsById: Map<number, Team>) {
+  const teamA = typeof match.team_a_id === "number" ? teamsById.get(match.team_a_id) : null;
+  const teamB = typeof match.team_b_id === "number" ? teamsById.get(match.team_b_id) : null;
+  return match.category ?? teamA?.players?.[0]?.category ?? teamB?.players?.[0]?.category ?? null;
+}
+
+function resolveMatchCategoryLabel(match: Match, teamsById: Map<number, Team>) {
+  return resolveMatchCategory(match, teamsById)?.trim() || "Sin categoria";
+}
+
+function resolveMatchGender(match: Match, teamsById: Map<number, Team>) {
+  const teamA = typeof match.team_a_id === "number" ? teamsById.get(match.team_a_id) : null;
+  const teamB = typeof match.team_b_id === "number" ? teamsById.get(match.team_b_id) : null;
+  return match.gender ?? teamA?.players?.[0]?.gender ?? teamB?.players?.[0]?.gender ?? null;
+}
+
+function isoDateFromParts(year: number, month: number, day: number) {
+  return new Date(Date.UTC(year, month - 1, day)).toISOString().slice(0, 10);
+}
+
+function addDaysToIsoDate(isoDate: string, daysToAdd: number) {
+  const [year, month, day] = isoDate.split("-").map(Number);
+  return isoDateFromParts(year, month, day + daysToAdd);
+}
+
+function buildIsoDateRange(startDate: string, endDate: string) {
+  const dates: string[] = [];
+  for (let current = startDate; current <= endDate; current = addDaysToIsoDate(current, 1)) {
+    dates.push(current);
+  }
+  return dates;
+}
+
+function doIntervalsOverlap(
+  startMinutesA: number,
+  durationMinutes: number,
+  startMinutesB: number,
+  durationMinutesB: number
+) {
+  const endA = startMinutesA + durationMinutes;
+  const endB = startMinutesB + durationMinutesB;
+  return startMinutesA < endB && startMinutesB < endA;
+}
+
+function buildTimeSlots(startMinutes: number, endMinutes: number, stepMinutes: number) {
+  const slots: string[] = [];
+  for (let minutes = startMinutes; minutes <= endMinutes; minutes += stepMinutes) {
+    const hour = String(Math.floor(minutes / 60)).padStart(2, "0");
+    const minute = String(minutes % 60).padStart(2, "0");
+    slots.push(`${hour}:${minute}`);
+  }
+  return slots;
+}
 
 export default function TournamentMatchesPage() {
   const router = useRouter();
@@ -77,6 +131,7 @@ export default function TournamentMatchesPage() {
   const [matches, setMatches] = useState<Match[]>([]);
   const [teams, setTeams] = useState<Team[]>([]);
   const [groups, setGroups] = useState<TournamentGroupOut[]>([]);
+  const [tournament, setTournament] = useState<Tournament | null>(null);
   const [tournamentStatus, setTournamentStatus] = useState<string>("upcoming");
   const [competitionType, setCompetitionType] = useState<CompetitionType>("tournament");
 
@@ -96,13 +151,15 @@ export default function TournamentMatchesPage() {
   const [scheduleMinute, setScheduleMinute] = useState("");
   const [scheduleCourt, setScheduleCourt] = useState("1");
   const [scheduleSuggestion, setScheduleSuggestion] = useState<ScheduleSuggestion | null>(null);
+  const [availableScheduleSlots, setAvailableScheduleSlots] = useState<ScheduleSlotOption[]>([]);
+  const [availableScheduleSlotsLoading, setAvailableScheduleSlotsLoading] = useState(false);
+  const [availableScheduleSlotsError, setAvailableScheduleSlotsError] = useState<string | null>(null);
   const [scheduleError, setScheduleError] = useState<string | null>(null);
   const [scheduleMessage, setScheduleMessage] = useState<string | null>(null);
   const [scheduling, setScheduling] = useState(false);
   const [autoSchedulingFlash, setAutoSchedulingFlash] = useState(false);
   const [gridOpen, setGridOpen] = useState(false);
   const [gridMatch, setGridMatch] = useState<Match | null>(null);
-  const [gridDateFilter, setGridDateFilter] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<string | "all">("all");
   const [genderFilter, setGenderFilter] = useState<string | "all">("all");
   const [nameQuery, setNameQuery] = useState("");
@@ -145,6 +202,21 @@ export default function TournamentMatchesPage() {
     groups.forEach((group) => map.set(group.id, group));
     return map;
   }, [groups]);
+  const tournamentContextDates = useMemo(() => {
+    const dates = new Set<string>();
+    for (const match of matches) {
+      if (match.scheduled_date) {
+        dates.add(match.scheduled_date);
+      }
+    }
+    if (dates.size === 0 && tournament?.start_date) {
+      const rangeEnd = tournament.end_date ?? tournament.start_date;
+      for (const dateValue of buildIsoDateRange(tournament.start_date, rangeEnd)) {
+        dates.add(dateValue);
+      }
+    }
+    return Array.from(dates).sort();
+  }, [tournament?.start_date, tournament?.end_date, matches]);
 
   useEffect(() => {
     if (!Number.isFinite(tournamentId)) return;
@@ -167,6 +239,7 @@ export default function TournamentMatchesPage() {
         setGroups(groupsRes);
         setTournamentStatus(statusRes.status);
         const current = tournamentsRes.find((item) => item.id === tournamentId);
+        setTournament(current ?? null);
         setCompetitionType((current?.competition_type ?? "tournament") as CompetitionType);
       } catch (err: any) {
         if (err instanceof ApiError && err.status === 401) {
@@ -184,13 +257,7 @@ export default function TournamentMatchesPage() {
   }, [tournamentId, router]);
 
   function getTeamLabel(teamId?: number | null) {
-    if (typeof teamId !== "number") return "Por definir";
-    const team = teamsById.get(teamId);
-    if (!team) return `Team #${teamId}`;
-
-    const names = team.players?.map((player) => player.name).filter(Boolean) ?? [];
-    if (names.length === 0) return `Team #${teamId}`;
-    return names.join(" / ");
+    return resolveTeamLabel(teamsById, teamId);
   }
   function hasDefinedTeams(match: Match): match is Match & { team_a_id: number; team_b_id: number } {
     return typeof match.team_a_id === "number" && typeof match.team_b_id === "number";
@@ -198,13 +265,6 @@ export default function TournamentMatchesPage() {
   function getMatchCode(match: Match) {
     return match.match_code ?? String(match.id);
   }
-  function getCourtBadgeClass(courtNumber?: number | null) {
-    if (!courtNumber || courtNumber <= 0) {
-      return "bg-zinc-100 text-zinc-600";
-    }
-    return COURT_BADGES[(courtNumber - 1) % COURT_BADGES.length];
-  }
-
   function getStageLabel(match: Match) {
     if (match.stage === "group") {
       const group = match.group_id ? groupsById.get(match.group_id) : null;
@@ -288,23 +348,6 @@ export default function TournamentMatchesPage() {
     const day = String(date.getDate()).padStart(2, "0");
     return `${year}-${month}-${day}`;
   }
-  function shiftIsoDate(value: string, days: number) {
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
-    const [yearRaw, monthRaw, dayRaw] = value.split("-");
-    const year = Number(yearRaw);
-    const month = Number(monthRaw);
-    const day = Number(dayRaw);
-    if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) {
-      return value;
-    }
-    return toLocalIsoDate(new Date(year, month - 1, day + days));
-  }
-  function resolveGridDefaultDate(startDateRaw: string | null, todayIsoDate: string) {
-    const startDate = startDateRaw?.slice(0, 10) ?? "";
-    const isValidIsoDate = /^\d{4}-\d{2}-\d{2}$/.test(startDate);
-    if (!isValidIsoDate) return todayIsoDate;
-    return todayIsoDate < startDate ? startDate : todayIsoDate;
-  }
 
   function toMinutes(value: string) {
     const [hourRaw, minuteRaw] = value.split(":");
@@ -314,73 +357,216 @@ export default function TournamentMatchesPage() {
     return hour * 60 + minute;
   }
 
-  function buildScheduleSuggestion(match: Match): ScheduleSuggestion {
+  function buildScheduleSuggestion(
+    match: Match,
+    options?: {
+      preferScheduledDate?: boolean;
+      reason?: string;
+    }
+  ): ScheduleSuggestion | null {
     const today = toLocalIsoDate(new Date());
-    const scheduled = matches
+    const durationMinutes = tournament?.match_duration_minutes ?? DEFAULT_MATCH_DURATION_MINUTES;
+    const configuredCourts = tournament?.courts_count ?? DEFAULT_COURTS_COUNT;
+    const scheduledMatches = matches
       .filter((item) => item.id !== match.id && !!item.scheduled_date && !!item.scheduled_time)
-      .map((item) => ({
-        date: item.scheduled_date as string,
-        time: normalizeTime(item.scheduled_time),
-        court: item.court_number && item.court_number > 0 ? item.court_number : 1,
-      }))
-      .filter((item) => !!item.time);
+      .map((item) => {
+        const time = normalizeTime(item.scheduled_time);
+        const startMinutes = toMinutes(time);
+        return {
+          id: item.id,
+          date: item.scheduled_date as string,
+          time,
+          startMinutes,
+          court: item.court_number && item.court_number > 0 ? item.court_number : 1,
+          teamIds: [item.team_a_id, item.team_b_id].filter(
+            (teamId): teamId is number => typeof teamId === "number"
+          ),
+        };
+      })
+      .filter((item) => !!item.time && item.startMinutes !== null);
 
-    if (scheduled.length === 0) {
-      return {
-        date: today,
-        hour: DEFAULT_SCHEDULE_HOUR,
-        minute: DEFAULT_SCHEDULE_MINUTE,
-        court: "1",
-        reason: "Primer turno sugerido por defecto.",
-      };
+    const maxKnownCourt = Math.max(
+      configuredCourts,
+      DEFAULT_COURTS_COUNT,
+      ...scheduledMatches.map((item) => item.court)
+    );
+    const startTime = normalizeTime(tournament?.start_time) || `${DEFAULT_SCHEDULE_HOUR}:${DEFAULT_SCHEDULE_MINUTE}`;
+    const endTime = normalizeTime(tournament?.end_time) || `${DEFAULT_SCHEDULE_END_HOUR}:${DEFAULT_SCHEDULE_MINUTE}`;
+    const startMinutes = toMinutes(startTime);
+    const endMinutes = toMinutes(endTime);
+    if (startMinutes === null || endMinutes === null || startMinutes > endMinutes) {
+      return null;
     }
 
-    const defaultTimes: string[] = [];
-    for (let hour = 18; hour <= 23; hour += 1) {
-      const hh = String(hour).padStart(2, "0");
-      defaultTimes.push(`${hh}:00`);
-      if (hour < 23) defaultTimes.push(`${hh}:30`);
-    }
-    const maxKnownCourt = Math.max(1, ...scheduled.map((item) => item.court));
-    const dates = Array.from(new Set([today, ...scheduled.map((item) => item.date)])).sort();
-
-    for (const date of dates) {
-      const times = Array.from(
-        new Set([
-          ...defaultTimes,
-          ...scheduled
-            .filter((item) => item.date === date)
-            .map((item) => item.time),
-        ])
-      ).sort((a, b) => (toMinutes(a) ?? 0) - (toMinutes(b) ?? 0));
-
-      for (const time of times) {
-        const occupiedCourts = new Set(
-          scheduled
-            .filter((item) => item.date === date && item.time === time)
-            .map((item) => item.court)
-        );
-        for (let court = 1; court <= maxKnownCourt + 1; court += 1) {
-          if (occupiedCourts.has(court)) continue;
-          const [hour = DEFAULT_SCHEDULE_HOUR, minute = DEFAULT_SCHEDULE_MINUTE] = time.split(":");
-          return {
-            date,
-            hour,
-            minute,
-            court: String(court),
-            reason: "Hueco libre sugerido automaticamente.",
-          };
-        }
+    const configuredStartDate = tournament?.start_date ?? match.scheduled_date ?? today;
+    const configuredEndDate =
+      tournament?.end_date ?? match.scheduled_date ?? configuredStartDate;
+    const rangeStart = configuredStartDate < today ? today : configuredStartDate;
+    const rangeEnd = configuredEndDate < rangeStart ? rangeStart : configuredEndDate;
+    const dates = buildIsoDateRange(rangeStart, rangeEnd);
+    for (const scheduledDate of scheduledMatches.map((item) => item.date)) {
+      if (scheduledDate >= today && !dates.includes(scheduledDate)) {
+        dates.push(scheduledDate);
       }
     }
 
-    return {
-      date: today,
-      hour: DEFAULT_SCHEDULE_HOUR,
-      minute: DEFAULT_SCHEDULE_MINUTE,
-      court: "1",
-      reason: "No se encontro hueco libre: se usa un horario base.",
+    const orderedDates = Array.from(new Set(dates)).sort();
+    if (options?.preferScheduledDate && match.scheduled_date && orderedDates.includes(match.scheduled_date)) {
+      orderedDates.splice(orderedDates.indexOf(match.scheduled_date), 1);
+      orderedDates.unshift(match.scheduled_date);
+    }
+
+    const preferredCourts = Array.from({ length: maxKnownCourt }, (_, idx) => idx + 1);
+    if (
+      match.court_number &&
+      match.court_number > 0 &&
+      preferredCourts.includes(match.court_number)
+    ) {
+      preferredCourts.splice(preferredCourts.indexOf(match.court_number), 1);
+      preferredCourts.unshift(match.court_number);
+    }
+
+    const teamIds = [match.team_a_id, match.team_b_id].filter(
+      (teamId): teamId is number => typeof teamId === "number"
+    );
+
+    const findSuggestionInSlots = (
+      candidateTimes: string[],
+      reason: string
+    ): ScheduleSuggestion | null => {
+      for (const date of orderedDates) {
+        for (const time of candidateTimes) {
+          if (
+            teamIds.some((teamId) => {
+            const constraints = teamsById.get(teamId)?.schedule_constraints;
+            return !isMatchAllowedByConstraints(
+              constraints,
+              date,
+              time,
+              tournamentContextDates
+            );
+          })
+        ) {
+          continue;
+          }
+
+          const slotStartMinutes = toMinutes(time);
+          if (slotStartMinutes === null) continue;
+
+          const hasTeamOverlap = scheduledMatches.some((scheduledMatch) => {
+            if (scheduledMatch.date !== date || scheduledMatch.startMinutes === null) return false;
+            if (
+              !doIntervalsOverlap(
+                slotStartMinutes,
+                durationMinutes,
+                scheduledMatch.startMinutes,
+                durationMinutes
+              )
+            ) {
+              return false;
+            }
+            return teamIds.some((teamId) => scheduledMatch.teamIds.includes(teamId));
+          });
+          if (hasTeamOverlap) continue;
+
+          for (const court of preferredCourts) {
+            const hasCourtOverlap = scheduledMatches.some((scheduledMatch) => {
+              if (
+                scheduledMatch.date !== date ||
+                scheduledMatch.court !== court ||
+                scheduledMatch.startMinutes === null
+              ) {
+                return false;
+              }
+              return doIntervalsOverlap(
+                slotStartMinutes,
+                durationMinutes,
+                scheduledMatch.startMinutes,
+                durationMinutes
+              );
+            });
+            if (hasCourtOverlap) continue;
+
+            const [hour = DEFAULT_SCHEDULE_HOUR, minute = DEFAULT_SCHEDULE_MINUTE] = time.split(":");
+            return {
+              date,
+              hour,
+              minute,
+              court: String(court),
+              reason,
+            };
+          }
+        }
+      }
+
+      return null;
     };
+
+    const configuredSlots = buildTimeSlots(startMinutes, endMinutes, SLOT_STEP_MINUTES);
+    const configuredSuggestion = findSuggestionInSlots(
+      configuredSlots,
+      options?.reason ??
+        "Primer horario libre que respeta restricciones de parejas y canchas disponibles."
+    );
+    if (configuredSuggestion) {
+      return configuredSuggestion;
+    }
+
+    const relaxedStartMinutes = Math.min(
+      startMinutes,
+      ...scheduledMatches
+        .map((scheduledMatch) => scheduledMatch.startMinutes)
+        .filter((value): value is number => value !== null),
+      8 * 60
+    );
+    const relaxedEndMinutes = Math.max(
+      endMinutes,
+      ...scheduledMatches
+        .map((scheduledMatch) => scheduledMatch.startMinutes)
+        .filter((value): value is number => value !== null),
+      23 * 60
+    );
+    const relaxedSlots = buildTimeSlots(relaxedStartMinutes, relaxedEndMinutes, SLOT_STEP_MINUTES);
+
+    return findSuggestionInSlots(
+      relaxedSlots,
+      "No encontre un hueco dentro de la ventana base del torneo. Te propongo el primer horario libre compatible con restricciones y sin cruces de parejas o cancha."
+    );
+  }
+
+  async function loadAvailableScheduleSlots() {
+    if (!scheduleMatch) return;
+
+    setAvailableScheduleSlotsLoading(true);
+    setAvailableScheduleSlotsError(null);
+    try {
+      const response = await api<MatchAvailableSlotsResponse>(
+        `/matches/${scheduleMatch.id}/available-slots`
+      );
+      const nextSlots = (response.slots ?? []).map((slot: MatchAvailableSlot) => ({
+        date: slot.scheduled_date,
+        hour: normalizeTime(slot.scheduled_time).slice(0, 2) || DEFAULT_SCHEDULE_HOUR,
+        minute: normalizeTime(slot.scheduled_time).slice(3, 5) || DEFAULT_SCHEDULE_MINUTE,
+        court: String(slot.court_number),
+      }));
+      setAvailableScheduleSlots(nextSlots);
+      if (nextSlots.length === 0) {
+        setAvailableScheduleSlotsError(
+          "No encontre espacios vacios compatibles para este partido con la configuracion actual."
+        );
+      }
+    } catch (err: unknown) {
+      if (err instanceof ApiError && err.status === 401) {
+        clearToken();
+        router.replace("/login");
+        return;
+      }
+      setAvailableScheduleSlotsError(
+        err instanceof Error ? err.message : "No se pudieron buscar espacios disponibles."
+      );
+    } finally {
+      setAvailableScheduleSlotsLoading(false);
+    }
   }
 
   function toggleMatchSelection(matchId: number) {
@@ -478,7 +664,22 @@ export default function TournamentMatchesPage() {
   }
 
   function openScheduleModal(match: Match) {
+    const hasConstraintConflict =
+      (constraintConflictsByMatchId.get(match.id)?.length ?? 0) > 0;
+    const suggestion =
+      hasConstraintConflict
+        ? null
+        : (!match.scheduled_date || !match.scheduled_time || !match.court_number)
+        ? buildScheduleSuggestion(match, {
+            preferScheduledDate: true,
+            reason: "Primer horario libre sugerido automaticamente segun restricciones y canchas disponibles.",
+          })
+        : null;
+
     setScheduleMatch(match);
+    setAvailableScheduleSlots([]);
+    setAvailableScheduleSlotsError(null);
+    setAvailableScheduleSlotsLoading(false);
     const normalized = normalizeTime(match.scheduled_time);
     if (match.scheduled_date && normalized && match.court_number) {
       const [hour = "", minute = ""] = normalized.split(":");
@@ -486,14 +687,20 @@ export default function TournamentMatchesPage() {
       setScheduleHour(hour);
       setScheduleMinute(MINUTES.includes(minute) ? minute : "");
       setScheduleCourt(String(match.court_number));
-      setScheduleSuggestion(null);
-    } else {
-      const suggestion = buildScheduleSuggestion(match);
-      setScheduleDate(suggestion.date);
-      setScheduleHour(suggestion.hour);
-      setScheduleMinute(suggestion.minute);
-      setScheduleCourt(suggestion.court);
       setScheduleSuggestion(suggestion);
+    } else {
+      setScheduleSuggestion(suggestion);
+      if (suggestion) {
+        setScheduleDate(suggestion.date);
+        setScheduleHour(suggestion.hour);
+        setScheduleMinute(suggestion.minute);
+        setScheduleCourt(suggestion.court);
+      } else {
+        setScheduleDate(match.scheduled_date ?? "");
+        setScheduleHour(DEFAULT_SCHEDULE_HOUR);
+        setScheduleMinute(DEFAULT_SCHEDULE_MINUTE);
+        setScheduleCourt(String(match.court_number ?? 1));
+      }
     }
     setScheduleError(null);
   }
@@ -503,6 +710,9 @@ export default function TournamentMatchesPage() {
     setScheduleHour("");
     setScheduleMinute("");
     setScheduleSuggestion(null);
+    setAvailableScheduleSlots([]);
+    setAvailableScheduleSlotsError(null);
+    setAvailableScheduleSlotsLoading(false);
     setScheduleError(null);
   }
 
@@ -711,7 +921,8 @@ export default function TournamentMatchesPage() {
         const allowed = isMatchAllowedByConstraints(
           constraints,
           match.scheduled_date,
-          normalizeTime(match.scheduled_time)
+          normalizeTime(match.scheduled_time),
+          tournamentContextDates
         );
         if (!allowed) {
           const names = team?.players?.map((player) => player.name).filter(Boolean) ?? [];
@@ -727,19 +938,13 @@ export default function TournamentMatchesPage() {
       }
     }
     return byMatchId;
-  }, [matches, teamsById]);
+  }, [matches, teamsById, tournamentContextDates]);
+  const scheduleMatchConstraintConflicts = useMemo(
+    () => (scheduleMatch ? constraintConflictsByMatchId.get(scheduleMatch.id) ?? [] : []),
+    [scheduleMatch, constraintConflictsByMatchId]
+  );
   const baseFilteredMatches = useMemo(() => {
     const normalizedQuery = nameQuery.trim().toLowerCase();
-    const matchCategory = (match: Match) => {
-      const teamA = typeof match.team_a_id === "number" ? teamsById.get(match.team_a_id) : null;
-      const teamB = typeof match.team_b_id === "number" ? teamsById.get(match.team_b_id) : null;
-      return match.category ?? teamA?.players?.[0]?.category ?? teamB?.players?.[0]?.category ?? null;
-    };
-    const matchGender = (match: Match) => {
-      const teamA = typeof match.team_a_id === "number" ? teamsById.get(match.team_a_id) : null;
-      const teamB = typeof match.team_b_id === "number" ? teamsById.get(match.team_b_id) : null;
-      return match.gender ?? teamA?.players?.[0]?.gender ?? teamB?.players?.[0]?.gender ?? null;
-    };
     const teamSearchLabel = (teamId?: number | null) => {
       if (typeof teamId !== "number") return "";
       const team = teamsById.get(teamId);
@@ -748,8 +953,8 @@ export default function TournamentMatchesPage() {
       return names.join(" ").toLowerCase();
     };
     return matches.filter((match) => {
-      const category = matchCategory(match);
-      const gender = matchGender(match);
+      const category = resolveMatchCategory(match, teamsById);
+      const gender = resolveMatchGender(match, teamsById);
       const categoryMatch = categoryFilter === "all" || category === categoryFilter;
       const genderMatch = genderFilter === "all" || gender === genderFilter;
       if (!categoryMatch || !genderMatch) return false;
@@ -846,14 +1051,14 @@ export default function TournamentMatchesPage() {
         if (conflictMatch) {
           conflicts.push({
             matchId,
-            teamLabel: getTeamLabel(teamId),
+            teamLabel: resolveTeamLabel(teamsById, teamId),
             conflictMatchCode: getMatchCode(conflictMatch),
           });
         }
       }
     }
     return conflicts;
-  }, [selectedMatchIds, matches, bulkDate, bulkTimeValue]);
+  }, [selectedMatchIds, matches, bulkDate, bulkTimeValue, teamsById]);
   const groupStageComplete = useMemo(() => {
     if (groups.length === 0) return false;
 
@@ -871,82 +1076,6 @@ export default function TournamentMatchesPage() {
 
     return true;
   }, [groups, matches]);
-  const todayIsoDate = useMemo(() => toLocalIsoDate(new Date()), []);
-  const gridStartDate = useMemo(() => {
-    const dates = Array.from(
-      new Set(
-        categoryFilteredMatches
-          .map((match) => (match.scheduled_date ?? "").slice(0, 10))
-          .filter((date): date is string => /^\d{4}-\d{2}-\d{2}$/.test(date))
-      )
-    ).sort();
-    return dates[0] ?? null;
-  }, [categoryFilteredMatches]);
-  const defaultGridDate = useMemo(() => {
-    return resolveGridDefaultDate(gridStartDate, todayIsoDate);
-  }, [gridStartDate, todayIsoDate]);
-  const gridAvailableDates = useMemo(() => {
-    const dates = Array.from(
-      new Set(
-        scheduledMatches
-          .map((match) => (match.scheduled_date ?? "").slice(0, 10))
-          .filter((date): date is string => /^\d{4}-\d{2}-\d{2}$/.test(date))
-      )
-    ).sort();
-    if (!dates.includes(defaultGridDate)) {
-      dates.push(defaultGridDate);
-      dates.sort();
-    }
-    return dates;
-  }, [scheduledMatches, defaultGridDate]);
-  const gridMatchesForDate = useMemo(
-    () =>
-      scheduledMatches.filter(
-        (match) => (match.scheduled_date ?? "") === gridDateFilter
-      ),
-    [scheduledMatches, gridDateFilter]
-  );
-  const gridData = useMemo(() => {
-    const times = Array.from(
-      new Set(
-        gridMatchesForDate
-          .map((match) => normalizeTime(match.scheduled_time))
-          .filter(Boolean)
-      )
-    ).sort();
-    const courts = Array.from(
-      new Set(gridMatchesForDate.map((match) => match.court_number ?? -1))
-    )
-      .sort((a, b) => a - b)
-      .map((courtNumber) => ({
-        key: String(courtNumber),
-        label: courtNumber <= 0 ? "Cancha ?" : `Cancha ${courtNumber}`,
-        courtNumber,
-      }));
-    const map = new Map<string, Map<string, Match[]>>();
-
-    gridMatchesForDate.forEach((match) => {
-      const timeKey = normalizeTime(match.scheduled_time);
-      if (!timeKey) return;
-      const courtKey = String(match.court_number ?? -1);
-      if (!map.has(timeKey)) {
-        map.set(timeKey, new Map());
-      }
-      const courtMap = map.get(timeKey)!;
-      if (!courtMap.has(courtKey)) {
-        courtMap.set(courtKey, []);
-      }
-      courtMap.get(courtKey)!.push(match);
-    });
-
-    map.forEach((courtMap) => {
-      courtMap.forEach((matchesInCell) => {
-        matchesInCell.sort((a, b) => a.id - b.id);
-      });
-    });
-
-    return { times, courts, map };
-  }, [gridMatchesForDate]);
   const scheduleTimeValue =
     scheduleHour && scheduleMinute ? `${scheduleHour}:${scheduleMinute}` : "";
   const scheduleConflictMatch = useMemo(() => {
@@ -1078,17 +1207,6 @@ export default function TournamentMatchesPage() {
     scheduleMinute === scheduleSuggestion.minute &&
     scheduleCourt === scheduleSuggestion.court;
   useEffect(() => {
-    setGridDateFilter((prev) => {
-      if (prev && gridAvailableDates.includes(prev)) return prev;
-      if (gridAvailableDates.includes(defaultGridDate)) return defaultGridDate;
-      return gridAvailableDates[0] ?? defaultGridDate;
-    });
-  }, [gridAvailableDates, defaultGridDate]);
-  useEffect(() => {
-    if (!gridOpen) return;
-    setGridDateFilter(defaultGridDate);
-  }, [gridOpen, defaultGridDate]);
-  useEffect(() => {
     if (!scheduleMessage) return;
     const timeoutId = window.setTimeout(() => setScheduleMessage(null), 4500);
     return () => window.clearTimeout(timeoutId);
@@ -1120,12 +1238,6 @@ export default function TournamentMatchesPage() {
       : activeTab === "scheduled"
         ? "No hay partidos programados."
         : "No hay partidos jugados.";
-  const shiftGridDate = (days: number) => {
-    setGridDateFilter((prev) => {
-      const baseDate = /^\d{4}-\d{2}-\d{2}$/.test(prev) ? prev : defaultGridDate;
-      return shiftIsoDate(baseDate, days);
-    });
-  };
 
   return (
     <div className="space-y-8">
@@ -1478,11 +1590,14 @@ export default function TournamentMatchesPage() {
           </div>
           {scheduleSuggestion && (
             <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-3 text-xs text-zinc-600">
-              <div>
-                Sugerencia: {formatShortDate(scheduleSuggestion.date)} {scheduleSuggestion.hour}:
-                {scheduleSuggestion.minute} · Cancha {scheduleSuggestion.court}.
+              <div className="font-semibold text-zinc-800">
+                {scheduleSuggestionApplied ? "Horario sugerido aplicado." : "Queres aplicar este horario?"}
               </div>
-              <div>{scheduleSuggestion.reason}</div>
+              <div className="mt-1">
+                {formatShortDate(scheduleSuggestion.date)} {scheduleSuggestion.hour}:{scheduleSuggestion.minute} ·
+                Cancha {scheduleSuggestion.court}.
+              </div>
+              <div className="mt-1">{scheduleSuggestion.reason}</div>
               {!scheduleSuggestionApplied && (
                 <button
                   type="button"
@@ -1494,8 +1609,72 @@ export default function TournamentMatchesPage() {
                   }}
                   className="mt-2 font-semibold text-zinc-700 underline decoration-dotted hover:text-zinc-900"
                 >
-                  Volver a aplicar sugerencia
+                  Aplicar sugerencia
                 </button>
+              )}
+            </div>
+          )}
+          {scheduleMatchConstraintConflicts.length > 0 && (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900 space-y-3">
+              <div className="space-y-1">
+                <div className="font-semibold uppercase tracking-wide text-amber-800">
+                  Restricciones en conflicto
+                </div>
+                {scheduleMatchConstraintConflicts.map((conflict) => (
+                  <div key={`${conflict.teamId}-${conflict.constraint}`}>
+                    <span className="font-semibold">{conflict.teamLabel}:</span> {conflict.constraint}
+                  </div>
+                ))}
+              </div>
+              <div>
+                Este partido tiene una inconsistencia de restricciones. Podes buscar hasta 3 espacios
+                vacios compatibles para reprogramarlo.
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => {
+                    void loadAvailableScheduleSlots();
+                  }}
+                  disabled={availableScheduleSlotsLoading}
+                >
+                  {availableScheduleSlotsLoading ? "Buscando..." : "Buscar espacios"}
+                </Button>
+                {availableScheduleSlots.length > 0 && (
+                  <span className="text-xs text-amber-800">
+                    {availableScheduleSlots.length} opcion{availableScheduleSlots.length !== 1 ? "es" : ""} encontrada{availableScheduleSlots.length !== 1 ? "s" : ""}.
+                  </span>
+                )}
+              </div>
+              {availableScheduleSlotsError && (
+                <div>{availableScheduleSlotsError}</div>
+              )}
+              {availableScheduleSlots.length > 0 && (
+                <div className="space-y-2">
+                  {availableScheduleSlots.map((slot, index) => (
+                    <div
+                      key={`${slot.date}-${slot.hour}-${slot.minute}-${slot.court}`}
+                      className="flex items-center justify-between gap-3 rounded-lg border border-amber-200 bg-white/70 px-3 py-2"
+                    >
+                      <div className="text-xs text-zinc-700">
+                        Opcion {index + 1}: {formatShortDate(slot.date)} {slot.hour}:{slot.minute} · Cancha {slot.court}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setScheduleDate(slot.date);
+                          setScheduleHour(slot.hour);
+                          setScheduleMinute(slot.minute);
+                          setScheduleCourt(slot.court);
+                        }}
+                        className="shrink-0 rounded-lg border border-amber-400 bg-transparent px-3 py-1 text-xs font-semibold text-amber-900 hover:bg-amber-100 transition-colors"
+                      >
+                        Aplicar
+                      </button>
+                    </div>
+                  ))}
+                </div>
               )}
             </div>
           )}
@@ -1885,143 +2064,56 @@ export default function TournamentMatchesPage() {
         </form>
       </Modal>
 
-      <Modal
-        open={gridOpen}
-        title="Grilla de partidos"
-        onClose={() => setGridOpen(false)}
-        className="max-w-[95vw]"
-        closeOnEscape={!gridMatch}
-      >
-        <div className="space-y-4">
-          {scheduledMatches.length === 0 ? (
-            <div className="text-sm text-zinc-600">
-              No hay partidos programados para mostrar.
-            </div>
-          ) : (
-            <>
-              <div className="flex flex-wrap items-end justify-between gap-3 text-xs text-zinc-500">
-                <div className="space-y-1">
-                  <div>
-                    {gridData.courts.length} canchas · {gridData.times.length} turnos
-                  </div>
-                  <div>Click en un partido para ver el detalle.</div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <label htmlFor="grid-date-filter" className="font-semibold text-zinc-600">
-                    Fecha
-                  </label>
-                  <button
-                    type="button"
-                    onClick={() => shiftGridDate(-1)}
-                    className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-zinc-300 bg-white text-sm font-semibold text-zinc-700 transition hover:border-zinc-400 hover:bg-zinc-50"
-                    aria-label="Ir al dia anterior"
-                  >
-                    {"<"}
-                  </button>
-                  <input
-                    id="grid-date-filter"
-                    type="date"
-                    value={gridDateFilter}
-                    onChange={(event) => setGridDateFilter(event.target.value)}
-                    className="rounded-xl border border-zinc-300 bg-white px-3 py-1.5 text-xs font-medium text-zinc-700 focus:border-zinc-500 focus:outline-none focus:ring-2 focus:ring-zinc-800/15"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => shiftGridDate(1)}
-                    className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-zinc-300 bg-white text-sm font-semibold text-zinc-700 transition hover:border-zinc-400 hover:bg-zinc-50"
-                    aria-label="Ir al dia siguiente"
-                  >
-                    {">"}
-                  </button>
-                </div>
-              </div>
-              {gridData.times.length === 0 || gridData.courts.length === 0 ? (
-                <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-500">
-                  No hay partidos programados para la fecha {formatShortDate(gridDateFilter)}.
-                </div>
-              ) : (
-                <div className="max-h-[70vh] overflow-auto rounded-2xl border border-zinc-200 bg-white">
-                  <div
-                    className="grid gap-2 p-3"
-                    style={{
-                      gridTemplateColumns: `110px repeat(${gridData.courts.length}, minmax(240px, 1fr))`,
-                    }}
-                  >
-                    <div className="sticky top-0 z-10 rounded-lg bg-white/95 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-zinc-400">
-                      Hora
-                    </div>
-                    {gridData.courts.map((court) => (
-                      <div
-                        key={`head-${court.key}`}
-                        className="sticky top-0 z-10 rounded-lg bg-white/95 py-2 text-xs font-semibold text-zinc-700"
-                      >
-                        <span
-                          className={`inline-flex rounded-full px-2 py-0.5 font-semibold ${getCourtBadgeClass(
-                            court.courtNumber
-                          )}`}
-                        >
-                          {court.label}
-                        </span>
-                      </div>
-                    ))}
-
-                    {gridData.times.map((slotTime, rowIdx) => {
-                      const rowClass = rowIdx % 2 === 0 ? "bg-white" : "bg-zinc-100";
-                      return (
-                        <Fragment key={`row-${slotTime}`}>
-                          <div
-                            className={`rounded-lg px-2 py-1 text-sm font-medium text-zinc-700 ${rowClass}`}
-                          >
-                            {slotTime}
-                          </div>
-                          {gridData.courts.map((court) => {
-                            const matchesInCell =
-                              gridData.map.get(slotTime)?.get(court.key) ?? [];
-                            return (
-                              <div
-                                key={`cell-${slotTime}-${court.key}`}
-                                className={`min-h-[92px] rounded-2xl border border-zinc-200 p-2 ${rowClass}`}
-                              >
-                                {matchesInCell.length === 0 ? (
-                                  <div className="flex h-full items-center justify-center rounded-xl border border-dashed border-zinc-200 text-xs text-zinc-400">
-                                    Sin partidos
-                                  </div>
-                                ) : (
-                                  <div className="space-y-2">
-                                    {matchesInCell.map((match) => (
-                                      <button
-                                        key={match.id}
-                                        type="button"
-                                        onClick={() => setGridMatch(match)}
-                                        className={`group w-full rounded-xl border p-2 text-left text-xs shadow-sm transition hover:-translate-y-0.5 hover:shadow ${
-                                          match.status === "played"
-                                            ? "border-zinc-200 bg-zinc-100 text-zinc-500"
-                                            : "border-zinc-200 bg-white text-zinc-700 hover:border-zinc-300"
-                                        }`}
-                                      >
-                                        <div className="text-[10px] uppercase tracking-wide text-zinc-400">
-                                          {getStageLabel(match)} · {getMatchCode(match)}
-                                        </div>
-                                        <div className="mt-2 text-sm font-medium text-zinc-900">
-                                          {getTeamLabel(match.team_a_id)} vs {getTeamLabel(match.team_b_id)}
-                                        </div>
-                                      </button>
-                                    ))}
-                                  </div>
-                                )}
-                              </div>
-                            );
-                          })}
-                        </Fragment>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-            </>
-          )}
-        </div>
-      </Modal>
+      {gridOpen && (
+        <ScheduledMatchesGridModal
+          open={gridOpen}
+          onClose={() => setGridOpen(false)}
+          closeOnEscape={!gridMatch}
+          scheduledMatches={scheduledMatches}
+          onMatchSelect={setGridMatch}
+          getStageLabel={getStageLabel}
+          getMatchCode={getMatchCode}
+          getMatchTeamsLabel={(match) =>
+            `${getTeamLabel(match.team_a_id)} vs ${getTeamLabel(match.team_b_id)}`
+          }
+          getMatchCategoryLabel={(match) => resolveMatchCategoryLabel(match, teamsById)}
+          onMatchReschedule={async (matchId, newDate, newTime, newCourt) => {
+            const res = await api<{ updated: Match; swapped: Match | null }>(
+              `/matches/${matchId}/schedule`,
+              {
+                method: "POST",
+                body: { scheduled_date: newDate, scheduled_time: newTime, court_number: newCourt },
+              }
+            );
+            setMatches((prev) =>
+              prev.map((m) => {
+                if (m.id === res.updated.id) return res.updated;
+                if (res.swapped && m.id === res.swapped.id) return res.swapped;
+                return m;
+              })
+            );
+          }}
+          getConstraintViolations={(matchId, newDate, newTime) => {
+            const match = matches.find((m) => m.id === matchId);
+            if (!match) return [];
+            const violations: { teamLabel: string; constraint: string }[] = [];
+            for (const teamId of [match.team_a_id, match.team_b_id]) {
+              if (typeof teamId !== "number") continue;
+              const team = teamsById.get(teamId);
+              const constraints = (team?.schedule_constraints ?? "").trim();
+              if (!constraints) continue;
+              if (!isMatchAllowedByConstraints(constraints, newDate, newTime)) {
+                const names = team?.players?.map((p) => p.name).filter(Boolean) ?? [];
+                violations.push({
+                  teamLabel: names.length > 0 ? names.join(" / ") : `Pareja #${teamId}`,
+                  constraint: constraints,
+                });
+              }
+            }
+            return violations;
+          }}
+        />
+      )}
 
       <Modal
         open={!!gridMatch}

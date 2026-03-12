@@ -71,6 +71,32 @@ function parseAfterTime(text: string, day: DayName): number | null {
   return maxMinutes;
 }
 
+function parseBeforeTime(text: string, day: DayName): number | null {
+  const patterns = [
+    new RegExp(
+      `${dayExpr(day)}[^.;]*?(?:hasta|antes\\s+de)(?:\\s+las)?\\s*(\\d{1,2})(?::(\\d{2}))?\\s*(am|pm|hs|h)?`,
+      "g"
+    ),
+    new RegExp(
+      `(?:hasta|antes\\s+de)(?:\\s+las)?\\s*(\\d{1,2})(?::(\\d{2}))?\\s*(am|pm|hs|h)?\\s+(?:(?:el|la)\\s+)?${day}\\b`,
+      "g"
+    ),
+  ];
+
+  let minMinutes: number | null = null;
+  for (const pattern of patterns) {
+    for (const match of text.matchAll(pattern)) {
+      const parsed = parseHourMatch(match);
+      if (!parsed) continue;
+      const minutes = parsed.hour * 60 + parsed.minute;
+      if (minMinutes === null || minutes < minMinutes) {
+        minMinutes = minutes;
+      }
+    }
+  }
+  return minMinutes;
+}
+
 function hasDayBlock(text: string, day: DayName): boolean {
   const patterns = [
     new RegExp(`no\\s+(?:puede|pueden|juega|juegan|disponible(?:s)?)(?:\\s+el)?\\s+${day}\\b`),
@@ -95,6 +121,24 @@ function extractExclusiveDays(text: string): Set<DayName> {
   return exclusiveDays;
 }
 
+function extractBlockedDays(text: string): Set<DayName> {
+  return new Set(DAYS.filter((day) => hasDayBlock(text, day)));
+}
+
+function extractPositiveDays(text: string): Set<DayName> {
+  const positiveDays = new Set<DayName>();
+  for (const day of DAYS) {
+    if (parseAfterTime(text, day) !== null || parseBeforeTime(text, day) !== null) {
+      positiveDays.add(day);
+      continue;
+    }
+    if (new RegExp(`${day}\\s+sin\\s+problemas?`).test(text)) {
+      positiveDays.add(day);
+    }
+  }
+  return positiveDays;
+}
+
 function weekdayFromIsoDate(isoDate: string): DayName | null {
   const [yearRaw, monthRaw, dayRaw] = isoDate.split("-");
   const year = Number(yearRaw);
@@ -111,6 +155,19 @@ function weekdayFromIsoDate(isoDate: string): DayName | null {
   return DAYS[index] ?? null;
 }
 
+function availableDaysFromDates(
+  availableDates: string[] | null | undefined
+): Set<DayName> {
+  const days = new Set<DayName>();
+  for (const dateValue of availableDates ?? []) {
+    const day = weekdayFromIsoDate(dateValue.slice(0, 10));
+    if (day) {
+      days.add(day);
+    }
+  }
+  return days;
+}
+
 function toMinutes(timeValue: string): number | null {
   const [hourRaw, minuteRaw] = timeValue.split(":");
   const hour = Number(hourRaw);
@@ -123,7 +180,8 @@ function toMinutes(timeValue: string): number | null {
 export function isMatchAllowedByConstraints(
   constraints: string | null | undefined,
   scheduledDate: string | null | undefined,
-  scheduledTime: string | null | undefined
+  scheduledTime: string | null | undefined,
+  availableDates?: string[] | null | undefined
 ): boolean {
   if (!constraints || !scheduledDate || !scheduledTime) return true;
   const text = normalizeText(constraints);
@@ -131,9 +189,22 @@ export function isMatchAllowedByConstraints(
 
   const day = weekdayFromIsoDate(scheduledDate.slice(0, 10));
   if (!day) return true;
+  const contextualAvailableDays = availableDaysFromDates(availableDates);
   const exclusiveDays = extractExclusiveDays(text);
   if (exclusiveDays.size > 0 && !exclusiveDays.has(day)) return false;
-  if (exclusiveDays.size === 0 && !text.includes(day)) return true;
+  if (exclusiveDays.size === 0) {
+    const blockedDays = extractBlockedDays(text);
+    const positiveDays = extractPositiveDays(text);
+    if (
+      positiveDays.size > 0 &&
+      blockedDays.size === 0 &&
+      contextualAvailableDays.size === 0 &&
+      !positiveDays.has(day)
+    ) {
+      return false;
+    }
+  }
+  if (!text.includes(day)) return true;
 
   if (hasDayBlock(text, day)) return false;
   if (new RegExp(`${day}\\s+sin\\s+problemas?`).test(text)) return true;
@@ -143,6 +214,13 @@ export function isMatchAllowedByConstraints(
     const slotMinutes = toMinutes(scheduledTime.slice(0, 5));
     if (slotMinutes === null) return true;
     if (slotMinutes < afterTimeMinutes) return false;
+  }
+
+  const beforeTimeMinutes = parseBeforeTime(text, day);
+  if (beforeTimeMinutes !== null) {
+    const slotMinutes = toMinutes(scheduledTime.slice(0, 5));
+    if (slotMinutes === null) return true;
+    if (slotMinutes >= beforeTimeMinutes) return false;
   }
 
   return true;
