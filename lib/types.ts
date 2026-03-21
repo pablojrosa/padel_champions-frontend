@@ -26,6 +26,76 @@ export type Tournament = {
   status?: TournamentStatus;
 };
 
+export type TournamentCreationAiDraft = {
+  name?: string | null;
+  competition_type?: "tournament" | "league" | "flash" | null;
+  description?: string | null;
+  location?: string | null;
+  category?: string | null;
+  start_date?: string | null;
+  end_date?: string | null;
+  teams_per_group?: number | null;
+  courts_count?: number | null;
+  match_duration_minutes?: number | null;
+  start_time?: string | null;
+  end_time?: string | null;
+};
+
+export type TournamentCreationAiMessage = {
+  role: "assistant" | "user";
+  content: string;
+};
+
+export type TournamentCreationAiPairDraft = {
+  player1_name: string;
+  player2_name: string;
+  category: string;
+  gender: string;
+  schedule_constraints?: string | null;
+};
+
+export type TournamentCreationAiScheduleWindow = {
+  date: string;
+  start_time: string;
+  end_time: string;
+};
+
+export type TournamentCreationAiField =
+  | "name"
+  | "competition_type"
+  | "description"
+  | "location"
+  | "category"
+  | "start_date"
+  | "end_date"
+  | "teams_per_group"
+  | "courts_count"
+  | "match_duration_minutes"
+  | "start_time"
+  | "end_time";
+
+export type TournamentCreationAiSession = {
+  session_id: string;
+  assistant_message: string;
+  draft: TournamentCreationAiDraft;
+  missing_fields: TournamentCreationAiField[];
+  off_topic_count: number;
+  conversation_closed: boolean;
+  ready_to_create: boolean;
+};
+
+export type TournamentCreationAiPairsParseResponse = {
+  assistant_message: string;
+  pairs: TournamentCreationAiPairDraft[];
+  invalid_rows: string[];
+};
+
+export type TournamentCreationAiScheduleParseResponse = {
+  assistant_message: string;
+  schedule_windows: TournamentCreationAiScheduleWindow[];
+  inferred_start_date?: string | null;
+};
+
 export type Team = {
   id: number;
   tournament_id: number;
