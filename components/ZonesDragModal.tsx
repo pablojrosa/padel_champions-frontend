@@ -17,6 +17,7 @@ import { CSS } from "@dnd-kit/utilities";
 import type { Team, TournamentGroupOut } from "@/lib/types";
 import Modal from "@/components/ui/Modal";
 import Button from "@/components/ui/Button";
+import { genderLabel } from "@/lib/gender";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -633,8 +634,11 @@ export default function ZonesDragModal({
                 onChange={(e) => setGender(e.target.value)}
               >
                 <option value="all">Todos los géneros</option>
-                <option value="masculino">Masculino</option>
-                <option value="damas">Damas</option>
+                {genders.map((value) => (
+                  <option key={value} value={value}>
+                    {genderLabel(value)}
+                  </option>
+                ))}
               </select>
             )}
             <button

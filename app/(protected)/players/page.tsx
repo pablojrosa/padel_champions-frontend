@@ -5,6 +5,7 @@ import Card from "@/components/ui/Card";
 import Input from "@/components/ui/Input";
 import Button from "@/components/ui/Button";
 import { api, ApiError } from "@/lib/api";
+import { CATEGORY_SUGGESTIONS, normalizeCategoryValue } from "@/lib/category";
 import type { Player } from "@/lib/types";
 import { useRouter } from "next/navigation";
 import { clearToken } from "@/lib/auth";
@@ -54,11 +55,15 @@ export default function PlayersPage() {
   }, []);
 
   async function createPlayer() {
-    if (!first_name.trim() || !last_name.trim() || !category.trim()) return;
+    const normalizedCategory = normalizeCategoryValue(category);
+    if (!first_name.trim() || !last_name.trim() || !normalizedCategory) return;
     setCreating(true);
     setError(null);
     try {
-      const created = await api<Player>("/players", { method: "POST", body: { first_name, last_name, category } });
+      const created = await api<Player>("/players", {
+        method: "POST",
+        body: { first_name, last_name, category: normalizedCategory },
+      });
       setItems((prev) => [created, ...prev]);
       setFirstName("");
       setLastName("");
@@ -71,6 +76,7 @@ export default function PlayersPage() {
   }
 
   async function saveEdit(id: number) {
+    const normalizedCategory = normalizeCategoryValue(editCategory);
     setSavingId(id);
     setError(null);
     try {
@@ -79,7 +85,7 @@ export default function PlayersPage() {
         body: {
           first_name: editFirstName,
           last_name: editLastName,
-          category: editCategory,
+          category: normalizedCategory,
         },
       });
       setItems((prev) => prev.map((p) => (p.id === id ? updated : p)));
@@ -141,23 +147,17 @@ export default function PlayersPage() {
               placeholder="Apellido"
               required
             />
-            <select
-              className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+            <Input
+              list="player-category-suggestions"
               value={category}
               onChange={(e) => setCategory(e.target.value)}
+              placeholder="Ej: 4ta o suma 12"
               required
-            >
-              <option value="">Seleccionar categoría</option>
-              {["8va","7ma", "6ta", "5ta", "4ta", "3ra", "2da", "1ra"].map((c) => (
-                <option key={c} value={c}>
-                  {c}
-                </option>
-              ))}
-            </select>
+            />
 
             <Button
               onClick={createPlayer}
-              disabled={creating || !first_name.trim() || !last_name.trim() || !category.trim()}
+              disabled={creating || !first_name.trim() || !last_name.trim() || !normalizeCategoryValue(category)}
               className="md:w-full"
             >
               {creating ? "Creando..." : "Crear"}
@@ -199,18 +199,12 @@ export default function PlayersPage() {
                         placeholder="Apellido"
                       />
 
-                      <select
-                        className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                      <Input
+                        list="player-category-suggestions"
                         value={editCategory}
                         onChange={(e) => setEditCategory(e.target.value)}
-                      >
-                        <option value="">Categoría</option>
-                        {["8va","7ma", "6ta", "5ta", "4ta", "3ra", "2da", "1ra"].map((c) => (
-                          <option key={c} value={c}>
-                            {c}
-                          </option>
-                        ))}
-                      </select>
+                        placeholder="Ej: 4ta o suma 12"
+                      />
                     </div>
                   ) : (
 
@@ -231,7 +225,7 @@ export default function PlayersPage() {
                             savingId === p.id ||
                             !editFirstName.trim() ||
                             !editLastName.trim() ||
-                            !editCategory.trim()
+                            !normalizeCategoryValue(editCategory)
                           }
                         >
 
@@ -276,6 +270,12 @@ export default function PlayersPage() {
           )}
         </div>
       </Card>
+
+      <datalist id="player-category-suggestions">
+        {CATEGORY_SUGGESTIONS.map((categoryOption) => (
+          <option key={categoryOption} value={categoryOption} />
+        ))}
+      </datalist>
     </div>
   );
 }

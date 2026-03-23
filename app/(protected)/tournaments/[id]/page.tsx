@@ -9,6 +9,8 @@ import Input from "@/components/ui/Input";
 import Modal from "@/components/ui/Modal";
 import { api, ApiError, apiMaybe } from "@/lib/api";
 import { clearToken } from "@/lib/auth";
+import { CATEGORY_SUGGESTIONS, normalizeCategoryValue } from "@/lib/category";
+import { GENDER_OPTIONS, normalizeGenderValue } from "@/lib/gender";
 import type { Player, Team, Tournament } from "@/lib/types";
 import StatusBadge from "@/components/StatusBadge";
 import GroupsPanel, { type GroupsPanelHandle } from "@/components/GroupsPanel";
@@ -81,13 +83,17 @@ const IMPORT_TEMPLATE_HEADERS = [
   "Genero",
   "Restricciones",
 ];
-const IMPORT_TEMPLATE_SAMPLE = [
-  "Ana",
-  "Carla",
-  "6",
-  "Damas",
-  "No puede viernes",
-];
+const IMPORT_TEMPLATE_SAMPLE_ROWS = [
+  ["Ana", "Carla", "8va", "Damas", "Viernes después de las 19"],
+  ["Luis", "Pedro", "7ma", "Masculino", "Sábado después de las 16"],
+  ["Sofi", "Tomi", "6ta", "Mixto", "Viernes después de las 20 y sábado después de las 18"],
+  ["Mica", "Lu", "5ta", "Damas", "Sábado por la mañana"],
+  ["Juan", "Fede", "4ta", "Masculino", "Viernes hasta las 18"],
+  ["Vale", "Fran", "3ra", "Mixto", "No puede sábado"],
+  ["Nico", "Gonza", "2da", "Masculino", "Sábado antes de las 12"],
+  ["Pau", "Flor", "1ra", "Damas", "Viernes y sábado después de las 17"],
+  ["Marti", "Cami", "suma 12", "Mixto", "Viernes después de las 18 o sábado después de las 10"],
+] as const;
 const IMPORT_PAIRS_TOOLTIP =
   "La forma mas rapida de cargar parejas, desde un archivo tipo Excel.";
 
@@ -313,11 +319,7 @@ export default function TournamentDetailPage() {
   const [editScheduleConstraints, setEditScheduleConstraints] = useState("");
   const [editPairHasScheduleRestrictions, setEditPairHasScheduleRestrictions] = useState(false);
 
-  const categories = ["8va","7ma", "6ta", "5ta", "4ta", "3ra", "2da", "1ra"];
-  const genders = [
-    { value: "masculino", label: "Masculino" },
-    { value: "damas", label: "Damas" },
-  ];
+  const genders = GENDER_OPTIONS;
 
 
 function hydrateTeams(rawTeams: Team[], players: Player[]): UiTeam[] {
@@ -541,10 +543,11 @@ async function load(options?: { silent?: boolean }) {
 
   async function saveEditPair() {
     if (!editTeamId || !editP1Id || !editP2Id) return;
+    const normalizedEditPairCategory = normalizeCategoryValue(editPairCategory);
     if (
       !editP1FirstName.trim() ||
       !editP2FirstName.trim() ||
-      !editPairCategory ||
+      !normalizedEditPairCategory ||
       !editPairGender
     ) {
       setEditPairError("Completa los datos de ambos jugadores.");
@@ -568,14 +571,14 @@ async function load(options?: { silent?: boolean }) {
                 player_id: editP1Id,
                 first_name: editP1FirstName.trim(),
                 last_name: editP1LastName.trim(),
-                category: editPairCategory,
+                category: normalizedEditPairCategory,
                 gender: editPairGender,
               },
               {
                 player_id: editP2Id,
                 first_name: editP2FirstName.trim(),
                 last_name: editP2LastName.trim(),
-                category: editPairCategory,
+                category: normalizedEditPairCategory,
                 gender: editPairGender,
               },
             ],
@@ -618,10 +621,11 @@ async function load(options?: { silent?: boolean }) {
   }
 
   async function createPair() {
+    const normalizedPairCategory = normalizeCategoryValue(pairCategory);
     if (
       !p1FirstName.trim() ||
       !p2FirstName.trim() ||
-      !pairCategory ||
+      !normalizedPairCategory ||
       !pairGender
     ) {
       setPairError("Completa los datos de ambos jugadores.");
@@ -641,13 +645,13 @@ async function load(options?: { silent?: boolean }) {
         {
           id: tempId * 10 - 1,
           name: p1FirstName.trim(),
-          category: pairCategory,
+          category: normalizedPairCategory,
           gender: pairGender,
         },
         {
           id: tempId * 10 - 2,
           name: p2FirstName.trim(),
-          category: pairCategory,
+          category: normalizedPairCategory,
           gender: pairGender,
         },
       ],
@@ -666,12 +670,12 @@ async function load(options?: { silent?: boolean }) {
           body: {
             player1: {
               first_name: p1FirstName.trim(),
-              category: pairCategory,
+              category: normalizedPairCategory,
               gender: pairGender,
             },
             player2: {
               first_name: p2FirstName.trim(),
-              category: pairCategory,
+              category: normalizedPairCategory,
               gender: pairGender,
             },
             schedule_constraints:
@@ -717,38 +721,16 @@ async function load(options?: { silent?: boolean }) {
   }
 
   function normalizeGender(value: string) {
-    const normalized = value.trim().toLowerCase();
-    if (["damas", "femenino", "mujer", "f"].includes(normalized)) return "damas";
-    if (["masculino", "caballeros", "hombre", "m"].includes(normalized)) {
-      return "masculino";
-    }
-    return normalized;
+    return normalizeGenderValue(value);
   }
   function normalizeCategory(value: string) {
-    const normalized = value.trim().toLowerCase();
-    if (!normalized) return "";
-    const digitMatch = normalized.match(/\d+/);
-    if (!digitMatch) return normalized;
-    const categoryMap: Record<string, string> = {
-      "1": "1ra",
-      "2": "2da",
-      "3": "3ra",
-      "4": "4ta",
-      "5": "5ta",
-      "6": "6ta",
-      "7": "7ma",
-      "8": "8va",
-    };
-    if (normalized === digitMatch[0]) {
-      return categoryMap[digitMatch[0]] ?? normalized;
-    }
-    return categoryMap[digitMatch[0]] ?? normalized;
+    return normalizeCategoryValue(value);
   }
 
   function downloadImportTemplate() {
     const rows = [
       IMPORT_TEMPLATE_HEADERS.join(","),
-      IMPORT_TEMPLATE_SAMPLE.join(","),
+      ...IMPORT_TEMPLATE_SAMPLE_ROWS.map((row) => row.join(",")),
     ].join("\n");
     const blob = new Blob([rows], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
@@ -1424,18 +1406,30 @@ async function load(options?: { silent?: boolean }) {
                 <div className="text-sm font-medium text-zinc-900">
                   Categoría
                 </div>
-                <select
-                  className="w-full rounded-xl border border-zinc-300 bg-zinc-50 px-3 py-2 text-sm text-zinc-900 shadow-sm focus:border-zinc-900 focus:outline-none focus:ring-2 focus:ring-zinc-900/20"
+                <Input
                   value={pairCategory}
                   onChange={(e) => setPairCategory(e.target.value)}
-                >
-                  <option value="">Seleccionar categoría</option>
-                  {categories.map((c) => (
-                    <option key={c} value={c}>
-                      {c}
-                    </option>
-                  ))}
-                </select>
+                  placeholder="Ej: 4ta o suma 12"
+                />
+                <div className="flex flex-wrap gap-2">
+                  {CATEGORY_SUGGESTIONS.map((category) => {
+                    const active = normalizeCategoryValue(pairCategory) === category;
+                    return (
+                      <button
+                        key={`pair-category-${category}`}
+                        type="button"
+                        onClick={() => setPairCategory(category)}
+                        className={`rounded-full border px-3 py-1 text-xs font-medium transition ${
+                          active
+                            ? "border-zinc-900 bg-zinc-900 text-white"
+                            : "border-zinc-200 bg-zinc-50 text-zinc-700 hover:border-zinc-300 hover:bg-zinc-100"
+                        }`}
+                      >
+                        {category}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
 
               <div className="space-y-2">
@@ -1527,18 +1521,30 @@ async function load(options?: { silent?: boolean }) {
                 <div className="text-sm font-medium text-zinc-900">
                   Categoría
                 </div>
-                <select
-                  className="w-full rounded-xl border border-zinc-300 bg-zinc-50 px-3 py-2 text-sm text-zinc-900 shadow-sm focus:border-zinc-900 focus:outline-none focus:ring-2 focus:ring-zinc-900/20"
+                <Input
                   value={editPairCategory}
                   onChange={(e) => setEditPairCategory(e.target.value)}
-                >
-                  <option value="">Seleccionar categoría</option>
-                  {categories.map((c) => (
-                    <option key={c} value={c}>
-                      {c}
-                    </option>
-                  ))}
-                </select>
+                  placeholder="Ej: 4ta o suma 12"
+                />
+                <div className="flex flex-wrap gap-2">
+                  {CATEGORY_SUGGESTIONS.map((category) => {
+                    const active = normalizeCategoryValue(editPairCategory) === category;
+                    return (
+                      <button
+                        key={`edit-pair-category-${category}`}
+                        type="button"
+                        onClick={() => setEditPairCategory(category)}
+                        className={`rounded-full border px-3 py-1 text-xs font-medium transition ${
+                          active
+                            ? "border-zinc-900 bg-zinc-900 text-white"
+                            : "border-zinc-200 bg-zinc-50 text-zinc-700 hover:border-zinc-300 hover:bg-zinc-100"
+                        }`}
+                      >
+                        {category}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
 
               <div className="space-y-2">
