@@ -10,6 +10,7 @@ import Input from "@/components/ui/Input";
 import Modal from "@/components/ui/Modal";
 import { api, ApiError } from "@/lib/api";
 import { clearToken } from "@/lib/auth";
+import { genderLabel } from "@/lib/gender";
 import { isMatchAllowedByConstraints } from "@/lib/scheduleConstraints";
 import type {
   Match,
@@ -1372,7 +1373,7 @@ export default function TournamentMatchesPage() {
                       <option value="all">Todos (genero)</option>
                       {genders.map((gender) => (
                         <option key={gender} value={gender}>
-                          {gender === "damas" ? "Damas" : "Masculino"}
+                          {genderLabel(gender)}
                         </option>
                       ))}
                     </select>

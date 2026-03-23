@@ -6,6 +6,7 @@ import Card from "@/components/ui/Card";
 import Input from "@/components/ui/Input";
 import StatusBadge from "@/components/StatusBadge";
 import { api } from "@/lib/api";
+import { genderLabel } from "@/lib/gender";
 import type {
   GroupStandingsOut,
   Match,
@@ -441,7 +442,7 @@ export default function PublicTournamentPage() {
     const category = team?.players?.[0]?.category ?? null;
     const gender = team?.players?.[0]?.gender ?? null;
     if (!category || !gender) return null;
-    return `${category} - ${gender === "damas" ? "Damas" : "Masculino"}`;
+    return `${category} - ${genderLabel(gender)}`;
   }
   function hasDefinedTeams(match: Match): match is Match & { team_a_id: number; team_b_id: number } {
     return typeof match.team_a_id === "number" && typeof match.team_b_id === "number";
@@ -451,7 +452,7 @@ export default function PublicTournamentPage() {
       const category = team.players?.[0]?.category ?? null;
       const gender = team.players?.[0]?.gender ?? null;
       if (!category || !gender) continue;
-      return `${category} - ${gender === "damas" ? "Damas" : "Masculino"}`;
+      return `${category} - ${genderLabel(gender)}`;
     }
     return null;
   }
@@ -462,7 +463,7 @@ export default function PublicTournamentPage() {
       const category = team.players?.[0]?.category ?? null;
       const gender = team.players?.[0]?.gender ?? null;
       if (!category || !gender) return;
-      values.add(`${category} - ${gender === "damas" ? "Damas" : "Masculino"}`);
+      values.add(`${category} - ${genderLabel(gender)}`);
     });
     return Array.from(values).sort();
   }, [teams]);
@@ -477,7 +478,7 @@ export default function PublicTournamentPage() {
             team.players?.[0]?.gender ?? fallbackTeam?.players?.[0]?.gender ?? null;
           if (!category || !gender) return false;
           if (divisionFilter === "all") return true;
-          const label = `${category} - ${gender === "damas" ? "Damas" : "Masculino"}`;
+          const label = `${category} - ${genderLabel(gender)}`;
           return label === divisionFilter;
         }).length;
         return {
@@ -505,7 +506,7 @@ export default function PublicTournamentPage() {
           const category = team.players?.[0]?.category ?? null;
           const gender = team.players?.[0]?.gender ?? null;
           if (!category || !gender) return false;
-          const label = `${category} - ${gender === "damas" ? "Damas" : "Masculino"}`;
+          const label = `${category} - ${genderLabel(gender)}`;
           return label === divisionFilter;
         });
       if (!matchesDivision) return false;
@@ -520,7 +521,7 @@ export default function PublicTournamentPage() {
     const normalized = query.trim().toLowerCase();
     const matchDivision = (match: Match) => {
       if (match.category && match.gender) {
-        return `${match.category} - ${match.gender === "damas" ? "Damas" : "Masculino"}`;
+        return `${match.category} - ${genderLabel(match.gender)}`;
       }
       return getTeamDivision(match.team_a_id) ?? getTeamDivision(match.team_b_id);
     };
@@ -556,7 +557,7 @@ export default function PublicTournamentPage() {
   const groupedDivisions = useMemo(() => {
     const matchDivision = (match: Match) => {
       if (match.category && match.gender) {
-        return `${match.category} - ${match.gender === "damas" ? "Damas" : "Masculino"}`;
+        return `${match.category} - ${genderLabel(match.gender)}`;
       }
       return getTeamDivision(match.team_a_id) ?? getTeamDivision(match.team_b_id);
     };
