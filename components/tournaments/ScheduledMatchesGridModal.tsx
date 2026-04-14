@@ -37,6 +37,7 @@ type ScheduledMatchesGridModalProps = {
   open: boolean;
   onClose: () => void;
   scheduledMatches: Match[];
+  durationMinutes?: number;
   onMatchSelect: (match: Match) => void;
   getStageLabel: (match: Match) => string;
   getMatchCode: (match: Match) => string;
@@ -165,11 +166,56 @@ const CATEGORY_COLORS: CategoryColor[] = [
   },
 ];
 
+const GRID_SLOT_HEIGHT_PX = 38;
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function normalizeTime(value?: string | null) {
   if (!value) return "";
   return value.slice(0, 5);
+}
+
+function parseTimeToMinutes(value?: string | null) {
+  const normalized = normalizeTime(value);
+  if (!normalized) return null;
+  const [hours, minutes] = normalized.split(":").map(Number);
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null;
+  return hours * 60 + minutes;
+}
+
+function formatMinutesAsTime(totalMinutes: number) {
+  const normalizedMinutes = ((totalMinutes % (24 * 60)) + 24 * 60) % (24 * 60);
+  const hours = String(Math.floor(normalizedMinutes / 60)).padStart(2, "0");
+  const minutes = String(normalizedMinutes % 60).padStart(2, "0");
+  return `${hours}:${minutes}`;
+}
+
+function buildContinuousTimeSlots(
+  times: string[],
+  durationMinutes: number,
+  stepMinutes = 30
+) {
+  const minuteValues = times
+    .map((time) => parseTimeToMinutes(time))
+    .filter((value): value is number => value !== null)
+    .sort((a, b) => a - b);
+
+  if (minuteValues.length === 0) return [];
+
+  const firstSlot = Math.floor(minuteValues[0] / stepMinutes) * stepMinutes;
+  const lastEndMinute = minuteValues[minuteValues.length - 1] + Math.max(1, durationMinutes);
+  const lastSlot = Math.ceil(lastEndMinute / stepMinutes) * stepMinutes;
+  const slots: string[] = [];
+
+  for (let minutes = firstSlot; minutes <= lastSlot; minutes += stepMinutes) {
+    slots.push(formatMinutesAsTime(minutes));
+  }
+
+  return slots;
+}
+
+function resolveMatchDurationSlots(durationMinutes: number, stepMinutes = 30) {
+  return Math.max(1, Math.ceil(durationMinutes / stepMinutes));
 }
 
 function toLocalIsoDate(date: Date) {
@@ -264,9 +310,11 @@ function DraggableMatchCard({
   isDragEnabled,
   onMatchSelect,
   isMutating,
+  compact = false,
 }: MatchCardContentProps & {
   onMatchSelect: (m: Match) => void;
   isMutating: boolean;
+  compact?: boolean;
 }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: `match::${match.id}`,
@@ -287,9 +335,9 @@ function DraggableMatchCard({
         borderColor: color.cardBorder,
         borderLeftColor: color.accent,
       }}
-      className="group relative w-full rounded-xl border border-l-4 text-left text-xs text-zinc-700 shadow-sm"
+      className="group relative flex h-full w-full flex-col rounded-xl border border-l-4 text-left text-xs text-zinc-700 shadow-sm"
     >
-      <div className="flex items-start gap-1.5 p-2">
+      <div className={`flex h-full items-start gap-1.5 ${compact ? "p-1.5" : "p-2"}`}>
         {isDragEnabled && (
           <button
             type="button"
@@ -306,13 +354,16 @@ function DraggableMatchCard({
           type="button"
           onClick={() => onMatchSelect(match)}
           className="min-w-0 flex-1 text-left"
+          style={{ height: "100%" }}
         >
           <div className="flex flex-wrap items-center gap-1.5">
-            <div className="text-[10px] uppercase tracking-wide text-zinc-500">
+            <div
+              className={`${compact ? "text-[9px]" : "text-[10px]"} uppercase tracking-wide text-zinc-500`}
+            >
               {getStageLabel(match)} · {getMatchCode(match)}
             </div>
             <span
-              className="rounded-full border px-1.5 py-0.5 text-[10px] font-semibold"
+              className={`rounded-full border px-1.5 py-0.5 ${compact ? "text-[9px]" : "text-[10px]"} font-semibold`}
               style={{
                 backgroundColor: color.badgeBackground,
                 borderColor: color.badgeBorder,
@@ -322,7 +373,9 @@ function DraggableMatchCard({
               {categoryLabel}
             </span>
           </div>
-          <div className="mt-1 text-sm font-medium text-zinc-900 leading-tight">
+          <div
+            className={`mt-1 ${compact ? "text-xs" : "text-sm"} font-medium text-zinc-900 leading-tight`}
+          >
             {getMatchTeamsLabel(match)}
           </div>
         </button>
@@ -392,13 +445,13 @@ function DroppableCell({
   courtKey,
   rowClass,
   isDragEnabled,
-  children,
+  style,
 }: {
   time: string;
   courtKey: string;
   rowClass: string;
   isDragEnabled: boolean;
-  children: React.ReactNode;
+  style?: React.CSSProperties;
 }) {
   const { isOver, setNodeRef } = useDroppable({
     id: `cell::${time}::${courtKey}`,
@@ -408,15 +461,15 @@ function DroppableCell({
   return (
     <div
       ref={setNodeRef}
-      className={`min-h-[92px] rounded-2xl border-2 p-2 transition-all duration-150 ${
+      style={style}
+      className={`min-h-[38px] rounded-xl border p-1 transition-all duration-150 ${
         isOver
           ? "border-emerald-400 bg-emerald-50/60 ring-2 ring-emerald-200 ring-offset-1"
           : `border-zinc-200 ${rowClass}`
       }`}
     >
-      {children}
       {isOver && (
-        <div className="mt-1.5 flex h-8 items-center justify-center rounded-xl border border-dashed border-emerald-400 text-xs text-emerald-600">
+        <div className="mt-1 flex h-6 items-center justify-center rounded-lg border border-dashed border-emerald-400 text-[11px] text-emerald-600">
           Soltar aquí ↓
         </div>
       )}
@@ -561,6 +614,7 @@ export default function ScheduledMatchesGridModal({
   open,
   onClose,
   scheduledMatches,
+  durationMinutes = 90,
   onMatchSelect,
   getStageLabel,
   getMatchCode,
@@ -677,13 +731,14 @@ export default function ScheduledMatchesGridModal({
   );
 
   const gridData = useMemo(() => {
-    const times = Array.from(
+    const scheduledTimes = Array.from(
       new Set(
         gridMatchesForDateBase
           .map((match) => normalizeTime(match.scheduled_time))
           .filter(Boolean)
       )
     ).sort();
+    const times = buildContinuousTimeSlots(scheduledTimes, durationMinutes, 30);
     const courts = Array.from(
       new Set(gridMatchesForDateBase.map((match) => match.court_number ?? -1))
     )
@@ -695,6 +750,7 @@ export default function ScheduledMatchesGridModal({
       }));
     const map = new Map<string, Map<string, Match[]>>();
     const fullMap = new Map<string, Map<string, Match[]>>();
+    const timeIndexMap = new Map(times.map((time, index) => [time, index]));
 
     const addMatchToMap = (sourceMap: Map<string, Map<string, Match[]>>, match: Match) => {
       const timeKey = normalizeTime(match.scheduled_time);
@@ -716,8 +772,13 @@ export default function ScheduledMatchesGridModal({
       courtMap.forEach((matchesInCell) => matchesInCell.sort((a, b) => a.id - b.id));
     });
 
-    return { times, courts, map, fullMap };
-  }, [gridMatchesForDateBase, gridMatchesForDate]);
+    return { times, courts, map, fullMap, timeIndexMap };
+  }, [gridMatchesForDateBase, gridMatchesForDate, durationMinutes]);
+
+  const matchDurationSlots = useMemo(
+    () => resolveMatchDurationSlots(durationMinutes, 30),
+    [durationMinutes]
+  );
 
   const shiftGridDateBy = (days: number) => {
     setGridDateFilter((prev) => {
@@ -949,6 +1010,7 @@ export default function ScheduledMatchesGridModal({
                       className="grid gap-2 p-3"
                       style={{
                         gridTemplateColumns: `110px repeat(${gridData.courts.length}, minmax(240px, 1fr))`,
+                        gridTemplateRows: `auto repeat(${gridData.times.length}, ${GRID_SLOT_HEIGHT_PX}px)`,
                       }}
                     >
                       <div className="sticky top-0 z-10 rounded-lg bg-white/95 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-zinc-400">
@@ -970,21 +1032,16 @@ export default function ScheduledMatchesGridModal({
                       ))}
 
                       {gridData.times.map((slotTime, rowIdx) => {
-                        const rowClass = rowIdx % 2 === 0 ? "bg-white" : "bg-zinc-50";
+                        const rowClass = "bg-white";
                         return (
                           <Fragment key={`row-${slotTime}`}>
                             <div
+                              style={{ gridColumn: 1, gridRow: rowIdx + 2 }}
                               className={`rounded-lg px-2 py-1 text-sm font-medium text-zinc-700 ${rowClass}`}
                             >
                               {slotTime}
                             </div>
                             {gridData.courts.map((court) => {
-                              const allMatchesInCell =
-                                gridData.fullMap.get(slotTime)?.get(court.key) ?? [];
-                              const matchesInCell =
-                                gridData.map.get(slotTime)?.get(court.key) ?? [];
-                              const hiddenMatchesCount =
-                                allMatchesInCell.length - matchesInCell.length;
                               return (
                                 <DroppableCell
                                   key={`cell-${slotTime}-${court.key}`}
@@ -992,53 +1049,93 @@ export default function ScheduledMatchesGridModal({
                                   courtKey={court.key}
                                   rowClass={rowClass}
                                   isDragEnabled={isDragEnabled}
-                                >
-                                  {matchesInCell.length === 0 ? (
-                                    <div className="flex h-full min-h-[68px] items-center justify-center rounded-xl border border-dashed border-zinc-200 text-xs text-zinc-400">
-                                      {hiddenMatchesCount > 0
-                                        ? "Ocultos por filtro"
-                                        : isDragEnabled
-                                        ? "Arrastrá aquí"
-                                        : "Sin partidos"}
-                                    </div>
-                                  ) : (
-                                    <div className="space-y-2">
-                                      {matchesInCell.map((match) => {
-                                        const category = resolveCategoryLabel(
-                                          match,
-                                          getMatchCategoryLabel
-                                        );
-                                        const color =
-                                          categoryColorMap.get(category) ?? CATEGORY_COLORS[0];
-                                        return (
-                                          <DraggableMatchCard
-                                            key={match.id}
-                                            match={match}
-                                            categoryColor={color}
-                                            categoryLabel={category}
-                                            getStageLabel={getStageLabel}
-                                            getMatchCode={getMatchCode}
-                                            getMatchTeamsLabel={getMatchTeamsLabel}
-                                            isDragEnabled={isDragEnabled}
-                                            onMatchSelect={onMatchSelect}
-                                            isMutating={confirming}
-                                          />
-                                        );
-                                      })}
-                                      {hiddenMatchesCount > 0 && (
-                                        <div className="px-1 text-[11px] text-zinc-400">
-                                          {hiddenMatchesCount} oculto
-                                          {hiddenMatchesCount === 1 ? "" : "s"} por filtro
-                                        </div>
-                                      )}
-                                    </div>
-                                  )}
-                                </DroppableCell>
+                                  style={{
+                                    gridColumn: gridData.courts.indexOf(court) + 2,
+                                    gridRow: rowIdx + 2,
+                                  }}
+                                />
                               );
                             })}
                           </Fragment>
                         );
                       })}
+                      {gridData.courts.flatMap((court, courtIdx) =>
+                        gridData.times.flatMap((slotTime) => {
+                          const allMatchesInCell =
+                            gridData.fullMap.get(slotTime)?.get(court.key) ?? [];
+                          const matchesInCell =
+                            gridData.map.get(slotTime)?.get(court.key) ?? [];
+                          const hiddenMatchesCount =
+                            allMatchesInCell.length - matchesInCell.length;
+                          const rowIndex = gridData.timeIndexMap.get(slotTime);
+
+                          if (rowIndex === undefined) return [];
+
+                          const nodes: React.ReactNode[] = [];
+
+                          if (matchesInCell.length > 0) {
+                            nodes.push(
+                              ...matchesInCell.map((match) => {
+                                const category = resolveCategoryLabel(
+                                  match,
+                                  getMatchCategoryLabel
+                                );
+                                const color =
+                                  categoryColorMap.get(category) ?? CATEGORY_COLORS[0];
+
+                                return (
+                                  <div
+                                    key={`match-card-${match.id}`}
+                                    style={{
+                                      gridColumn: courtIdx + 2,
+                                      gridRow: `${rowIndex + 2} / span ${matchDurationSlots}`,
+                                    }}
+                                    className="z-20 p-1"
+                                  >
+                                    <div className="h-full overflow-hidden">
+                                      <DraggableMatchCard
+                                        match={match}
+                                        categoryColor={color}
+                                        categoryLabel={category}
+                                        getStageLabel={getStageLabel}
+                                        getMatchCode={getMatchCode}
+                                        getMatchTeamsLabel={getMatchTeamsLabel}
+                                        isDragEnabled={isDragEnabled}
+                                        onMatchSelect={onMatchSelect}
+                                        isMutating={confirming}
+                                        compact={matchDurationSlots <= 2}
+                                      />
+                                    </div>
+                                  </div>
+                                );
+                              })
+                            );
+                          } else if (hiddenMatchesCount > 0) {
+                            nodes.push(
+                              <div
+                                key={`hidden-${slotTime}-${court.key}`}
+                                style={{ gridColumn: courtIdx + 2, gridRow: rowIndex + 2 }}
+                                className="z-10 flex min-h-[38px] items-center justify-center px-2 text-center text-[11px] text-zinc-400"
+                              >
+                                {hiddenMatchesCount} oculto
+                                {hiddenMatchesCount === 1 ? "" : "s"} por filtro
+                              </div>
+                            );
+                          } else if (!isDragEnabled) {
+                            nodes.push(
+                              <div
+                                key={`empty-${slotTime}-${court.key}`}
+                                style={{ gridColumn: courtIdx + 2, gridRow: rowIndex + 2 }}
+                                className="z-10 flex min-h-[38px] items-center justify-center px-2 text-center text-[11px] text-zinc-400"
+                              >
+                                Sin partidos
+                              </div>
+                            );
+                          }
+
+                          return nodes;
+                        })
+                      )}
                     </div>
                   </div>
                 )}
