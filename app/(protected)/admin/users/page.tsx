@@ -1,12 +1,13 @@
 "use client";
 
+import Image from "next/image";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Card from "@/components/ui/Card";
 import Input from "@/components/ui/Input";
 import Button from "@/components/ui/Button";
 import Modal from "@/components/ui/Modal";
-import { api, ApiError } from "@/lib/api";
+import { api, ApiError, getErrorMessage } from "@/lib/api";
 import { clearToken } from "@/lib/auth";
 import type { AdminPayment, AdminUser } from "@/lib/types";
 
@@ -61,7 +62,7 @@ export default function AdminUsersPage() {
     try {
       const data = await api<AdminUser[]>("/admin/users");
       setUsers(data);
-    } catch (err: any) {
+    } catch (err: unknown) {
       if (err instanceof ApiError && err.status === 401) {
         clearToken();
         router.replace("/login");
@@ -71,7 +72,7 @@ export default function AdminUsersPage() {
         setForbidden(true);
         return;
       }
-      setError(err?.message ?? "No se pudo cargar usuarios");
+      setError(getErrorMessage(err, "No se pudo cargar usuarios"));
     } finally {
       setLoading(false);
     }
@@ -105,8 +106,8 @@ export default function AdminUsersPage() {
       setClubLocation("");
       setClubLogoUrl("");
       setCreateOpen(false);
-    } catch (err: any) {
-      setError(err?.message ?? "No se pudo crear usuario");
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, "No se pudo crear usuario"));
     } finally {
       setCreating(false);
     }
@@ -140,8 +141,8 @@ export default function AdminUsersPage() {
       setEditClubLocation("");
       setEditClubLogoUrl("");
       setEditStatusOverride("");
-    } catch (err: any) {
-      setError(err?.message ?? "No se pudo actualizar usuario");
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, "No se pudo actualizar usuario"));
     } finally {
       setSavingId(null);
     }
@@ -154,8 +155,8 @@ export default function AdminUsersPage() {
     try {
       await api<void>(`/admin/users/${id}`, { method: "DELETE" });
       setUsers((prev) => prev.filter((u) => u.id !== id));
-    } catch (err: any) {
-      setError(err?.message ?? "No se pudo eliminar usuario");
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, "No se pudo eliminar usuario"));
     }
   }
 
@@ -168,7 +169,7 @@ export default function AdminUsersPage() {
       const data = await api<AdminPayment[]>("/admin/payments");
       setPayments(data);
       setPaymentsLoaded(true);
-    } catch (err: any) {
+    } catch (err: unknown) {
       if (err instanceof ApiError && err.status === 401) {
         clearToken();
         router.replace("/login");
@@ -178,7 +179,7 @@ export default function AdminUsersPage() {
         setForbidden(true);
         return;
       }
-      setPaymentsError(err?.message ?? "No se pudieron cargar pagos");
+      setPaymentsError(getErrorMessage(err, "No se pudieron cargar pagos"));
     } finally {
       setPaymentsLoading(false);
     }
@@ -428,12 +429,14 @@ export default function AdminUsersPage() {
                     </div>
                   ) : (
                     <div className="flex items-start gap-3">
-                      <div className="h-14 w-14 shrink-0 overflow-hidden rounded-xl border border-zinc-200 bg-zinc-50">
+                      <div className="relative h-14 w-14 shrink-0 overflow-hidden rounded-xl border border-zinc-200 bg-zinc-50">
                         {user.club_logo_url ? (
-                          <img
+                          <Image
                             src={user.club_logo_url}
                             alt={user.club_name || user.email}
-                            className="h-full w-full object-cover"
+                            fill
+                            sizes="56px"
+                            className="object-cover"
                           />
                         ) : (
                           <div className="flex h-full w-full items-center justify-center text-[10px] font-medium text-zinc-400">

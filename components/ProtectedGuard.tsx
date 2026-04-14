@@ -1,33 +1,35 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { getIsAdmin, getToken } from "@/lib/auth";
 
 export default function ProtectedGuard({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
-  const [ready, setReady] = useState(false);
-
-  useEffect(() => {
+  const redirectPath = useMemo(() => {
     const token = getToken();
     if (!token) {
-      router.replace(`/login?next=${encodeURIComponent(pathname)}`);
-      return;
+      return `/login?next=${encodeURIComponent(pathname)}`;
     }
+
     const isAdmin = getIsAdmin();
     if (isAdmin && !pathname.startsWith("/admin")) {
-      router.replace("/admin");
-      return;
+      return "/admin";
     }
     if (!isAdmin && pathname.startsWith("/admin")) {
-      router.replace("/dashboard");
-      return;
+      return "/dashboard";
     }
-    setReady(true);
-  }, [pathname, router]);
 
-  if (!ready) {
+    return null;
+  }, [pathname]);
+
+  useEffect(() => {
+    if (!redirectPath) return;
+    router.replace(redirectPath);
+  }, [redirectPath, router]);
+
+  if (redirectPath) {
     return (
       <div className="min-h-screen grid place-items-center">
         <div className="text-sm text-zinc-600">Cargando...</div>

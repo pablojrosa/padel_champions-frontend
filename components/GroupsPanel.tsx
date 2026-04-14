@@ -19,7 +19,7 @@ import {
 import { useDraggable, useDroppable } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
 import ZonesDragModal from "@/components/ZonesDragModal";
-import { api } from "@/lib/api";
+import { api, getErrorMessage } from "@/lib/api";
 import type {
   GenerateGroupsResponse,
   Team,
@@ -35,18 +35,6 @@ function getTeamCategory(team: Team) {
 
 function getTeamGender(team: Team) {
   return team.players[0]?.gender ?? null;
-}
-
-function getDivisionLabel(team: Team) {
-  const category = getTeamCategory(team) ?? "Sin categoria";
-  const gender = getTeamGender(team);
-  const genderLabel =
-    gender === "damas"
-      ? "Damas"
-      : gender === "masculino"
-      ? "Masculino"
-      : gender ?? "Sin genero";
-  return `${category} - ${genderLabel}`;
 }
 
 // ─── Panel DnD sub-components ─────────────────────────────────────────────────
@@ -372,6 +360,22 @@ const GroupsPanel = forwardRef<GroupsPanelHandle, Props>(function GroupsPanel({
     [disabled, generating, aiEnabled]
   );
 
+  const initialDivisionTeamsPerGroup = useMemo(() => {
+    const initial: Record<string, number> = {};
+    teams.forEach((team) => {
+      const cat = team.players[0]?.category ?? "sin_categoria";
+      const gen = team.players[0]?.gender ?? "sin_genero";
+      const key = `${cat}::${gen}`;
+      if (!(key in initial)) {
+        initial[key] =
+          teamsPerGroup >= MIN_TEAMS_PER_GROUP
+            ? teamsPerGroup
+            : MIN_TEAMS_PER_GROUP;
+      }
+    });
+    return initial;
+  }, [teams, teamsPerGroup]);
+
   useEffect(() => {
     if (!generateOpen) return;
     setGenerateScheduleWindows([
@@ -381,17 +385,7 @@ const GroupsPanel = forwardRef<GroupsPanelHandle, Props>(function GroupsPanel({
     setGenerateCourtsCount(defaultCourtsCount);
     setGenerateError(null);
     setGenerateSuccess(null);
-    // Initialize per-division teams_per_group from registered teams
-    const initial: Record<string, number> = {};
-    teams.forEach((team) => {
-      const cat = team.players[0]?.category ?? "sin_categoria";
-      const gen = team.players[0]?.gender ?? "sin_genero";
-      const key = `${cat}::${gen}`;
-      if (!(key in initial)) {
-        initial[key] = teamsPerGroup >= MIN_TEAMS_PER_GROUP ? teamsPerGroup : MIN_TEAMS_PER_GROUP;
-      }
-    });
-    setDivisionTeamsPerGroup(initial);
+    setDivisionTeamsPerGroup(initialDivisionTeamsPerGroup);
   }, [
     generateOpen,
     defaultStartDate,
@@ -399,8 +393,7 @@ const GroupsPanel = forwardRef<GroupsPanelHandle, Props>(function GroupsPanel({
     defaultEndTime,
     defaultMatchDurationMinutes,
     defaultCourtsCount,
-    // intentionally omit teams and teamsPerGroup: only initialize on open
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    initialDivisionTeamsPerGroup,
   ]);
   useEffect(() => {
     if (Number.isFinite(teamsPerGroup) && teamsPerGroup >= MIN_TEAMS_PER_GROUP) {
@@ -463,14 +456,6 @@ const GroupsPanel = forwardRef<GroupsPanelHandle, Props>(function GroupsPanel({
 
   function removeScheduleWindow(index: number) {
     setGenerateScheduleWindows((prev) => prev.filter((_, idx) => idx !== index));
-  }
-
-  function decrementTeamsPerGroup() {
-    setTeamsPerGroup(Math.max(MIN_TEAMS_PER_GROUP, teamsPerGroup - 1));
-  }
-
-  function incrementTeamsPerGroup() {
-    setTeamsPerGroup(Math.min(maxTeamsPerGroup, teamsPerGroup + 1));
   }
 
   // Per-division helpers for the AI modal
@@ -659,11 +644,6 @@ const GroupsPanel = forwardRef<GroupsPanelHandle, Props>(function GroupsPanel({
       detail: `Hay margen de ${extraSlots} slots sobre los partidos requeridos.`,
     };
   }, [requiredMatches, availableSlots]);
-  const maxTeamsPerGroup = useMemo(
-    () => Math.max(MIN_TEAMS_PER_GROUP, teams.length || 0),
-    [teams.length]
-  );
-
   const allTeams = useMemo(() => {
     return groups.flatMap((group) =>
       group.teams.map((team) => ({
@@ -720,8 +700,8 @@ const GroupsPanel = forwardRef<GroupsPanelHandle, Props>(function GroupsPanel({
         `/tournaments/${tournamentId}/groups`
       );
       setGroups(updatedGroups);
-    } catch (err: any) {
-      alert(err?.message ?? "No se pudo quitar el equipo de la zona");
+    } catch (err: unknown) {
+      alert(getErrorMessage(err, "No se pudo quitar el equipo de la zona"));
     } finally {
       setRemoving(null);
     }
@@ -742,8 +722,8 @@ const GroupsPanel = forwardRef<GroupsPanelHandle, Props>(function GroupsPanel({
       });
 
       setGroups((prev) => prev.filter((g) => g.id !== groupId));
-    } catch (err: any) {
-      alert(err?.message ?? "No se pudo eliminar la zona");
+    } catch (err: unknown) {
+      alert(getErrorMessage(err, "No se pudo eliminar la zona"));
     }
   }
 
@@ -767,8 +747,8 @@ const GroupsPanel = forwardRef<GroupsPanelHandle, Props>(function GroupsPanel({
         `/tournaments/${tournamentId}/groups`
       );
       setGroups(updatedGroups);
-    } catch (err: any) {
-      alert(err?.message ?? "No se pudo eliminar la zona");
+    } catch (err: unknown) {
+      alert(getErrorMessage(err, "No se pudo eliminar la zona"));
     } finally {
       setDeletingGroupId(null);
     }
@@ -876,9 +856,9 @@ const GroupsPanel = forwardRef<GroupsPanelHandle, Props>(function GroupsPanel({
         `/tournaments/${tournamentId}/groups`
       );
       setGroups(updatedGroups);
-    } catch (err: any) {
+    } catch (err: unknown) {
       setGroups(prevGroups);
-      setMoveError(err?.message ?? "No se pudo mover el equipo");
+      setMoveError(getErrorMessage(err, "No se pudo mover el equipo"));
     } finally {
       setMoving(false);
     }

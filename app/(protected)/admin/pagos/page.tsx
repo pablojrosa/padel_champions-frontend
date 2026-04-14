@@ -6,7 +6,7 @@ import Card from "@/components/ui/Card";
 import Input from "@/components/ui/Input";
 import Button from "@/components/ui/Button";
 import Modal from "@/components/ui/Modal";
-import { api, ApiError } from "@/lib/api";
+import { api, ApiError, getErrorMessage } from "@/lib/api";
 import { clearToken } from "@/lib/auth";
 import type { AdminPayment, AdminUser } from "@/lib/types";
 
@@ -71,7 +71,7 @@ export default function AdminPaymentsPage() {
       ]);
       setPayments(paymentData);
       setUsers(userData);
-    } catch (err: any) {
+    } catch (err: unknown) {
       if (err instanceof ApiError && err.status === 401) {
         clearToken();
         router.replace("/login");
@@ -81,7 +81,7 @@ export default function AdminPaymentsPage() {
         setForbidden(true);
         return;
       }
-      setError(err?.message ?? "No se pudieron cargar pagos");
+      setError(getErrorMessage(err, "No se pudieron cargar pagos"));
     } finally {
       setLoading(false);
     }
@@ -127,8 +127,8 @@ export default function AdminPaymentsPage() {
       setPayments((prev) => [created, ...prev]);
       setCreateOpen(false);
       resetForm();
-    } catch (err: any) {
-      setError(err?.message ?? "No se pudo crear el pago");
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, "No se pudo crear el pago"));
     } finally {
       setCreating(false);
     }
@@ -163,8 +163,8 @@ export default function AdminPaymentsPage() {
       });
       setPayments((prev) => prev.map((p) => (p.id === id ? updated : p)));
       setEditingId(null);
-    } catch (err: any) {
-      setError(err?.message ?? "No se pudo actualizar el pago");
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, "No se pudo actualizar el pago"));
     } finally {
       setSavingId(null);
     }
@@ -177,8 +177,8 @@ export default function AdminPaymentsPage() {
     try {
       await api<void>(`/admin/payments/${id}`, { method: "DELETE" });
       setPayments((prev) => prev.filter((p) => p.id !== id));
-    } catch (err: any) {
-      setError(err?.message ?? "No se pudo eliminar el pago");
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, "No se pudo eliminar el pago"));
     }
   }
 

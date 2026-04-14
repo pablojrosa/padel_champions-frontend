@@ -67,7 +67,10 @@ function LoginForm() {
       const data: LoginResponse = await res.json();
   
       const isAdmin = Boolean(data.is_admin);
-      setToken(data.access_token, isAdmin);
+      setToken(data.access_token, {
+        isAdmin,
+        expiresAt: data.expires_at ?? null,
+      });
       router.replace(resolvePostAuthPath(isAdmin, next));
     } catch (err: unknown) {
       setError(

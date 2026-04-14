@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import Card from "@/components/ui/Card";
-import { api, ApiError } from "@/lib/api";
+import { api, ApiError, getErrorMessage } from "@/lib/api";
 import { clearToken, getIsAdmin } from "@/lib/auth";
 import type { AdminUser, Player, Tournament } from "@/lib/types";
 
@@ -51,13 +51,13 @@ export default function DashboardPage() {
           tournaments: tournaments.length,
           players: players.length,
         });
-      } catch (err: any) {
+      } catch (err: unknown) {
         if (err instanceof ApiError && err.status === 401) {
           clearToken();
           router.replace("/login");
           return;
         }
-        setError(err?.message ?? "No se pudieron cargar los datos");
+        setError(getErrorMessage(err, "No se pudieron cargar los datos"));
       } finally {
         if (mounted) setLoading(false);
       }
@@ -90,7 +90,7 @@ export default function DashboardPage() {
           );
 
         setExpiringUsers(filtered);
-      } catch (err: any) {
+      } catch (err: unknown) {
         if (err instanceof ApiError && err.status === 401) {
           clearToken();
           router.replace("/login");
@@ -100,7 +100,9 @@ export default function DashboardPage() {
           setExpiringUsers([]);
           return;
         }
-        setExpiringError(err?.message ?? "No se pudieron cargar los vencimientos");
+        setExpiringError(
+          getErrorMessage(err, "No se pudieron cargar los vencimientos")
+        );
       } finally {
         if (mounted) setExpiringLoading(false);
       }

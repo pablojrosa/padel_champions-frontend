@@ -112,6 +112,7 @@ export type LoginResponse = {
   access_token: string;
   token_type: "bearer";
   is_admin?: boolean;
+  expires_at?: string;
 };
 
 export type UserProfile = {
