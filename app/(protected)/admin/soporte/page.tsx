@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import Card from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
 import Input from "@/components/ui/Input";
-import { api, ApiError } from "@/lib/api";
+import { api, ApiError, getErrorMessage } from "@/lib/api";
 import { clearToken } from "@/lib/auth";
 import type {
   SupportMessage,
@@ -66,7 +66,7 @@ export default function AdminSupportPage() {
     try {
       const data = await api<SupportTicket[]>("/admin/support/tickets");
       setTickets(data);
-    } catch (err: any) {
+    } catch (err: unknown) {
       if (err instanceof ApiError && err.status === 401) {
         clearToken();
         router.replace("/login");
@@ -76,7 +76,7 @@ export default function AdminSupportPage() {
         setForbidden(true);
         return;
       }
-      setError(err?.message ?? "No se pudieron cargar los tickets");
+      setError(getErrorMessage(err, "No se pudieron cargar los tickets"));
     } finally {
       setLoading(false);
     }
@@ -121,7 +121,7 @@ export default function AdminSupportPage() {
       setSelected(data);
       setStatusEdit(data.status);
       setTagsEdit(data.tags?.join(", ") ?? "");
-    } catch (err: any) {
+    } catch (err: unknown) {
       if (err instanceof ApiError && err.status === 401) {
         clearToken();
         router.replace("/login");
@@ -131,7 +131,7 @@ export default function AdminSupportPage() {
         setForbidden(true);
         return;
       }
-      setDetailError(err?.message ?? "No se pudo cargar el ticket");
+      setDetailError(getErrorMessage(err, "No se pudo cargar el ticket"));
     } finally {
       setDetailLoading(false);
     }
@@ -158,8 +158,8 @@ export default function AdminSupportPage() {
       );
       setSelected((prev) => (prev ? { ...prev, ...updated } : prev));
       setTickets((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
-    } catch (err: any) {
-      setDetailError(err?.message ?? "No se pudo actualizar el ticket");
+    } catch (err: unknown) {
+      setDetailError(getErrorMessage(err, "No se pudo actualizar el ticket"));
     } finally {
       setSaving(false);
     }
@@ -199,8 +199,8 @@ export default function AdminSupportPage() {
         )
       );
       setReplyBody("");
-    } catch (err: any) {
-      setDetailError(err?.message ?? "No se pudo enviar la respuesta");
+    } catch (err: unknown) {
+      setDetailError(getErrorMessage(err, "No se pudo enviar la respuesta"));
     } finally {
       setSendingReply(false);
     }

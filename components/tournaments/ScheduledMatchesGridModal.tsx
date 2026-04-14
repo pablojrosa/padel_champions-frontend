@@ -524,7 +524,7 @@ function ConfirmRescheduleModal({
                   {pending.constraintViolations.map((v) => (
                     <li key={v.teamLabel} className="text-xs text-orange-700">
                       <span className="font-medium">{v.teamLabel}:</span>{" "}
-                      <span className="italic">"{v.constraint}"</span>
+                      <span className="italic">&quot;{v.constraint}&quot;</span>
                     </li>
                   ))}
                 </ul>

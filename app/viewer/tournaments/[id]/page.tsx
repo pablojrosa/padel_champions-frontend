@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import Image from "next/image";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useParams } from "next/navigation";
 import Card from "@/components/ui/Card";
 import Input from "@/components/ui/Input";
 import StatusBadge from "@/components/StatusBadge";
-import { api } from "@/lib/api";
+import { api, getErrorMessage } from "@/lib/api";
 import { genderLabel } from "@/lib/gender";
 import type {
   GroupStandingsOut,
@@ -360,7 +361,6 @@ export default function PublicTournamentPage() {
     "groups"
   );
   const [collapsedStages, setCollapsedStages] = useState<Record<string, boolean>>({});
-  const [collapsedDivisions, setCollapsedDivisions] = useState<Record<string, boolean>>({});
   const [divisionFilter, setDivisionFilter] = useState<string | "all">("all");
   const [isDescriptionExpanded, setIsDescriptionExpanded] = useState(false);
 
@@ -402,8 +402,8 @@ export default function PublicTournamentPage() {
           if (row) nextStandings[row.group_id] = row;
         });
         setStandingsByGroup(nextStandings);
-      } catch (err: any) {
-        setError(err?.message ?? "No se pudo cargar el torneo");
+      } catch (err: unknown) {
+        setError(getErrorMessage(err, "No se pudo cargar el torneo"));
       } finally {
         setLoading(false);
       }
@@ -424,37 +424,28 @@ export default function PublicTournamentPage() {
     return map;
   }, [groups]);
 
-  function getTeamLabel(teamId?: number | null) {
+  const getTeamLabel = useCallback((teamId?: number | null) => {
     if (typeof teamId !== "number") return "Por definir";
     const team = teamsById.get(teamId);
     if (!team) return `Team #${teamId}`;
     const names = team.players?.map((player) => player.name).filter(Boolean) ?? [];
     if (names.length === 0) return `Team #${teamId}`;
     return names.join(" / ");
-  }
+  }, [teamsById]);
   function getMatchCode(match: Match) {
     return match.match_code ?? String(match.id);
   }
 
-  function getTeamDivision(teamId?: number | null) {
+  const getTeamDivision = useCallback((teamId?: number | null) => {
     if (typeof teamId !== "number") return null;
     const team = teamsById.get(teamId);
     const category = team?.players?.[0]?.category ?? null;
     const gender = team?.players?.[0]?.gender ?? null;
     if (!category || !gender) return null;
     return `${category} - ${genderLabel(gender)}`;
-  }
+  }, [teamsById]);
   function hasDefinedTeams(match: Match): match is Match & { team_a_id: number; team_b_id: number } {
     return typeof match.team_a_id === "number" && typeof match.team_b_id === "number";
-  }
-  function getGroupDivision(group: TournamentGroupOut) {
-    for (const team of group.teams) {
-      const category = team.players?.[0]?.category ?? null;
-      const gender = team.players?.[0]?.gender ?? null;
-      if (!category || !gender) continue;
-      return `${category} - ${genderLabel(gender)}`;
-    }
-    return null;
   }
 
   const divisions = useMemo(() => {
@@ -536,7 +527,7 @@ export default function PublicTournamentPage() {
       if (divisionFilter === "all") return true;
       return matchDivision(match) === divisionFilter;
     });
-  }, [matches, query, divisionFilter, teamsById]);
+  }, [matches, query, divisionFilter, getTeamDivision, getTeamLabel]);
   const hasActiveFilters = query.trim().length > 0 || divisionFilter !== "all";
   const competitionType = (tournament?.competition_type ?? "tournament") as CompetitionType;
   const descriptionText = defaultDescriptionByType[competitionType];
@@ -553,49 +544,6 @@ export default function PublicTournamentPage() {
   useEffect(() => {
     setIsDescriptionExpanded(false);
   }, [descriptionText]);
-
-  const groupedDivisions = useMemo(() => {
-    const matchDivision = (match: Match) => {
-      if (match.category && match.gender) {
-        return `${match.category} - ${genderLabel(match.gender)}`;
-      }
-      return getTeamDivision(match.team_a_id) ?? getTeamDivision(match.team_b_id);
-    };
-    const allowedDivisions =
-      divisionFilter === "all" ? divisions : divisions.filter((division) => division === divisionFilter);
-    const map = new Map<
-      string,
-      { label: string; groups: TournamentGroupOut[]; matches: Match[] }
-    >();
-    allowedDivisions.forEach((label) => {
-      map.set(label, { label, groups: [], matches: [] });
-    });
-
-    filteredGroups.forEach((group) => {
-      const label = getGroupDivision(group);
-      if (!label) return;
-      if (divisionFilter !== "all" && label !== divisionFilter) return;
-      const entry = map.get(label) ?? { label, groups: [], matches: [] };
-      entry.groups.push(group);
-      map.set(label, entry);
-    });
-
-    filteredMatches
-      .filter((match) => match.stage === "group")
-      .forEach((match) => {
-        const label = matchDivision(match);
-        if (!label) return;
-        if (divisionFilter !== "all" && label !== divisionFilter) return;
-        const entry = map.get(label) ?? { label, groups: [], matches: [] };
-        entry.matches.push(match);
-        map.set(label, entry);
-      });
-
-    return Array.from(map.values()).filter(
-      (entry) => entry.groups.length > 0 || entry.matches.length > 0
-    );
-  }, [divisions, divisionFilter, filteredGroups, filteredMatches, teamsById]);
-
   const playoffMatches = useMemo(
     () => matches.filter((match) => match.stage !== "group"),
     [matches]
@@ -730,17 +678,6 @@ export default function PublicTournamentPage() {
   }, [activeStages]);
 
   useEffect(() => {
-    if (groupedDivisions.length === 0) return;
-    setCollapsedDivisions((prev) => {
-      const next: Record<string, boolean> = {};
-      groupedDivisions.forEach((division) => {
-        next[division.label] = prev[division.label] ?? false;
-      });
-      return next;
-    });
-  }, [groupedDivisions]);
-
-  useEffect(() => {
     const normalized = query.trim();
     if (!normalized || activeStages.length === 0) return;
     setCollapsedStages((prev) => {
@@ -790,7 +727,7 @@ export default function PublicTournamentPage() {
     });
 
     return map;
-  }, [activeStages, defaultSeedLabelsByStage, matchesByStage]);
+  }, [activeStages, defaultSeedLabelsByStage, getTeamLabel, matchesByStage]);
 
   const finalWinner = useMemo(() => {
     const finals = matchesByStageAll.get("final") ?? [];
@@ -872,9 +809,12 @@ export default function PublicTournamentPage() {
       <div className="relative flex flex-col gap-4 md:flex-row md:items-center">
         <div className="flex items-center gap-3 pr-20 sm:gap-4 sm:pr-24 md:pr-0">
           {tournament?.club_logo_url ? (
-            <img
+            <Image
               src={tournament.club_logo_url}
               alt={tournament.club_name ?? "Logo del club"}
+              width={56}
+              height={56}
+              sizes="(max-width: 640px) 48px, 56px"
               className="h-12 w-12 rounded-2xl border border-zinc-800 object-cover sm:h-14 sm:w-14"
             />
           ) : null}

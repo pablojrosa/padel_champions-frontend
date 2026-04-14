@@ -7,7 +7,7 @@ import Card from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
 import Input from "@/components/ui/Input";
 import Modal from "@/components/ui/Modal";
-import { api, ApiError } from "@/lib/api";
+import { api, ApiError, getErrorMessage } from "@/lib/api";
 import { clearToken } from "@/lib/auth";
 import { genderLabel } from "@/lib/gender";
 import { isMatchAllowedByConstraints } from "@/lib/scheduleConstraints";
@@ -537,6 +537,15 @@ export default function TournamentPlayoffsPage() {
     teams.forEach((team) => map.set(team.id, team));
     return map;
   }, [teams]);
+  const getTeamLabel = useCallback((teamId?: number | null) => {
+    if (typeof teamId !== "number") return "Por definir";
+    const team = teamsById.get(teamId);
+    if (!team) return `Team #${teamId}`;
+
+    const names = team.players?.map((player) => player.name).filter(Boolean) ?? [];
+    if (names.length === 0) return `Team #${teamId}`;
+    return names.join(" / ");
+  }, [teamsById]);
   const groupsById = useMemo(() => {
     const map = new Map<number, TournamentGroupOut>();
     groups.forEach((group) => map.set(group.id, group));
@@ -1435,7 +1444,7 @@ export default function TournamentPlayoffsPage() {
     });
 
     return map;
-  }, [activeStages, defaultSeedLabelsByStage, manualPreviewLabelBySlotKey, matchesByStage]);
+  }, [activeStages, defaultSeedLabelsByStage, getTeamLabel, manualPreviewLabelBySlotKey, matchesByStage]);
 
   const loadManualSeeds = useCallback(async () => {
     if (!Number.isFinite(tournamentId)) return;
@@ -1514,13 +1523,13 @@ export default function TournamentPlayoffsPage() {
       setTeams(teamsRes);
       setGroups(groupsRes);
       setStatus(statusRes.status);
-    } catch (err: any) {
+    } catch (err: unknown) {
       if (err instanceof ApiError && err.status === 401) {
         clearToken();
         router.replace("/login");
         return;
       }
-      setError(err?.message ?? "No se pudieron cargar los playoffs");
+      setError(getErrorMessage(err, "No se pudieron cargar los playoffs"));
     } finally {
       setLoading(false);
     }
@@ -1535,13 +1544,13 @@ export default function TournamentPlayoffsPage() {
       ]);
       setMatches(matchesRes);
       setStatus(statusRes.status);
-    } catch (err: any) {
+    } catch (err: unknown) {
       if (err instanceof ApiError && err.status === 401) {
         clearToken();
         router.replace("/login");
         return;
       }
-      setError(err?.message ?? "No se pudieron actualizar los partidos");
+      setError(getErrorMessage(err, "No se pudieron actualizar los partidos"));
     }
   }, [router, tournamentId]);
 
@@ -1578,15 +1587,6 @@ export default function TournamentPlayoffsPage() {
     setManualStageOpen(false);
   }, [hasPlayoffs]);
 
-  function getTeamLabel(teamId?: number | null) {
-    if (typeof teamId !== "number") return "Por definir";
-    const team = teamsById.get(teamId);
-    if (!team) return `Team #${teamId}`;
-
-    const names = team.players?.map((player) => player.name).filter(Boolean) ?? [];
-    if (names.length === 0) return `Team #${teamId}`;
-    return names.join(" / ");
-  }
   function getMatchTeamLabel(match: Match, side: "a" | "b") {
     const teamId = side === "a" ? match.team_a_id : match.team_b_id;
     if (typeof teamId === "number") return getTeamLabel(teamId);
@@ -2244,12 +2244,14 @@ export default function TournamentPlayoffsPage() {
       }
       await reloadMatches();
       closeScheduleModal();
-    } catch (err: any) {
+    } catch (err: unknown) {
       setScheduleError(
-        err?.message
-          ?? (isFlashCompetition
+        getErrorMessage(
+          err,
+          isFlashCompetition
             ? "No se pudo asignar la cancha"
-            : "No se pudo programar el partido")
+            : "No se pudo programar el partido"
+        )
       );
     } finally {
       setScheduling(false);
@@ -2338,8 +2340,8 @@ export default function TournamentPlayoffsPage() {
       setTimeout(() => {
         closeResultModal();
       }, 900);
-    } catch (err: any) {
-      setFormError(err?.message ?? "No se pudo guardar el resultado");
+    } catch (err: unknown) {
+      setFormError(getErrorMessage(err, "No se pudo guardar el resultado"));
     } finally {
       setSaving(false);
     }
@@ -2529,7 +2531,7 @@ export default function TournamentPlayoffsPage() {
       await persistManualSeeds(remainingSlotValues);
       setManualSlotValues(remainingSlotValues);
       setManualError(null);
-    } catch (err: any) {
+    } catch (err: unknown) {
       await reloadMatches();
       const stageLabel = runningStage
         ? STAGE_LABELS[runningStage]
@@ -2537,7 +2539,7 @@ export default function TournamentPlayoffsPage() {
         ? "guardado de semillas"
         : "la instancia seleccionada";
       setManualError(
-        `${stageLabel}: ${err?.message ?? "No se pudieron generar los cruces"}`
+        `${stageLabel}: ${getErrorMessage(err, "No se pudieron generar los cruces")}`
       );
     } finally {
       setGenerating(false);
@@ -2567,8 +2569,8 @@ export default function TournamentPlayoffsPage() {
       setMatches((prev) => [...prev, ...created]);
       setConfirmStage(null);
       setConfirmAutoMode(DEFAULT_AUTO_MODE);
-    } catch (err: any) {
-      setActionError(err?.message ?? "No se pudieron generar los cruces");
+    } catch (err: unknown) {
+      setActionError(getErrorMessage(err, "No se pudieron generar los cruces"));
     } finally {
       setGenerating(false);
     }
@@ -2586,8 +2588,10 @@ export default function TournamentPlayoffsPage() {
       setMatches((prev) => prev.filter((m) => m.stage === "group"));
       setStatus("groups_finished");
       setResetPlayoffsOpen(false);
-    } catch (err: any) {
-      setResetPlayoffsError(err?.message ?? "No se pudieron eliminar los playoffs.");
+    } catch (err: unknown) {
+      setResetPlayoffsError(
+        getErrorMessage(err, "No se pudieron eliminar los playoffs.")
+      );
     } finally {
       setResettingPlayoffs(false);
     }

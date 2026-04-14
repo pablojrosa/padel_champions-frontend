@@ -7,7 +7,7 @@ import Card from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
 import Input from "@/components/ui/Input";
 import Modal from "@/components/ui/Modal";
-import { api, ApiError, apiMaybe } from "@/lib/api";
+import { api, ApiError, apiMaybe, getErrorMessage } from "@/lib/api";
 import { clearToken } from "@/lib/auth";
 import { CATEGORY_SUGGESTIONS, normalizeCategoryValue } from "@/lib/category";
 import { GENDER_OPTIONS, normalizeGenderValue } from "@/lib/gender";
@@ -19,7 +19,6 @@ import type {
   TournamentStatus,
   TournamentStatusResponse,
   GenerateGroupsResponse,
-  TournamentGroup,
   StartTournamentResponse,
 } from "@/lib/types";
 
@@ -274,8 +273,6 @@ export default function TournamentDetailPage() {
 
   // Status + Groups
   const [status, setStatus] = useState<TournamentStatus>("upcoming");
-  const [updatingStatus, setUpdatingStatus] = useState(false);
-
   const [groups, setGroups] = useState<TournamentGroupOut[]>([]);
   const [teamsPerGroup, setTeamsPerGroup] = useState<number>(2);
   const [generatingGroups, setGeneratingGroups] = useState(false);
@@ -321,24 +318,23 @@ export default function TournamentDetailPage() {
 
   const genders = GENDER_OPTIONS;
 
+  const hydrateTeams = useCallback((rawTeams: Team[], players: Player[]): UiTeam[] => {
+    const playersById = new Map(players.map((p) => [p.id, p]));
 
-function hydrateTeams(rawTeams: Team[], players: Player[]): UiTeam[] {
-  const playersById = new Map(players.map((p) => [p.id, p]));
-
-  return rawTeams.map((team) => ({
-    ...team,
-    schedule_constraints: team.schedule_constraints ?? null,
-    players: (team.players || [])
-      .map((p) => playersById.get(p.id))
-      .filter((p): p is Player => !!p)
-      .map((p) => ({
-        id: p.id,
-        name: `${p.first_name} ${p.last_name ?? ""}`.trim(),
-        category: p.category ?? null,
-        gender: p.gender ?? null,
-      })),
-  }));
-}
+    return rawTeams.map((team) => ({
+      ...team,
+      schedule_constraints: team.schedule_constraints ?? null,
+      players: (team.players || [])
+        .map((p) => playersById.get(p.id))
+        .filter((p): p is Player => !!p)
+        .map((p) => ({
+          id: p.id,
+          name: `${p.first_name} ${p.last_name ?? ""}`.trim(),
+          category: p.category ?? null,
+          gender: p.gender ?? null,
+        })),
+    }));
+  }, []);
 
 type TeamApi = {
   id: number;
@@ -366,7 +362,7 @@ function mapTeamsFromApi(rawTeams: TeamApi[], tournamentId: number): UiTeam[] {
   }));
 }
 
-async function load(options?: { silent?: boolean }) {
+const load = useCallback(async (options?: { silent?: boolean }) => {
   const { silent = false } = options ?? {};
   if (!silent) {
     setLoading(true);
@@ -374,7 +370,6 @@ async function load(options?: { silent?: boolean }) {
   setError(null);
 
   try {
-    // Disparamos todas las peticiones en paralelo
     const [tournaments, statusRes, tPlayers, rawTeams, tGroups] = await Promise.all([
       api<Tournament[]>("/tournaments"),
       api<TournamentStatusResponse>(`/tournaments/${tournamentId}/status`),
@@ -383,13 +378,11 @@ async function load(options?: { silent?: boolean }) {
       apiMaybe<TournamentGroupOut[]>(`/tournaments/${tournamentId}/groups`) || Promise.resolve([])
     ]);
 
-    // Una vez que todas terminan, actualizamos los estados
     const found = tournaments.find((t) => t.id === tournamentId) ?? null;
     setTournament(found);
     setStatus(statusRes.status);
     setPlayers(tPlayers || []);
-    
-    // Hidratamos equipos usando los jugadores recién obtenidos
+
     const hydratedTeams = hydrateTeams(rawTeams || [], tPlayers || []);
     setTeams(hydratedTeams);
     setGroups(tGroups || []);
@@ -407,26 +400,24 @@ async function load(options?: { silent?: boolean }) {
       );
       setTeamsPerGroup(inferredTeamsPerGroup);
     }
-
-  } catch (err: any) {
+  } catch (err: unknown) {
     if (err instanceof ApiError && err.status === 401) {
       clearToken();
       router.replace("/login");
       return;
     }
-    setError(err?.message ?? "No se pudo cargar la competencia.");
+    setError(getErrorMessage(err, "No se pudo cargar la competencia."));
   } finally {
     if (!silent) {
       setLoading(false);
     }
   }
-}
+}, [router, tournamentId, hydrateTeams]);
 
   useEffect(() => {
     if (!Number.isFinite(tournamentId)) return;
     load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tournamentId]);
+  }, [load, tournamentId]);
 
   useEffect(() => {
     if (!importingPairs) return;
@@ -441,7 +432,7 @@ async function load(options?: { silent?: boolean }) {
       active = false;
       window.clearInterval(interval);
     };
-  }, [importingPairs, tournamentId]);
+  }, [importingPairs, load, tournamentId]);
 
 
   async function copyPublicLink() {
@@ -456,7 +447,7 @@ async function load(options?: { silent?: boolean }) {
         window.prompt("Copia el link publico:", url);
       }
       setCopyMessage("Link publico copiado.");
-    } catch (err) {
+    } catch {
       setCopyMessage("No se pudo copiar el link.");
     }
   }
@@ -493,8 +484,8 @@ async function load(options?: { silent?: boolean }) {
   
       // 🔹 eliminar solo el equipo (jugadores quedan libres)
       setTeams((prev) => prev.filter((t) => t.id !== teamId));
-    } catch (err: any) {
-      setError(err?.message ?? "No se pudo eliminar la pareja.");
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, "No se pudo eliminar la pareja."));
     } finally {
       setDeletingTeamId(null);
     }
@@ -613,8 +604,8 @@ async function load(options?: { silent?: boolean }) {
         })
       );
       setEditPairOpen(false);
-    } catch (err: any) {
-      setEditPairError(err?.message ?? "No se pudo editar la pareja");
+    } catch (err: unknown) {
+      setEditPairError(getErrorMessage(err, "No se pudo editar la pareja"));
     } finally {
       setEditPairSaving(false);
     }
@@ -703,9 +694,9 @@ async function load(options?: { silent?: boolean }) {
       setTeams(mapTeamsFromApi(rawTeams, tournamentId));
       setGroups(tGroups || []);
       setPlayers(tPlayers || []);
-    } catch (err: any) {
+    } catch (err: unknown) {
       setTeams((prev) => prev.filter((team) => team.id !== tempId));
-      setError(err?.message ?? "No se pudo crear la pareja.");
+      setError(getErrorMessage(err, "No se pudo crear la pareja."));
     } finally {
       setPairSaving(false);
     }
@@ -851,10 +842,10 @@ async function load(options?: { silent?: boolean }) {
             body: pair,
           });
           created += 1;
-        } catch (err: any) {
+        } catch (err: unknown) {
           failed += 1;
           if (rowErrors.length < 5) {
-            rowErrors.push(err?.message ?? "Error al importar una fila.");
+            rowErrors.push(getErrorMessage(err, "Error al importar una fila."));
           }
         }
       }
@@ -864,8 +855,8 @@ async function load(options?: { silent?: boolean }) {
         setImportError(rowErrors.slice(0, 5).join(" "));
       }
       await load({ silent: true });
-    } catch (err: any) {
-      setImportError(err?.message ?? "No se pudo importar el archivo.");
+    } catch (err: unknown) {
+      setImportError(getErrorMessage(err, "No se pudo importar el archivo."));
     } finally {
       setImportingPairs(false);
     }
@@ -962,8 +953,8 @@ async function load(options?: { silent?: boolean }) {
       await load({ silent: true });
       setStartSuccessModalOpen(true);
       setStartSuccessCopyMessage(null);
-    } catch (err: any) {
-      setError(err?.message ?? "No se pudo iniciar la competencia.");
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, "No se pudo iniciar la competencia."));
     } finally {
       setStartingTournament(false);
     }
@@ -999,8 +990,8 @@ async function load(options?: { silent?: boolean }) {
   
       // volver al listado
       router.replace("/tournaments");
-    } catch (err: any) {
-      setError(err?.message ?? "No se pudo eliminar la competencia.");
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, "No se pudo eliminar la competencia."));
     } finally {
       setDeletingTournament(false);
     }
@@ -1050,8 +1041,8 @@ async function load(options?: { silent?: boolean }) {
 
       setTournament(updated);
       setEditOpen(false);
-    } catch (err: any) {
-      setEditError(err?.message ?? "No se pudo actualizar la competencia.");
+    } catch (err: unknown) {
+      setEditError(getErrorMessage(err, "No se pudo actualizar la competencia."));
     } finally {
       setSavingEdit(false);
     }
@@ -1067,8 +1058,11 @@ async function load(options?: { silent?: boolean }) {
     tournament?.location && tournament.location.startsWith("http")
       ? tournament.location
       : null;
-  const getTeamGroup = (teamId: number) =>
-    groups.find((g) => g.teams?.some((t) => t.id === teamId)) ?? null;
+  const getTeamGroup = useCallback(
+    (teamId: number) =>
+      groups.find((g) => g.teams?.some((t) => t.id === teamId)) ?? null,
+    [groups]
+  );
   const teamCategories = useMemo(() => {
     const values = new Set<string>();
     teams.forEach((team) => {
@@ -1125,7 +1119,7 @@ async function load(options?: { silent?: boolean }) {
           .join(" ") ?? "";
       return names.includes(query);
     });
-  }, [teams, teamsGroupFilter, teamsCategoryFilter, teamsGenderFilter, teamsNameQuery, groups]);
+  }, [teams, teamsGroupFilter, teamsCategoryFilter, teamsGenderFilter, teamsNameQuery, getTeamGroup]);
   const normalizeTime = (value: string | null | undefined, fallback: string) =>
     value ? value.slice(0, 5) : fallback;
   const defaultStartDate =

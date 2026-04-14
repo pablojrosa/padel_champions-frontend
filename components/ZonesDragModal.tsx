@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo } from "react";
 import {
   DndContext,
   DragOverlay,
@@ -58,6 +58,24 @@ function getDivisionKey(team: Team) {
 
 function getTeamDisplayName(team: Team) {
   return `${team.players[0]?.name ?? "Jugador"} / ${team.players[1]?.name ?? "Jugador"}`;
+}
+
+function buildInitialZonesMap(existingGroups: TournamentGroupOut[]): Record<string, ManualZone[]> {
+  const initialZonesMap: Record<string, ManualZone[]> = {};
+  for (const group of existingGroups) {
+    if (group.teams.length === 0) continue;
+    const firstPlayer = group.teams[0]?.players[0];
+    const cat = firstPlayer?.category ?? null;
+    const gen = firstPlayer?.gender ?? null;
+    const key = `${cat ?? ""}::${gen ?? ""}`;
+    if (!initialZonesMap[key]) initialZonesMap[key] = [];
+    initialZonesMap[key].push({
+      id: `zone-existing-${group.id}`,
+      name: group.name,
+      teamIds: group.teams.map((t) => t.id),
+    });
+  }
+  return initialZonesMap;
 }
 
 // ─── Drag handle icon ─────────────────────────────────────────────────────────
@@ -319,7 +337,14 @@ type Props = {
   onSubmit: (payload: { groups: { team_ids: number[] }[] }) => Promise<void>;
 };
 
-export default function ZonesDragModal({
+export default function ZonesDragModal(props: Props) {
+  const { open, defaultCategory, defaultGender } = props;
+  const resetKey = `${open ? "open" : "closed"}::${defaultCategory ?? "all"}::${defaultGender ?? "all"}`;
+
+  return <ZonesDragModalInner key={resetKey} {...props} />;
+}
+
+function ZonesDragModalInner({
   open,
   onClose,
   teams,
@@ -331,52 +356,30 @@ export default function ZonesDragModal({
   defaultGender,
   onSubmit,
 }: Props) {
-  const [zonesMap, setZonesMap] = useState<Record<string, ManualZone[]>>({});
-  const [category, setCategory] = useState<string>("all");
-  const [gender, setGender] = useState<string>("all");
+  const initialZonesMap = useMemo(
+    () => buildInitialZonesMap(existingGroups),
+    [existingGroups]
+  );
+
+  const [zonesMap, setZonesMap] = useState<Record<string, ManualZone[]>>(
+    () => initialZonesMap
+  );
+  const [category, setCategory] = useState<string>(defaultCategory ?? "all");
+  const [gender, setGender] = useState<string>(defaultGender ?? "all");
   const [showOnlyWildcards, setShowOnlyWildcards] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
 
   // Current division key and zones (each category+gender combination has its own zones)
   const currentKey = `${category}::${gender}`;
-  const zones: ManualZone[] = zonesMap[currentKey] ?? [
-    { id: "zone-1", name: "Grupo 1", teamIds: [] },
-    { id: "zone-2", name: "Grupo 2", teamIds: [] },
-  ];
-
-  // Reset state when modal opens, pre-populating existing group assignments
-  useEffect(() => {
-    if (!open) return;
-    const initialZonesMap: Record<string, ManualZone[]> = {};
-    for (const group of existingGroups) {
-      if (group.teams.length === 0) continue;
-      const firstPlayer = group.teams[0]?.players[0];
-      const cat = firstPlayer?.category ?? null;
-      const gen = firstPlayer?.gender ?? null;
-      const key = `${cat ?? ""}::${gen ?? ""}`;
-      if (!initialZonesMap[key]) initialZonesMap[key] = [];
-      initialZonesMap[key].push({
-        id: `zone-existing-${group.id}`,
-        name: group.name,
-        teamIds: group.teams.map((t) => t.id),
-      });
-    }
-    setZonesMap(initialZonesMap);
-    setCategory(defaultCategory ?? "all");
-    setGender(defaultGender ?? "all");
-    setShowOnlyWildcards(false);
-    setError(null);
-    setActiveDragId(null);
-  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Update filters when the pending division changes (e.g. after saving a category's zones)
-  useEffect(() => {
-    if (!open) return;
-    setCategory(defaultCategory ?? "all");
-    setGender(defaultGender ?? "all");
-    setShowOnlyWildcards(false);
-  }, [defaultCategory, defaultGender]); // eslint-disable-line react-hooks/exhaustive-deps
+  const zones: ManualZone[] = useMemo(
+    () =>
+      zonesMap[currentKey] ?? [
+        { id: "zone-1", name: "Grupo 1", teamIds: [] },
+        { id: "zone-2", name: "Grupo 2", teamIds: [] },
+      ],
+    [currentKey, zonesMap]
+  );
 
   const teamsById = useMemo(() => new Map(teams.map((t) => [t.id, t])), [teams]);
 
@@ -430,9 +433,6 @@ export default function ZonesDragModal({
     [availableTeams]
   );
 
-  const totalPool = teams.filter((t) => !persistedAssignedIds.has(t.id)).length;
-  const assignedCount = assignedInZonesIds.size;
-  const progressPercent = totalPool > 0 ? Math.round((assignedCount / totalPool) * 100) : 0;
   const readyZones = zones.filter((z) => z.teamIds.length >= 2).length;
 
   const canSubmit = useMemo(() => {

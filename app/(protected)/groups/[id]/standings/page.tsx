@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Card from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
-import { api, ApiError } from "@/lib/api";
+import { api, ApiError, getErrorMessage } from "@/lib/api";
 import { clearToken } from "@/lib/auth";
 import type { GroupStandingsOut } from "@/lib/types";
 
@@ -29,13 +29,13 @@ export default function GroupStandingsPage() {
       try {
         const res = await api<GroupStandingsOut>(`/groups/${groupId}/standings`);
         setData(res);
-      } catch (err: any) {
+      } catch (err: unknown) {
         if (err instanceof ApiError && err.status === 401) {
           clearToken();
           router.replace("/login");
           return;
         }
-        setError(err?.message ?? "No se pudo cargar la tabla");
+        setError(getErrorMessage(err, "No se pudo cargar la tabla"));
       } finally {
         setLoading(false);
       }

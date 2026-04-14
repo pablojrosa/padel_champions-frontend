@@ -7,7 +7,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import Card from "@/components/ui/Card";
 import Input from "@/components/ui/Input";
 import Button from "@/components/ui/Button";
-import { api, ApiError } from "@/lib/api";
+import { api, ApiError, getErrorMessage } from "@/lib/api";
 
 function ResetPasswordContent() {
   const router = useRouter();
@@ -40,12 +40,8 @@ function ResetPasswordContent() {
           "Te enviamos un link para restablecer tu contraseña."
       );
       setEmail("");
-    } catch (err: any) {
-      if (err instanceof ApiError) {
-        setError(err.message ?? "No se pudo enviar el email");
-      } else {
-        setError("No se pudo enviar el email");
-      }
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, "No se pudo enviar el email"));
     } finally {
       setSubmitting(false);
     }
@@ -75,17 +71,17 @@ function ResetPasswordContent() {
       setPassword("");
       setConfirm("");
       setTimeout(() => router.replace("/login"), 1500);
-    } catch (err: any) {
+    } catch (err: unknown) {
       if (err instanceof ApiError) {
         if (String(err.message).toLowerCase().includes("token")) {
           setError(
             "El link es inválido o ya venció. Pedí uno nuevo desde esta misma pantalla."
           );
         } else {
-          setError(err.message ?? "No se pudo actualizar la contraseña");
+          setError(getErrorMessage(err, "No se pudo actualizar la contrasena"));
         }
       } else {
-        setError("No se pudo actualizar la contraseña");
+        setError(getErrorMessage(err, "No se pudo actualizar la contrasena"));
       }
     } finally {
       setSubmitting(false);

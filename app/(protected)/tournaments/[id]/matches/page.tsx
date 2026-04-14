@@ -8,7 +8,7 @@ import Card from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
 import Input from "@/components/ui/Input";
 import Modal from "@/components/ui/Modal";
-import { api, ApiError } from "@/lib/api";
+import { api, ApiError, getErrorMessage } from "@/lib/api";
 import { clearToken } from "@/lib/auth";
 import { genderLabel } from "@/lib/gender";
 import { isMatchAllowedByConstraints } from "@/lib/scheduleConstraints";
@@ -242,13 +242,13 @@ export default function TournamentMatchesPage() {
         const current = tournamentsRes.find((item) => item.id === tournamentId);
         setTournament(current ?? null);
         setCompetitionType((current?.competition_type ?? "tournament") as CompetitionType);
-      } catch (err: any) {
+      } catch (err: unknown) {
         if (err instanceof ApiError && err.status === 401) {
           clearToken();
           router.replace("/login");
           return;
         }
-        setError(err?.message ?? "No se pudieron cargar los partidos");
+        setError(getErrorMessage(err, "No se pudieron cargar los partidos"));
       } finally {
         setLoading(false);
       }
@@ -657,8 +657,10 @@ export default function TournamentMatchesPage() {
       );
       clearSelection();
       closeBulkScheduleModal();
-    } catch (err: any) {
-      setBulkScheduleError(err?.message ?? "No se pudieron programar los partidos.");
+    } catch (err: unknown) {
+      setBulkScheduleError(
+        getErrorMessage(err, "No se pudieron programar los partidos.")
+      );
     } finally {
       setBulkScheduling(false);
     }
@@ -805,8 +807,8 @@ export default function TournamentMatchesPage() {
       setTimeout(() => {
         closeResultModal();
       }, 900);
-    } catch (err: any) {
-      setFormError(err?.message ?? "No se pudo guardar el resultado");
+    } catch (err: unknown) {
+      setFormError(getErrorMessage(err, "No se pudo guardar el resultado"));
     } finally {
       setSaving(false);
     }
@@ -865,8 +867,8 @@ export default function TournamentMatchesPage() {
         );
       }
       closeScheduleModal();
-    } catch (err: any) {
-      setScheduleError(err?.message ?? "No se pudo programar el partido");
+    } catch (err: unknown) {
+      setScheduleError(getErrorMessage(err, "No se pudo programar el partido"));
     } finally {
       setScheduling(false);
     }
@@ -894,13 +896,13 @@ export default function TournamentMatchesPage() {
       setTournamentStatus(statusRes.status);
       setActiveTab("scheduled");
       setScheduleMessage(res.message || "Partidos ordenados automaticamente.");
-    } catch (err: any) {
+    } catch (err: unknown) {
       if (err instanceof ApiError && err.status === 401) {
         clearToken();
         router.replace("/login");
         return;
       }
-      setError(err?.message ?? "No se pudo ordenar el relámpago.");
+      setError(getErrorMessage(err, "No se pudo ordenar el relampago."));
     } finally {
       setAutoSchedulingFlash(false);
     }

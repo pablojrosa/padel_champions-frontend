@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import Card from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
 import Input from "@/components/ui/Input";
-import { api, ApiError } from "@/lib/api";
+import { api, ApiError, getErrorMessage } from "@/lib/api";
 import { clearToken } from "@/lib/auth";
 import type {
   SupportMessage,
@@ -50,13 +50,13 @@ export default function SupportPage() {
     try {
       const data = await api<SupportTicket[]>("/support/tickets");
       setTickets(data);
-    } catch (err: any) {
+    } catch (err: unknown) {
       if (err instanceof ApiError && err.status === 401) {
         clearToken();
         router.replace("/login");
         return;
       }
-      setError(err?.message ?? "No se pudieron cargar los tickets");
+      setError(getErrorMessage(err, "No se pudieron cargar los tickets"));
     } finally {
       setLoading(false);
     }
@@ -97,13 +97,13 @@ export default function SupportPage() {
     try {
       const data = await api<SupportTicketDetail>(`/support/tickets/${ticketId}`);
       setDetail(data);
-    } catch (err: any) {
+    } catch (err: unknown) {
       if (err instanceof ApiError && err.status === 401) {
         clearToken();
         router.replace("/login");
         return;
       }
-      setDetailError(err?.message ?? "No se pudo cargar el ticket");
+      setDetailError(getErrorMessage(err, "No se pudo cargar el ticket"));
     } finally {
       setDetailLoading(false);
     }
@@ -138,13 +138,13 @@ export default function SupportPage() {
       setMessage("");
       setSelectedId(created.id);
       setDetail(created);
-    } catch (err: any) {
+    } catch (err: unknown) {
       if (err instanceof ApiError && err.status === 401) {
         clearToken();
         router.replace("/login");
         return;
       }
-      setSubmitError(err?.message ?? "No se pudo enviar el ticket");
+      setSubmitError(getErrorMessage(err, "No se pudo enviar el ticket"));
     } finally {
       setCreating(false);
     }
@@ -184,8 +184,8 @@ export default function SupportPage() {
         )
       );
       setReplyBody("");
-    } catch (err: any) {
-      setDetailError(err?.message ?? "No se pudo enviar el mensaje");
+    } catch (err: unknown) {
+      setDetailError(getErrorMessage(err, "No se pudo enviar el mensaje"));
     } finally {
       setReplySending(false);
     }

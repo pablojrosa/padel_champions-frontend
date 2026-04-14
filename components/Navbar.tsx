@@ -44,7 +44,7 @@ export default function Navbar() {
         if (!active) return;
         setAccountStatus(profile.status ?? null);
         setPlanExpiresAt(profile.last_payment_expires_at ?? null);
-      } catch (err: any) {
+      } catch (err: unknown) {
         if (!active) return;
         if (err instanceof ApiError && err.status === 401) {
           clearToken();

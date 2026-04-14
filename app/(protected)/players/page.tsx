@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Card from "@/components/ui/Card";
 import Input from "@/components/ui/Input";
 import Button from "@/components/ui/Button";
-import { api, ApiError } from "@/lib/api";
+import { api, ApiError, getErrorMessage } from "@/lib/api";
 import { CATEGORY_SUGGESTIONS, normalizeCategoryValue } from "@/lib/category";
 import type { Player } from "@/lib/types";
 import { useRouter } from "next/navigation";
@@ -37,13 +37,13 @@ export default function PlayersPage() {
     try {
       const data = await api<Player[]>("/players");
       setItems(data);
-    } catch (err: any) {
+    } catch (err: unknown) {
       if (err instanceof ApiError && err.status === 401) {
         clearToken();
         router.replace("/login");
         return;
       }
-      setError(err?.message ?? "No se pudieron cargar los jugadores.");
+      setError(getErrorMessage(err, "No se pudieron cargar los jugadores."));
     } finally {
       setLoading(false);
     }
@@ -68,8 +68,8 @@ export default function PlayersPage() {
       setFirstName("");
       setLastName("");
       setCategory("");
-    } catch (err: any) {
-      setError(err?.message ?? "No se pudo crear el jugador.");
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, "No se pudo crear el jugador."));
     } finally {
       setCreating(false);
     }
@@ -93,8 +93,8 @@ export default function PlayersPage() {
       setEditFirstName("");
       setEditLastName("");
       setEditCategory("");
-    } catch (err: any) {
-      setError(err?.message ?? "No se pudo actualizar el jugador.");
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, "No se pudo actualizar el jugador."));
     } finally {
       setSavingId(null);
     }
@@ -108,8 +108,8 @@ export default function PlayersPage() {
     try {
       await api<void>(`/players/${id}`, { method: "DELETE" });
       setItems((prev) => prev.filter((p) => p.id !== id));
-    } catch (err: any) {
-      setError(err?.message ?? "No se pudo eliminar el jugador.");
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, "No se pudo eliminar el jugador."));
     }
   }
 

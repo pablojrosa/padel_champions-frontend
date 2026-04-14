@@ -96,6 +96,20 @@ export async function apiMaybe<T>(
   }
 }
 
+export function getErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof ApiError || error instanceof Error) {
+    const message = error.message.trim();
+    if (message) return message;
+  }
+
+  if (typeof error === "string") {
+    const message = error.trim();
+    if (message) return message;
+  }
+
+  return fallback;
+}
+
 function safeJsonParse(input: string) {
   try {
     return JSON.parse(input);

@@ -79,7 +79,10 @@ export default function GoogleAuthButton({
           auth: false,
         });
         const isAdmin = Boolean(data.is_admin);
-        setToken(data.access_token, isAdmin);
+        setToken(data.access_token, {
+          isAdmin,
+          expiresAt: data.expires_at ?? null,
+        });
         router.replace(resolvePostAuthPath(isAdmin, nextPath));
       } catch (err: unknown) {
         setError(

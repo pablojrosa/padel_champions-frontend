@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Card from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
-import { api, ApiError } from "@/lib/api";
+import { api, ApiError, getErrorMessage } from "@/lib/api";
 import { clearToken } from "@/lib/auth";
 import type { AdminMetrics, AdminPaymentsSeries } from "@/lib/types";
 
@@ -30,7 +30,7 @@ export default function AdminDashboardPage() {
         ]);
         setMetrics(metricsData);
         setSeries(seriesData.series ?? []);
-      } catch (err: any) {
+      } catch (err: unknown) {
         if (err instanceof ApiError && err.status === 401) {
           clearToken();
           router.replace("/login");
@@ -40,7 +40,7 @@ export default function AdminDashboardPage() {
           setForbidden(true);
           return;
         }
-        setError(err?.message ?? "No se pudieron cargar métricas");
+        setError(getErrorMessage(err, "No se pudieron cargar metricas"));
       } finally {
         setLoading(false);
         setSeriesLoading(false);
