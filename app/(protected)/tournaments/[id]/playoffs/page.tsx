@@ -4198,6 +4198,7 @@ export default function TournamentPlayoffsPage() {
           onClose={() => setGridOpen(false)}
           closeOnEscape={!gridMatch}
           scheduledMatches={scheduledMatches}
+          durationMinutes={tournamentMatchDurationMinutes || DEFAULT_MATCH_DURATION_MINUTES}
           onMatchSelect={setGridMatch}
           getStageLabel={getStageLabel}
           getMatchCode={getMatchCode}

@@ -2073,6 +2073,7 @@ export default function TournamentMatchesPage() {
           onClose={() => setGridOpen(false)}
           closeOnEscape={!gridMatch}
           scheduledMatches={scheduledMatches}
+          durationMinutes={tournament?.match_duration_minutes ?? DEFAULT_MATCH_DURATION_MINUTES}
           onMatchSelect={setGridMatch}
           getStageLabel={getStageLabel}
           getMatchCode={getMatchCode}
