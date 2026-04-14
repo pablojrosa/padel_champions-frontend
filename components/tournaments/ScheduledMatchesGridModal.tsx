@@ -16,6 +16,7 @@ import { useDraggable, useDroppable } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
 import Modal from "@/components/ui/Modal";
 import Button from "@/components/ui/Button";
+import { genderLabel, normalizeGenderValue } from "@/lib/gender";
 import type { Match } from "@/lib/types";
 
 type CategoryColor = {
@@ -895,7 +896,7 @@ export default function ScheduledMatchesGridModal({
                         </div>
                         {gridGendersForDate.map((gender) => {
                           const active = !gridHiddenGenders.includes(gender);
-                          const isMasculino = gender.toLowerCase() === "masculino";
+                          const normalizedGender = normalizeGenderValue(gender);
                           return (
                             <button
                               key={`grid-gender-${gender}`}
@@ -909,9 +910,11 @@ export default function ScheduledMatchesGridModal({
                               }
                               className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
                                 active
-                                  ? isMasculino
+                                  ? normalizedGender === "masculino"
                                     ? "border-blue-200 bg-blue-50 text-blue-700 shadow-sm"
-                                    : "border-pink-200 bg-pink-50 text-pink-700 shadow-sm"
+                                    : normalizedGender === "damas"
+                                    ? "border-pink-200 bg-pink-50 text-pink-700 shadow-sm"
+                                    : "border-emerald-200 bg-emerald-50 text-emerald-700 shadow-sm"
                                   : "border-zinc-200 bg-white text-zinc-400 hover:border-zinc-300 hover:text-zinc-600"
                               }`}
                               aria-pressed={active}
@@ -919,14 +922,16 @@ export default function ScheduledMatchesGridModal({
                               <span
                                 className={`h-2.5 w-2.5 rounded-full ${
                                   active
-                                    ? isMasculino
+                                    ? normalizedGender === "masculino"
                                       ? "bg-blue-400"
-                                      : "bg-pink-400"
+                                      : normalizedGender === "damas"
+                                      ? "bg-pink-400"
+                                      : "bg-emerald-400"
                                     : "bg-zinc-300"
                                 }`}
                                 aria-hidden="true"
                               />
-                              {gender.charAt(0).toUpperCase() + gender.slice(1)}
+                              {genderLabel(gender)}
                             </button>
                           );
                         })}

@@ -20,6 +20,7 @@ import { useDraggable, useDroppable } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
 import ZonesDragModal from "@/components/ZonesDragModal";
 import { api, getErrorMessage } from "@/lib/api";
+import { genderLabel } from "@/lib/gender";
 import type {
   GenerateGroupsResponse,
   Team,
@@ -1057,7 +1058,7 @@ const GroupsPanel = forwardRef<GroupsPanelHandle, Props>(function GroupsPanel({
                   <option value="all">Todos</option>
                   {genders.map((gender) => (
                     <option key={gender} value={gender}>
-                      {gender === "damas" ? "Damas" : "Masculino"}
+                      {genderLabel(gender)}
                     </option>
                   ))}
                 </select>
@@ -1178,13 +1179,13 @@ const GroupsPanel = forwardRef<GroupsPanelHandle, Props>(function GroupsPanel({
                     <div className="space-y-3">
                       {divisions.map(({ key, category, gender, count }) => {
                         const tpg = getDivisionTpg(key);
-                        const genderLabel = gender === "damas" ? "Damas" : gender === "masculino" ? "Masculino" : gender;
+                        const divisionGenderLabel = genderLabel(gender);
                         return (
                           <div key={key} className="rounded-xl border border-zinc-100 bg-zinc-50 p-2.5">
                             <div className="flex items-center justify-between gap-2">
                               <div>
                                 <div className="text-xs font-semibold text-zinc-700">
-                                  {category} · {genderLabel}
+                                  {category} · {divisionGenderLabel}
                                 </div>
                                 <div className="text-[11px] text-zinc-500">{count} pareja{count !== 1 ? "s" : ""} · {getZonesPreview(count, tpg)}</div>
                               </div>
@@ -1193,7 +1194,7 @@ const GroupsPanel = forwardRef<GroupsPanelHandle, Props>(function GroupsPanel({
                                   type="button"
                                   onClick={() => setDivisionTpg(key, Math.max(MIN_TEAMS_PER_GROUP, tpg - 1))}
                                   disabled={generating || tpg <= MIN_TEAMS_PER_GROUP}
-                                  aria-label={`Restar pareja por zona en ${category} ${genderLabel}`}
+                                  aria-label={`Restar pareja por zona en ${category} ${divisionGenderLabel}`}
                                   className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-zinc-200 bg-white text-lg font-semibold text-zinc-700 transition hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-40"
                                 >
                                   -
@@ -1203,7 +1204,7 @@ const GroupsPanel = forwardRef<GroupsPanelHandle, Props>(function GroupsPanel({
                                   type="button"
                                   onClick={() => setDivisionTpg(key, Math.min(count, tpg + 1))}
                                   disabled={generating || tpg >= count}
-                                  aria-label={`Sumar pareja por zona en ${category} ${genderLabel}`}
+                                  aria-label={`Sumar pareja por zona en ${category} ${divisionGenderLabel}`}
                                   className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-zinc-200 bg-white text-lg font-semibold text-zinc-700 transition hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-40"
                                 >
                                   +

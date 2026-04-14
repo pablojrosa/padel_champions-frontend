@@ -10,6 +10,8 @@ import Modal from "@/components/ui/Modal";
 import StatusBadge from "@/components/StatusBadge";
 import { api, ApiError } from "@/lib/api";
 import { clearToken } from "@/lib/auth";
+import { normalizeCategoryValue } from "@/lib/category";
+import { genderLabel, normalizeGenderValue } from "@/lib/gender";
 import type {
   Tournament,
   TournamentCreationAiDraft,
@@ -98,13 +100,17 @@ const AI_PAIR_TEMPLATE_HEADERS = [
   "Genero",
   "Restricciones",
 ];
-const AI_PAIR_TEMPLATE_SAMPLE = [
-  "Ana",
-  "Carla",
-  "6ta",
-  "Damas",
-  "No puede viernes",
-];
+const AI_PAIR_TEMPLATE_SAMPLE_ROWS = [
+  ["Ana", "Carla", "8va", "Damas", "Viernes después de las 19"],
+  ["Luis", "Pedro", "7ma", "Masculino", "Sábado después de las 16"],
+  ["Sofi", "Tomi", "6ta", "Mixto", "Viernes después de las 20 y sábado después de las 18"],
+  ["Mica", "Lu", "5ta", "Damas", "Sábado por la mañana"],
+  ["Juan", "Fede", "4ta", "Masculino", "Viernes hasta las 18"],
+  ["Vale", "Fran", "3ra", "Mixto", "No puede sábado"],
+  ["Nico", "Gonza", "2da", "Masculino", "Sábado antes de las 12"],
+  ["Pau", "Flor", "1ra", "Damas", "Viernes y sábado después de las 17"],
+  ["Marti", "Cami", "suma 12", "Mixto", "Viernes después de las 18 o sábado después de las 10"],
+] as const;
 const AI_PAIR_HEADER_FIELD_MAP: Record<string, string> = {
   nombrejugador1: "player1_name",
   nombrejugador2: "player2_name",
@@ -234,7 +240,7 @@ function buildTournamentPayloadFromAiDraft(draft: TournamentCreationAiDraft) {
     competition_type: competitionType,
     description: draft.description?.trim() || defaultDescriptionByType[competitionType],
     location: draft.location?.trim() || null,
-    category: draft.category?.trim() || null,
+    category: normalizeCategoryValue(draft.category) || null,
     start_date: draft.start_date ?? null,
     end_date: draft.end_date ?? null,
     teams_per_group: draft.teams_per_group ?? null,
@@ -283,35 +289,18 @@ function normalizeAiPairHeader(value: string) {
 }
 
 function normalizeAiPairGender(value: string) {
-  const normalized = normalizeAiChatValue(value);
-  if (["damas", "femenino", "mujer", "f"].includes(normalized)) return "damas";
-  if (["masculino", "caballeros", "hombre", "m"].includes(normalized)) return "masculino";
-  return normalized;
+  return normalizeGenderValue(value);
 }
 
 function normalizeAiPairCategory(value: string) {
-  const normalized = normalizeAiChatValue(value);
-  if (!normalized) return "";
-  const digitMatch = normalized.match(/\d+/);
-  if (!digitMatch) return normalized;
-  const categoryMap: Record<string, string> = {
-    "1": "1ra",
-    "2": "2da",
-    "3": "3ra",
-    "4": "4ta",
-    "5": "5ta",
-    "6": "6ta",
-    "7": "7ma",
-    "8": "8va",
-  };
-  return categoryMap[digitMatch[0]] ?? normalized;
+  return normalizeCategoryValue(value);
 }
 
 function buildAiPairsTemplateMessage() {
   return (
     "Perfecto 🤝. Puedes pegar las parejas en varias filas usando este formato.\n\n" +
     `${AI_PAIR_TEMPLATE_HEADERS.join(" | ")}\n` +
-    `${AI_PAIR_TEMPLATE_SAMPLE.join(" | ")}\n\n` +
+    `${AI_PAIR_TEMPLATE_SAMPLE_ROWS.map((row) => row.join(" | ")).join("\n")}\n\n` +
     "Si una pareja no tiene restricciones horarias, deja la ultima columna vacia."
   );
 }
@@ -339,7 +328,7 @@ function buildAiDivisionTeamsMessage(
 ) {
   return divisions
     .map((division) => {
-      const label = `${division.category} · ${division.gender}`;
+      const label = `${division.category} · ${genderLabel(division.gender)}`;
       const teamsPerGroup = teamsPerGroupByDivision[division.key];
       return `${label}: ${teamsPerGroup} parejas por zona`;
     })
@@ -399,8 +388,8 @@ function renderAiChatMessageContent(message: TournamentCreationAiMessage) {
         <div className="mt-2 text-[11px] font-semibold uppercase tracking-[0.15em] text-zinc-500">
           💡 Ejemplo
         </div>
-        <div className="mt-2 overflow-x-auto rounded-xl bg-white px-3 py-2 font-mono text-[12px] text-zinc-700">
-          {AI_PAIR_TEMPLATE_SAMPLE.join(" | ")}
+        <div className="mt-2 overflow-x-auto whitespace-pre rounded-xl bg-white px-3 py-2 font-mono text-[12px] text-zinc-700">
+          {AI_PAIR_TEMPLATE_SAMPLE_ROWS.map((row) => row.join(" | ")).join("\n")}
         </div>
       </div>
       <p>Si una pareja no tiene restricciones horarias, deja la ultima columna vacia ✅.</p>
@@ -751,7 +740,7 @@ export default function TournamentsPage() {
   function downloadAiPairsTemplate() {
     const rows = [
       AI_PAIR_TEMPLATE_HEADERS.join(","),
-      AI_PAIR_TEMPLATE_SAMPLE.join(","),
+      ...AI_PAIR_TEMPLATE_SAMPLE_ROWS.map((row) => row.join(",")),
     ].join("\n");
     const blob = new Blob([rows], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
@@ -2328,7 +2317,7 @@ export default function TournamentsPage() {
                                     : "border border-zinc-200 bg-zinc-50 text-zinc-600 hover:bg-zinc-100"
                                 } disabled:cursor-not-allowed disabled:opacity-60`}
                               >
-                                <span>{division.category} · {division.gender}</span>
+                                <span>{division.category} · {genderLabel(division.gender)}</span>
                                 {configured ? (
                                   <span
                                     className={`h-2.5 w-2.5 rounded-full ${
@@ -2347,7 +2336,7 @@ export default function TournamentsPage() {
                             <div className="flex items-center justify-between gap-3">
                               <div>
                                 <div className="text-sm font-semibold text-zinc-900">
-                                  {aiCurrentDivision.category} · {aiCurrentDivision.gender}
+                                  {aiCurrentDivision.category} · {genderLabel(aiCurrentDivision.gender)}
                                 </div>
                                 <div className="text-xs text-zinc-500">
                                   {aiCurrentDivision.count}{" "}
@@ -2588,7 +2577,7 @@ export default function TournamentsPage() {
                           className="rounded-xl border border-zinc-200 bg-white px-3 py-2"
                         >
                           <div className="text-[11px] font-semibold uppercase tracking-[0.15em] text-zinc-500">
-                            {division.category} · {division.gender}
+                            {division.category} · {genderLabel(division.gender)}
                           </div>
                           <div className="mt-1 text-sm font-semibold text-zinc-900">
                             {aiTeamsPerGroupByDivision[division.key]} por zona
