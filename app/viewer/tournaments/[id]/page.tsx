@@ -7,6 +7,7 @@ import Card from "@/components/ui/Card";
 import Input from "@/components/ui/Input";
 import StatusBadge from "@/components/StatusBadge";
 import { api, getErrorMessage } from "@/lib/api";
+import { resolveClubLogoUrl } from "@/lib/clubLogo";
 import { genderLabel } from "@/lib/gender";
 import type {
   GroupStandingsOut,
@@ -797,6 +798,10 @@ export default function PublicTournamentPage() {
   const showMatchesSectionDesktop = !hasPlayoffs || hasOnlyScheduledPlayoffs;
   const pendingMatchesForSection = showGroupMatchesOnly ? pendingGroupMatches : pendingMatches;
   const playedMatchesForSection = showGroupMatchesOnly ? playedGroupMatches : playedMatches;
+  const clubLogoUrl = useMemo(
+    () => resolveClubLogoUrl(tournament?.club_logo_url),
+    [tournament?.club_logo_url]
+  );
 
   function getMatchTeamLabel(match: Match, side: "a" | "b") {
     const teamId = side === "a" ? match.team_a_id : match.team_b_id;
@@ -856,10 +861,10 @@ export default function PublicTournamentPage() {
     <div className="mx-auto w-full max-w-screen-2xl space-y-6 px-4 py-6 sm:space-y-8 sm:py-8">
       <div className="relative flex flex-col gap-4 md:flex-row md:items-center">
         <div className="flex items-center gap-3 pr-20 sm:gap-4 sm:pr-24 md:pr-0">
-          {tournament?.club_logo_url ? (
+          {clubLogoUrl ? (
             <Image
-              src={tournament.club_logo_url}
-              alt={tournament.club_name ?? "Logo del club"}
+              src={clubLogoUrl}
+              alt={tournament?.club_name ?? "Logo del club"}
               width={56}
               height={56}
               sizes="(max-width: 640px) 48px, 56px"
