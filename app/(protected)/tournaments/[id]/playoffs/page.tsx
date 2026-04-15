@@ -16,6 +16,7 @@ import type {
   MatchSet,
   PlayoffAutoMode,
   PlayoffGenerateRequest,
+  PlayoffQualificationCriterion,
   PlayoffManualSeed,
   PlayoffManualSeedsUpsertRequest,
   PlayoffStage,
@@ -164,6 +165,14 @@ function resolveGridDefaultDate(startDateRaw: string | null, todayIsoDate: strin
   if (!startDateRaw) return todayIsoDate;
   if (startDateRaw >= todayIsoDate) return startDateRaw;
   return todayIsoDate;
+}
+
+function resolveStageForQualifiedCount(count: number): PlayoffStage {
+  if (count <= 2) return "final";
+  if (count <= 4) return "semi";
+  if (count <= 8) return "quarter";
+  if (count <= 16) return "round_of_16";
+  return "round_of_32";
 }
 
 function createBulkScheduleConfigMap(): Record<PlayoffStage, BulkScheduleStageConfig> {
@@ -476,6 +485,10 @@ export default function TournamentPlayoffsPage() {
 
   const [confirmStage, setConfirmStage] = useState<PlayoffStage | null>(null);
   const [confirmAutoMode, setConfirmAutoMode] = useState<PlayoffAutoMode>(DEFAULT_AUTO_MODE);
+  const [autoGenerateOpen, setAutoGenerateOpen] = useState(false);
+  const [autoQualifiedCount, setAutoQualifiedCount] = useState<number>(8);
+  const [autoCriterion, setAutoCriterion] =
+    useState<PlayoffQualificationCriterion>("overall_ranking");
   const [generating, setGenerating] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
 
@@ -1069,6 +1082,63 @@ export default function TournamentPlayoffsPage() {
     () => divisionGroups.reduce((sum, entry) => sum + entry.teamIds.length, 0),
     [divisionGroups]
   );
+  const autoQualifiedCountOptions = useMemo(() => {
+    const max = Math.min(32, Math.max(0, divisionTeamCount));
+    if (max < 2) return [];
+    return Array.from({ length: max - 1 }, (_, idx) => idx + 2);
+  }, [divisionTeamCount]);
+  const autoGroupCount = divisionGroups.length;
+  const autoStage = useMemo(
+    () => resolveStageForQualifiedCount(autoQualifiedCount),
+    [autoQualifiedCount]
+  );
+  const autoPerGroupCount = useMemo(
+    () =>
+      autoGroupCount > 0 && autoQualifiedCount % autoGroupCount === 0
+        ? autoQualifiedCount / autoGroupCount
+        : null,
+    [autoQualifiedCount, autoGroupCount]
+  );
+  const autoCriterionError = useMemo(() => {
+    if (autoCriterion !== "top_per_group") return null;
+    if (autoGroupCount === 0) return "No hay zonas disponibles para este criterio.";
+    if (autoPerGroupCount === null) {
+      return `La cantidad debe ser multiplo de ${autoGroupCount} (zonas).`;
+    }
+    const hasEnoughPerGroup = divisionGroups.every(
+      (entry) => entry.teamIds.length >= autoPerGroupCount
+    );
+    if (!hasEnoughPerGroup) {
+      return "Alguna zona no tiene suficientes parejas para esa cantidad por zona.";
+    }
+    return null;
+  }, [autoCriterion, autoGroupCount, autoPerGroupCount, divisionGroups]);
+  const autoQualificationLegend = useMemo(() => {
+    if (autoCriterion === "overall_ranking") {
+      return `Pasan los mejores ${autoQualifiedCount} del ranking general.`;
+    }
+    if (autoPerGroupCount === null) {
+      return `Pasan ${autoQualifiedCount} por zonas, repartidos equitativamente.`;
+    }
+    return `Pasan los mejores ${autoPerGroupCount} de cada zona (${autoQualifiedCount} en total).`;
+  }, [autoCriterion, autoQualifiedCount, autoPerGroupCount]);
+  const canUseCustomAutoGeneration = useMemo(() => {
+    if (competitionType !== "flash") return false;
+    if (categoryFilter === "all" || genderFilter === "all") return false;
+    if (hasPlayoffs) return false;
+    if (!groupStageComplete) return false;
+    if (autoQualifiedCountOptions.length === 0) return false;
+    if (autoCriterionError) return false;
+    return true;
+  }, [
+    competitionType,
+    categoryFilter,
+    genderFilter,
+    hasPlayoffs,
+    groupStageComplete,
+    autoQualifiedCountOptions,
+    autoCriterionError,
+  ]);
   const autoModeOptionsByStage = useMemo(() => {
     const map = new Map<PlayoffStage, AutoModeOption[]>();
     const isFirstAssignmentPhase = !hasDefinedPlayoffTeams;
@@ -2576,6 +2646,44 @@ export default function TournamentPlayoffsPage() {
     }
   }
 
+  async function handleCustomAutoGenerate() {
+    setGenerating(true);
+    setActionError(null);
+
+    try {
+      if (categoryFilter === "all" || genderFilter === "all") {
+        setActionError("Selecciona categoria y genero antes de generar playoffs.");
+        return;
+      }
+      if (!groupStageComplete) {
+        setActionError("Completa los partidos de zonas antes de generar automaticamente.");
+        return;
+      }
+      if (autoCriterionError) {
+        setActionError(autoCriterionError);
+        return;
+      }
+
+      const payload: PlayoffGenerateRequest = {
+        stage: autoStage,
+        qualifiers_count: autoQualifiedCount,
+        qualification_criterion: autoCriterion,
+        category: categoryFilter,
+        gender: genderFilter,
+      };
+      const created = await api<Match[]>(`/tournaments/${tournamentId}/generate-playoffs`, {
+        method: "POST",
+        body: payload,
+      });
+      setMatches((prev) => [...prev, ...created]);
+      setAutoGenerateOpen(false);
+    } catch (err: unknown) {
+      setActionError(getErrorMessage(err, "No se pudieron generar los cruces"));
+    } finally {
+      setGenerating(false);
+    }
+  }
+
   async function handleResetPlayoffs() {
     setResettingPlayoffs(true);
     setResetPlayoffsError(null);
@@ -2616,6 +2724,14 @@ export default function TournamentPlayoffsPage() {
       setConfirmAutoMode(enabledOptions[0].mode);
     }
   }, [confirmStage, confirmAutoMode, confirmStageAutoOptions]);
+  useEffect(() => {
+    if (autoQualifiedCountOptions.length === 0) return;
+    if (autoQualifiedCountOptions.includes(autoQualifiedCount)) return;
+    const defaultCount = autoQualifiedCountOptions.includes(8)
+      ? 8
+      : autoQualifiedCountOptions[autoQualifiedCountOptions.length - 1];
+    setAutoQualifiedCount(defaultCount);
+  }, [autoQualifiedCount, autoQualifiedCountOptions]);
   useEffect(() => {
     if (hasPlayoffs && actionError) {
       setActionError(null);
@@ -2763,37 +2879,63 @@ export default function TournamentPlayoffsPage() {
                 {playoffFiltersToolbar}
                 {!hasPlayoffs && (
                   <>
-                    <div className="flex flex-col gap-2">
-                      <div className="text-sm font-semibold text-zinc-800">Instancias disponibles (automatico)</div>
-                      {availableStages.length === 0 ? (
-                        <div className="text-sm text-zinc-600">
-                          {!groupStageComplete && !latestStage
-                            ? isFlashCompetition
-                              ? "Podes crear el cuadro vacio para asignar canchas sobre la marcha. Las parejas se completan cuando terminen grupos."
-                              : "Podes crear el cuadro vacio para programar horarios. Las parejas se completan cuando terminen grupos."
-                            : latestStage && !canGenerateNextStage
-                            ? `Completa los resultados de ${STAGE_LABELS[latestStage]} para avanzar.`
-                            : "No hay instancias disponibles para generar ahora."}
+                    {!isFlashCompetition && (
+                      <div className="flex flex-col gap-2">
+                        <div className="text-sm font-semibold text-zinc-800">Instancias disponibles (automatico)</div>
+                        {availableStages.length === 0 ? (
+                          <div className="text-sm text-zinc-600">
+                            {!groupStageComplete && !latestStage
+                              ? "Podes crear el cuadro vacio para programar horarios. Las parejas se completan cuando terminen grupos."
+                              : latestStage && !canGenerateNextStage
+                              ? `Completa los resultados de ${STAGE_LABELS[latestStage]} para avanzar.`
+                              : "No hay instancias disponibles para generar ahora."}
+                          </div>
+                        ) : (
+                          <div className="flex flex-wrap gap-2">
+                            {availableStages.map((stage) => (
+                              <Button
+                                key={stage}
+                                onClick={() => {
+                                  const options = autoModeOptionsByStage.get(stage) ?? [];
+                                  const firstEnabled = options.find((option) => option.enabled);
+                                  setConfirmAutoMode(firstEnabled?.mode ?? DEFAULT_AUTO_MODE);
+                                  setConfirmStage(stage);
+                                }}
+                                disabled={generating}
+                              >
+                                Generar {STAGE_LABELS[stage]}
+                              </Button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    {isFlashCompetition && (
+                      <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3">
+                        <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                          <div>
+                            <div className="text-sm font-semibold text-emerald-900">
+                              Generacion automatica por clasificados
+                            </div>
+                            <div className="text-xs text-emerald-800">
+                              Elegis cantidad de parejas y criterio (ranking general o por zona).
+                            </div>
+                          </div>
+                          <Button
+                            variant="secondary"
+                            onClick={() => setAutoGenerateOpen(true)}
+                            disabled={!canUseCustomAutoGeneration || generating}
+                          >
+                            Generar automaticamente
+                          </Button>
                         </div>
-                      ) : (
-                        <div className="flex flex-wrap gap-2">
-                          {availableStages.map((stage) => (
-                            <Button
-                              key={stage}
-                              onClick={() => {
-                                const options = autoModeOptionsByStage.get(stage) ?? [];
-                                const firstEnabled = options.find((option) => option.enabled);
-                                setConfirmAutoMode(firstEnabled?.mode ?? DEFAULT_AUTO_MODE);
-                                setConfirmStage(stage);
-                              }}
-                              disabled={generating}
-                            >
-                              Generar {STAGE_LABELS[stage]}
-                            </Button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
+                        {!groupStageComplete && (
+                          <div className="mt-2 text-xs text-amber-700">
+                            Completa los resultados de zonas para habilitar esta opcion.
+                          </div>
+                        )}
+                      </div>
+                    )}
 
                     {actionError && (
                       <div className="rounded-xl border border-red-300 bg-red-100 p-3 text-sm text-red-800">
@@ -3473,6 +3615,76 @@ export default function TournamentPlayoffsPage() {
               }
             >
               {generating ? "Generando..." : "Confirmar"}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
+        open={autoGenerateOpen}
+        title="Generar automaticamente"
+        onClose={() => {
+          if (!generating) setAutoGenerateOpen(false);
+        }}
+      >
+        <div className="space-y-4">
+          <div className="space-y-1">
+            <label className="text-xs font-semibold uppercase tracking-[0.14em] text-zinc-500">
+              Cantidad de parejas que clasifican
+            </label>
+            <select
+              className="w-full rounded-xl border border-zinc-400 bg-white px-3 py-2 text-sm font-medium text-zinc-900 shadow-sm focus:border-zinc-700 focus:outline-none focus:ring-2 focus:ring-zinc-900/15"
+              value={autoQualifiedCount}
+              onChange={(e) => setAutoQualifiedCount(Number(e.target.value))}
+            >
+              {autoQualifiedCountOptions.map((count) => (
+                <option key={count} value={count}>
+                  {count}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-xs font-semibold uppercase tracking-[0.14em] text-zinc-500">
+              Criterio de clasificacion
+            </label>
+            <select
+              className="w-full rounded-xl border border-zinc-400 bg-white px-3 py-2 text-sm font-medium text-zinc-900 shadow-sm focus:border-zinc-700 focus:outline-none focus:ring-2 focus:ring-zinc-900/15"
+              value={autoCriterion}
+              onChange={(e) => setAutoCriterion(e.target.value as PlayoffQualificationCriterion)}
+            >
+              <option value="overall_ranking">Ranking general</option>
+              <option value="top_per_group">Top por zona</option>
+            </select>
+          </div>
+
+          <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-3 text-sm text-zinc-700">
+            Instancia objetivo: <span className="font-semibold">{STAGE_LABELS[autoStage]}</span>
+          </div>
+          <div className="rounded-xl border border-blue-200 bg-blue-50 p-3 text-xs text-blue-900">
+            {autoQualificationLegend}
+          </div>
+
+          {autoCriterionError && (
+            <div className="rounded-xl border border-red-300 bg-red-100 p-3 text-sm text-red-800">
+              {autoCriterionError}
+            </div>
+          )}
+
+          <div className="flex justify-end gap-2">
+            <Button
+              variant="secondary"
+              onClick={() => setAutoGenerateOpen(false)}
+              disabled={generating}
+            >
+              Cancelar
+            </Button>
+            <Button
+              onClick={handleCustomAutoGenerate}
+              disabled={!canUseCustomAutoGeneration || generating}
+            >
+              {generating ? "Generando..." : "Generar"}
             </Button>
           </div>
         </div>

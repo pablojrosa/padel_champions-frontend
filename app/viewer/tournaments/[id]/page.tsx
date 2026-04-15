@@ -507,15 +507,50 @@ export default function PublicTournamentPage() {
       );
     });
   }, [groups, query, divisionFilter]);
+  const getMatchDivisionLabel = useCallback((match: Match) => {
+    if (match.category && match.gender) {
+      return `${match.category} - ${genderLabel(match.gender)}`;
+    }
+    return getTeamDivision(match.team_a_id) ?? getTeamDivision(match.team_b_id);
+  }, [getTeamDivision]);
+  const generalRankingByTeamId = useMemo(() => {
+    const rows = groups
+      .filter((group) => {
+        if (divisionFilter === "all") return true;
+        return group.teams.some((team) => {
+          const category = team.players?.[0]?.category ?? null;
+          const gender = team.players?.[0]?.gender ?? null;
+          if (!category || !gender) return false;
+          return `${category} - ${genderLabel(gender)}` === divisionFilter;
+        });
+      })
+      .flatMap((group) => standingsByGroup[group.id]?.standings ?? [])
+      .filter((row) => {
+        if (divisionFilter === "all") return true;
+        const category = row.team.players?.[0]?.category ?? null;
+        const gender = row.team.players?.[0]?.gender ?? null;
+        if (!category || !gender) return false;
+        return `${category} - ${genderLabel(gender)}` === divisionFilter;
+      });
+
+    rows.sort((a, b) => {
+      if (a.points !== b.points) return b.points - a.points;
+      if (a.set_diff !== b.set_diff) return b.set_diff - a.set_diff;
+      if (a.game_diff !== b.game_diff) return b.game_diff - a.game_diff;
+      const labelA = a.team.players.map((player) => player.name).join(" / ") || `Team #${a.team.id}`;
+      const labelB = b.team.players.map((player) => player.name).join(" / ") || `Team #${b.team.id}`;
+      return labelA.localeCompare(labelB);
+    });
+
+    const rankMap = new Map<number, number>();
+    rows.forEach((row, idx) => {
+      rankMap.set(row.team.id, idx + 1);
+    });
+    return rankMap;
+  }, [groups, standingsByGroup, divisionFilter]);
 
   const filteredMatches = useMemo(() => {
     const normalized = query.trim().toLowerCase();
-    const matchDivision = (match: Match) => {
-      if (match.category && match.gender) {
-        return `${match.category} - ${genderLabel(match.gender)}`;
-      }
-      return getTeamDivision(match.team_a_id) ?? getTeamDivision(match.team_b_id);
-    };
     const isVisible = (match: Match) => {
       if (!normalized) return true;
       const aLabel = getTeamLabel(match.team_a_id).toLowerCase();
@@ -525,12 +560,13 @@ export default function PublicTournamentPage() {
     return matches.filter((match) => {
       if (!isVisible(match)) return false;
       if (divisionFilter === "all") return true;
-      return matchDivision(match) === divisionFilter;
+      return getMatchDivisionLabel(match) === divisionFilter;
     });
-  }, [matches, query, divisionFilter, getTeamDivision, getTeamLabel]);
+  }, [matches, query, divisionFilter, getTeamLabel, getMatchDivisionLabel]);
   const hasActiveFilters = query.trim().length > 0 || divisionFilter !== "all";
   const competitionType = (tournament?.competition_type ?? "tournament") as CompetitionType;
-  const descriptionText = defaultDescriptionByType[competitionType];
+  const descriptionText =
+    competitionType === "flash" ? "" : defaultDescriptionByType[competitionType];
   const descriptionContent = useMemo(
     () => renderDescriptionWithLinks(descriptionText),
     [descriptionText]
@@ -642,15 +678,6 @@ export default function PublicTournamentPage() {
     return map;
   }, [filteredPlayoffMatches]);
 
-  const matchesByStageAll = useMemo(() => {
-    const map = new Map<Match["stage"], Match[]>();
-    PLAYOFF_STAGES.forEach((stage) => map.set(stage, []));
-    playoffMatches.forEach((match) => {
-      map.get(match.stage)?.push(match);
-    });
-    return map;
-  }, [playoffMatches]);
-
   const initialStage = useMemo(() => {
     for (const stage of PLAYOFF_STAGES) {
       const stageMatches = matchesByStage.get(stage) ?? [];
@@ -730,16 +757,37 @@ export default function PublicTournamentPage() {
   }, [activeStages, defaultSeedLabelsByStage, getTeamLabel, matchesByStage]);
 
   const finalWinner = useMemo(() => {
-    const finals = matchesByStageAll.get("final") ?? [];
-    const finalMatch = finals.find(
-      (match) => match.status === "played" && match.winner_team_id
-    );
-    if (!finalMatch || !finalMatch.winner_team_id) return null;
+    const finals = playoffMatches
+      .filter(
+        (match) =>
+          match.stage === "final"
+          && match.status === "played"
+          && !!match.winner_team_id
+      )
+      .filter((match) =>
+        divisionFilter === "all"
+          ? true
+          : getMatchDivisionLabel(match) === divisionFilter
+      )
+      .sort((a, b) => b.id - a.id);
+
+    if (finals.length === 0) return null;
+    if (divisionFilter === "all") {
+      const divisionsWithWinner = new Set(
+        finals
+          .map((match) => getMatchDivisionLabel(match))
+          .filter((value): value is string => !!value)
+      );
+      if (divisionsWithWinner.size > 1) return null;
+    }
+
+    const finalMatch = finals[0];
+    if (!finalMatch.winner_team_id) return null;
     const team = teamsById.get(finalMatch.winner_team_id);
     const names = team?.players?.map((player) => player.name).filter(Boolean) ?? [];
     const name = names.length > 0 ? names.join(" / ") : `Team #${finalMatch.winner_team_id}`;
     return name;
-  }, [matchesByStageAll, teamsById]);
+  }, [playoffMatches, divisionFilter, getMatchDivisionLabel, teamsById]);
 
   const playoffSectionVisible = hasPlayoffs;
   const showGroupsContent = showGroups || activeSection === "groups";
@@ -1367,6 +1415,11 @@ export default function PublicTournamentPage() {
                                   </div>
                                 </div>
                                 <div className="mt-2 text-[11px]">
+                                  <span className="font-semibold text-zinc-500">Ranking gral </span>
+                                  <span className="font-semibold text-zinc-800">
+                                    #{generalRankingByTeamId.get(row.team.id) ?? "-"}
+                                  </span>
+                                  <span className="text-zinc-400"> · </span>
                                   <span className="font-semibold text-zinc-500">Dif sets </span>
                                   <span className={`font-semibold ${diffTextColor(row.set_diff)}`}>
                                     {formatDiff(row.set_diff)}
@@ -1387,6 +1440,7 @@ export default function PublicTournamentPage() {
                             <thead>
                               <tr className="text-left text-zinc-500">
                                 <th className="py-1.5 sm:py-2">Equipo</th>
+                                <th className="py-1.5 sm:py-2">Ranking gral</th>
                                 <th className="py-1.5 sm:py-2">PJ</th>
                                 <th className="py-1.5 sm:py-2">PG</th>
                                 <th className="py-1.5 sm:py-2">PP</th>
@@ -1403,6 +1457,9 @@ export default function PublicTournamentPage() {
                                 return (
                                   <tr key={row.team.id} className="border-t border-zinc-800">
                                     <td className="py-1.5 font-medium sm:py-2">{teamLabel}</td>
+                                    <td className="py-1.5 sm:py-2">
+                                      #{generalRankingByTeamId.get(row.team.id) ?? "-"}
+                                    </td>
                                     <td className="py-1.5 sm:py-2">{row.played}</td>
                                     <td className="py-1.5 sm:py-2">{row.won}</td>
                                     <td className="py-1.5 sm:py-2">{row.lost}</td>
