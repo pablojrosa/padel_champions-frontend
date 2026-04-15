@@ -326,9 +326,15 @@ export type PlayoffAutoMode =
   | "best_to_semi_quarter"
   | "play_in_lowest_ranked";
 
+export type PlayoffQualificationCriterion =
+  | "overall_ranking"
+  | "top_per_group";
+
 export type PlayoffGenerateRequest = {
   stage: PlayoffStage;
   auto_mode?: PlayoffAutoMode;
+  qualifiers_count?: number;
+  qualification_criterion?: PlayoffQualificationCriterion;
   manual_pairs?: { team_a_id: number; team_b_id: number }[];
   category?: string;
   gender?: string;

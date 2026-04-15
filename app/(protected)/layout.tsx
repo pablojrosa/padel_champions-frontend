@@ -1,10 +1,10 @@
 import AppShell from "@/components/AppShell";
-import ProtectedGuard from "@/components/ProtectedGuard";
+import ProtectedGuardNoSSR from "@/components/ProtectedGuardNoSSR";
 
 export default function ProtectedLayout({ children }: { children: React.ReactNode }) {
   return (
-    <ProtectedGuard>
+    <ProtectedGuardNoSSR>
       <AppShell>{children}</AppShell>
-    </ProtectedGuard>
+    </ProtectedGuardNoSSR>
   );
 }
