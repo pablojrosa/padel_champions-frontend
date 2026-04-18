@@ -568,6 +568,7 @@ export default function PublicTournamentPage() {
   const competitionType = (tournament?.competition_type ?? "tournament") as CompetitionType;
   const descriptionText =
     competitionType === "flash" ? "" : defaultDescriptionByType[competitionType];
+  const showDescriptionSection = competitionType !== "flash" && !!descriptionText;
   const descriptionContent = useMemo(
     () => renderDescriptionWithLinks(descriptionText),
     [descriptionText]
@@ -903,7 +904,7 @@ export default function PublicTournamentPage() {
         </div>
       </div>
 
-      {descriptionText ? (
+      {showDescriptionSection ? (
         <Card className="bg-white/95">
           <div className="p-4 sm:p-5">
             <div className={`relative ${isLongDescription && !isDescriptionExpanded ? "max-h-28 overflow-hidden sm:max-h-36" : ""}`}>
