@@ -154,6 +154,21 @@ const DEFAULT_MATCH_DURATION_MINUTES = 90;
 const DEFAULT_BULK_STAGE_GAP_MINUTES = "30";
 const BULK_MINUTE_OPTIONS = ["00", "15", "30", "45"];
 
+function getTournamentMatchesPath(
+  tournamentId: number,
+  competitionType: CompetitionType | null | undefined
+) {
+  return competitionType === "flash"
+    ? `/tournaments/${tournamentId}/matches?manual_view=true`
+    : `/tournaments/${tournamentId}/matches`;
+}
+
+function getMatchResultPath(matchId: number, competitionType: CompetitionType | null | undefined) {
+  return competitionType === "flash"
+    ? `/matches/${matchId}/result?manual_flow=true`
+    : `/matches/${matchId}/result`;
+}
+
 function toLocalIsoDate(date: Date) {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -1577,18 +1592,21 @@ export default function TournamentPlayoffsPage() {
     setError(null);
 
     try {
-      const [tournamentRes, matchesRes, teamsRes, groupsRes, statusRes] = await Promise.all([
+      const [tournamentRes, teamsRes, groupsRes, statusRes] = await Promise.all([
         api<Tournament>(`/public/tournaments/${tournamentId}`, { auth: false }),
-        api<Match[]>(`/tournaments/${tournamentId}/matches`),
-        api<Team[]>(`/tournaments/${tournamentId}/teams`),
-        api<TournamentGroupOut[]>(`/tournaments/${tournamentId}/groups`),
-        api<TournamentStatusResponse>(`/tournaments/${tournamentId}/status`),
+          api<Team[]>(`/tournaments/${tournamentId}/teams`),
+          api<TournamentGroupOut[]>(`/tournaments/${tournamentId}/groups`),
+          api<TournamentStatusResponse>(`/tournaments/${tournamentId}/status`),
       ]);
+      const nextCompetitionType = (tournamentRes.competition_type ?? "tournament") as CompetitionType;
+      const matchesRes = await api<Match[]>(
+        getTournamentMatchesPath(tournamentId, nextCompetitionType)
+      );
 
       setTournamentMatchDurationMinutes(
         Math.max(1, tournamentRes.match_duration_minutes ?? DEFAULT_MATCH_DURATION_MINUTES)
       );
-      setCompetitionType((tournamentRes.competition_type ?? "tournament") as CompetitionType);
+      setCompetitionType(nextCompetitionType);
       setMatches(matchesRes);
       setTeams(teamsRes);
       setGroups(groupsRes);
@@ -1609,7 +1627,7 @@ export default function TournamentPlayoffsPage() {
     if (!Number.isFinite(tournamentId)) return;
     try {
       const [matchesRes, statusRes] = await Promise.all([
-        api<Match[]>(`/tournaments/${tournamentId}/matches`),
+        api<Match[]>(getTournamentMatchesPath(tournamentId, competitionType)),
         api<TournamentStatusResponse>(`/tournaments/${tournamentId}/status`),
       ]);
       setMatches(matchesRes);
@@ -1622,7 +1640,7 @@ export default function TournamentPlayoffsPage() {
       }
       setError(getErrorMessage(err, "No se pudieron actualizar los partidos"));
     }
-  }, [router, tournamentId]);
+  }, [competitionType, router, tournamentId]);
 
   useEffect(() => {
     loadPlayoffs();
@@ -1709,40 +1727,13 @@ export default function TournamentPlayoffsPage() {
   }
 
   async function openResultModal(match: Match) {
-    let modalMatch = match;
-    if (
-      isFlashCompetition
-      && match.status !== "played"
-      && hasDefinedTeams(match)
-    ) {
-      try {
-        const autoAssigned = await api<Match>(`/matches/${match.id}/auto-assign-court`, {
-          method: "POST",
-          body: {},
-        });
-        modalMatch = autoAssigned;
-        setMatches((prev) =>
-          prev.map((item) => (item.id === autoAssigned.id ? autoAssigned : item))
-        );
-      } catch (err: unknown) {
-        const message =
-          err instanceof ApiError
-            ? err.message
-            : err instanceof Error
-            ? err.message
-            : "No se pudo asignar una cancha libre";
-        setError(message);
-        return;
-      }
-    }
-
     setError(null);
-    setSelectedMatch(modalMatch);
+    setSelectedMatch(match);
     setFormError(null);
     setSuccessMessage(null);
 
-    if (modalMatch.sets && modalMatch.sets.length > 0) {
-      const mapped = modalMatch.sets.map((setScore) => ({
+    if (match.sets && match.sets.length > 0) {
+      const mapped = match.sets.map((setScore) => ({
         a: String(setScore.a),
         b: String(setScore.b),
       }));
@@ -2392,7 +2383,7 @@ export default function TournamentPlayoffsPage() {
     setFormError(null);
 
     try {
-      const updated = await api<Match>(`/matches/${selectedMatch.id}/result`, {
+      const updated = await api<Match>(getMatchResultPath(selectedMatch.id, competitionType), {
         method: "POST",
         body: { sets: payloadSets },
       });
@@ -3369,14 +3360,12 @@ export default function TournamentPlayoffsPage() {
                                 && hasTeams
                                 && (isFlashCompetition || !!match.scheduled_time);
                               const scheduleLabel = isFlashCompetition
-                                ? match.court_number
-                                  ? `Cancha ${match.court_number}`
-                                  : ""
+                                ? ""
                                 : formatSchedule(
                                     match.scheduled_date,
                                     match.scheduled_time
                                   );
-                              const hasSchedule = !!scheduleLabel;
+                              const hasSchedule = !isFlashCompetition && !!scheduleLabel;
                               return (
                                 <div
                                   key={match.id}
@@ -3444,16 +3433,13 @@ export default function TournamentPlayoffsPage() {
                                       {!played && hasSchedule && (
                                         <div className="h-px w-full bg-zinc-300" />
                                       )}
-                                      {(played || hasSchedule) && (
+                                      {hasSchedule && (
                                         <div className="text-xs text-zinc-600">
-                                          {scheduleLabel
-                                            || (isFlashCompetition
-                                              ? "Cancha no asignada"
-                                              : "Horario a confirmar")}
+                                          {scheduleLabel || "Horario a confirmar"}
                                         </div>
                                       )}
-                                      {!played && !hasSchedule && (
-                                        <div>{isFlashCompetition ? "Sin cancha asignada" : "Pendiente"}</div>
+                                      {!played && !hasSchedule && !isFlashCompetition && (
+                                        <div>Pendiente</div>
                                       )}
                                       <div className="flex flex-wrap justify-end gap-2">
                                         {canSchedule && (

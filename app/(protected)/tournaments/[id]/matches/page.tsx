@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import ScheduledMatchesGridModal from "@/components/tournaments/ScheduledMatchesGridModal";
@@ -25,7 +25,6 @@ import type {
 
 type IdParam = { id: string };
 type CompetitionType = "tournament" | "league" | "flash";
-type FlashStatusFilter = "playing" | "waiting";
 
 type EditableSet = { a: string; b: string };
 type ScheduleSuggestion = {
@@ -125,6 +124,21 @@ function buildTimeSlots(startMinutes: number, endMinutes: number, stepMinutes: n
   return slots;
 }
 
+function getTournamentMatchesPath(
+  tournamentId: number,
+  competitionType: CompetitionType | null | undefined
+) {
+  return competitionType === "flash"
+    ? `/tournaments/${tournamentId}/matches?manual_view=true`
+    : `/tournaments/${tournamentId}/matches`;
+}
+
+function getMatchResultPath(matchId: number, competitionType: CompetitionType | null | undefined) {
+  return competitionType === "flash"
+    ? `/matches/${matchId}/result?manual_flow=true`
+    : `/matches/${matchId}/result`;
+}
+
 export default function TournamentMatchesPage() {
   const router = useRouter();
   const params = useParams<IdParam>();
@@ -146,9 +160,6 @@ export default function TournamentMatchesPage() {
   const [formError, setFormError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"unscheduled" | "scheduled" | "played">("unscheduled");
-  const [flashStatusFilter, setFlashStatusFilter] = useState<FlashStatusFilter>("playing");
-  const [latestFlashPlayingMatchId, setLatestFlashPlayingMatchId] = useState<number | null>(null);
-
   const [scheduleMatch, setScheduleMatch] = useState<Match | null>(null);
   const [scheduleDate, setScheduleDate] = useState("");
   const [scheduleHour, setScheduleHour] = useState("");
@@ -175,7 +186,6 @@ export default function TournamentMatchesPage() {
   const [bulkMinute, setBulkMinute] = useState(DEFAULT_SCHEDULE_MINUTE);
   const [bulkScheduling, setBulkScheduling] = useState(false);
   const [bulkScheduleError, setBulkScheduleError] = useState<string | null>(null);
-  const previousFlashPlayingIdsRef = useRef<Set<number> | null>(null);
 
   const teamsById = useMemo(() => {
     const map = new Map<number, Team>();
@@ -230,21 +240,25 @@ export default function TournamentMatchesPage() {
       setError(null);
 
       try {
-        const [matchesRes, teamsRes, groupsRes, statusRes, tournamentsRes] = await Promise.all([
-          api<Match[]>(`/tournaments/${tournamentId}/matches`),
+        const [teamsRes, groupsRes, statusRes, tournamentsRes] = await Promise.all([
           api<Team[]>(`/tournaments/${tournamentId}/teams`),
           api<TournamentGroupOut[]>(`/tournaments/${tournamentId}/groups`),
           api<TournamentStatusResponse>(`/tournaments/${tournamentId}/status`),
           api<Tournament[]>("/tournaments"),
         ]);
 
+        const current = tournamentsRes.find((item) => item.id === tournamentId);
+        const nextCompetitionType = (current?.competition_type ?? "tournament") as CompetitionType;
+        const matchesRes = await api<Match[]>(
+          getTournamentMatchesPath(tournamentId, nextCompetitionType)
+        );
+
         setMatches(matchesRes);
         setTeams(teamsRes);
         setGroups(groupsRes);
         setTournamentStatus(statusRes.status);
-        const current = tournamentsRes.find((item) => item.id === tournamentId);
         setTournament(current ?? null);
-        setCompetitionType((current?.competition_type ?? "tournament") as CompetitionType);
+        setCompetitionType(nextCompetitionType);
       } catch (err: unknown) {
         if (err instanceof ApiError && err.status === 401) {
           clearToken();
@@ -284,44 +298,13 @@ export default function TournamentMatchesPage() {
   }
 
   async function openResultModal(match: Match) {
-    let modalMatch = match;
-    if (
-      competitionType === "flash"
-      && match.status !== "played"
-      && hasDefinedTeams(match)
-    ) {
-      try {
-        const autoAssigned = await api<Match>(`/matches/${match.id}/auto-assign-court`, {
-          method: "POST",
-          body: {},
-        });
-        modalMatch = autoAssigned;
-        const refreshedMatches = await api<Match[]>(`/tournaments/${tournamentId}/matches`);
-        setMatches(refreshedMatches);
-      } catch (err: unknown) {
-        if (err instanceof ApiError && err.status === 401) {
-          clearToken();
-          router.replace("/login");
-          return;
-        }
-        const message =
-          err instanceof ApiError
-            ? err.message
-            : err instanceof Error
-            ? err.message
-            : "No se pudo asignar una cancha libre";
-        setError(message);
-        return;
-      }
-    }
-
     setError(null);
-    setSelectedMatch(modalMatch);
+    setSelectedMatch(match);
     setFormError(null);
     setSuccessMessage(null);
 
-    if (modalMatch.sets && modalMatch.sets.length > 0) {
-      const mapped = modalMatch.sets.map((setScore) => ({
+    if (match.sets && match.sets.length > 0) {
+      const mapped = match.sets.map((setScore) => ({
         a: String(setScore.a),
         b: String(setScore.b),
       }));
@@ -794,12 +777,12 @@ export default function TournamentMatchesPage() {
     setFormError(null);
 
     try {
-      const updated = await api<Match>(`/matches/${selectedMatch.id}/result`, {
+      const updated = await api<Match>(getMatchResultPath(selectedMatch.id, competitionType), {
         method: "POST",
         body: { sets: payloadSets },
       });
       const [matchesRes, statusRes] = await Promise.all([
-        api<Match[]>(`/tournaments/${tournamentId}/matches`),
+        api<Match[]>(getTournamentMatchesPath(tournamentId, competitionType)),
         api<TournamentStatusResponse>(`/tournaments/${tournamentId}/status`),
       ]);
 
@@ -956,8 +939,6 @@ export default function TournamentMatchesPage() {
     [onlyConstraintConflicts, activeTab, baseFilteredMatches, constraintConflictsByMatchId]
   );
   const isFlash = competitionType === "flash";
-  const isFlashPlayingMatch = (match: Match) =>
-    match.status !== "played" && !!match.court_number && match.court_number > 0;
   const unscheduledMatches = useMemo(
     () =>
       categoryFilteredMatches.filter((match) =>
@@ -978,55 +959,6 @@ export default function TournamentMatchesPage() {
     () => categoryFilteredMatches.filter((match) => match.status === "played"),
     [categoryFilteredMatches]
   );
-  useEffect(() => {
-    if (!isFlash) {
-      previousFlashPlayingIdsRef.current = null;
-      setLatestFlashPlayingMatchId(null);
-      return;
-    }
-
-    const currentPlayingIds = new Set(
-      matches
-        .filter((match) => match.status !== "played" && !!match.court_number && match.court_number > 0)
-        .map((match) => match.id)
-    );
-    const previousPlayingIds = previousFlashPlayingIdsRef.current;
-
-    if (!previousPlayingIds) {
-      previousFlashPlayingIdsRef.current = currentPlayingIds;
-      return;
-    }
-
-    const newPlayingMatch = matches.find(
-      (match) =>
-        currentPlayingIds.has(match.id) &&
-        !previousPlayingIds.has(match.id)
-    );
-    if (newPlayingMatch) {
-      setLatestFlashPlayingMatchId(newPlayingMatch.id);
-    } else if (
-      latestFlashPlayingMatchId !== null &&
-      !currentPlayingIds.has(latestFlashPlayingMatchId)
-    ) {
-      setLatestFlashPlayingMatchId(null);
-    }
-
-    previousFlashPlayingIdsRef.current = currentPlayingIds;
-  }, [isFlash, matches, latestFlashPlayingMatchId]);
-  const flashPlayingCount = useMemo(
-    () => (isFlash ? unscheduledMatches.filter((match) => isFlashPlayingMatch(match)).length : 0),
-    [isFlash, unscheduledMatches]
-  );
-  const flashWaitingCount = useMemo(
-    () => (isFlash ? unscheduledMatches.filter((match) => !isFlashPlayingMatch(match)).length : 0),
-    [isFlash, unscheduledMatches]
-  );
-  const filteredUnscheduledMatches = useMemo(() => {
-    if (!isFlash) return unscheduledMatches;
-    return unscheduledMatches.filter((match) =>
-      flashStatusFilter === "playing" ? isFlashPlayingMatch(match) : !isFlashPlayingMatch(match)
-    );
-  }, [isFlash, unscheduledMatches, flashStatusFilter]);
 
   const blockedMatchIds = useMemo(() => {
     const blocked = new Set<number>();
@@ -1245,16 +1177,14 @@ export default function TournamentMatchesPage() {
   }, [activeTab]);
   const matchesForTab =
     activeTab === "unscheduled"
-      ? filteredUnscheduledMatches
+      ? unscheduledMatches
       : activeTab === "scheduled"
         ? scheduledMatches
         : playedMatches;
   const emptyLabel =
     activeTab === "unscheduled"
       ? isFlash
-        ? flashStatusFilter === "playing"
-          ? "No hay partidos jugando."
-          : "No hay partidos por jugar."
+        ? "No hay partidos pendientes."
         : "No hay partidos para programar."
       : activeTab === "scheduled"
         ? "No hay partidos programados."
@@ -1345,32 +1275,6 @@ export default function TournamentMatchesPage() {
                   >
                     Jugados ({playedMatches.length})
                   </Button>
-                  {isFlash && activeTab === "unscheduled" && (
-                    <div className="inline-flex rounded-xl border border-zinc-200 bg-white p-1">
-                      <button
-                        type="button"
-                        onClick={() => setFlashStatusFilter("playing")}
-                        className={`rounded-lg px-3 py-1.5 text-sm font-medium ${
-                          flashStatusFilter === "playing"
-                            ? "bg-emerald-600 text-white"
-                            : "text-zinc-700 hover:bg-zinc-100"
-                        }`}
-                      >
-                        Jugando ({flashPlayingCount})
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setFlashStatusFilter("waiting")}
-                        className={`rounded-lg px-3 py-1.5 text-sm font-medium ${
-                          flashStatusFilter === "waiting"
-                            ? "bg-zinc-900 text-white"
-                            : "text-zinc-700 hover:bg-zinc-100"
-                        }`}
-                      >
-                        Por jugar ({flashWaitingCount})
-                      </button>
-                    </div>
-                  )}
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                   <Input
@@ -1490,20 +1394,14 @@ export default function TournamentMatchesPage() {
               ) : matchesForTab.length === 0 ? (
                 <div className="text-sm text-zinc-600">{emptyLabel}</div>
               ) : (
-                matchesForTab.map((match, listIndex) => {
+                matchesForTab.map((match) => {
                   const matchConflicts = constraintConflictsByMatchId.get(match.id) ?? [];
                   const isUnscheduledTab = activeTab === "unscheduled" && !isFlash && canSchedule;
-                  const isFlashPlaying = isFlashPlayingMatch(match);
-                  const isLatestFlashPlaying = isFlash && match.id === latestFlashPlayingMatchId;
                   const isSelected = selectedMatchIds.has(match.id);
                   const isBlocked = blockedMatchIds.has(match.id);
-                  const cardClass = isLatestFlashPlaying
-                    ? "border-emerald-400 bg-emerald-100/80 ring-2 ring-emerald-200"
-                    : isFlash && isFlashPlaying
-                      ? "border-emerald-200 bg-emerald-50/70"
-                    : isSelected
-                      ? "border-zinc-400 bg-zinc-50"
-                      : "border-zinc-200";
+                  const cardClass = isSelected
+                    ? "border-zinc-400 bg-zinc-50"
+                    : "border-zinc-200";
                   return (
                     <div
                       key={match.id}
@@ -1542,11 +1440,6 @@ export default function TournamentMatchesPage() {
                               ? "Programado"
                               : "Falta programar"}
                           </div>
-                          {isFlash && (
-                            <div className="text-xs text-zinc-500">
-                              Orden: #{listIndex + 1} · Cancha: {match.court_number ?? "—"}
-                            </div>
-                          )}
                           {!isFlash && match.scheduled_time && (
                             <div className="text-xs text-zinc-500">
                               {match.scheduled_date ? `Fecha: ${match.scheduled_date} · ` : ""}
@@ -1573,7 +1466,7 @@ export default function TournamentMatchesPage() {
                           {(() => {
                             const hasTeamsDefined = hasDefinedTeams(match);
                             const canLoadResult =
-                              hasTeamsDefined && (isFlash ? isFlashPlaying : !!match.scheduled_time);
+                              hasTeamsDefined && (isFlash || !!match.scheduled_time);
                             if (match.status === "played") {
                               return (
                                 <Button onClick={() => { void openResultModal(match); }} disabled={!canResult || !hasTeamsDefined}>
