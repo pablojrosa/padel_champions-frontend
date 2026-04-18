@@ -139,6 +139,12 @@ function getMatchResultPath(matchId: number, competitionType: CompetitionType | 
     : `/matches/${matchId}/result`;
 }
 
+function getCanLoadResult(match: Match, competitionType: CompetitionType, hasTeamsDefined: boolean) {
+  if (!hasTeamsDefined) return false;
+  if (competitionType === "flash") return match.status === "ongoing";
+  return !!match.scheduled_time;
+}
+
 export default function TournamentMatchesPage() {
   const router = useRouter();
   const params = useParams<IdParam>();
@@ -797,6 +803,30 @@ export default function TournamentMatchesPage() {
       setFormError(getErrorMessage(err, "No se pudo guardar el resultado"));
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function startFlashMatch(match: Match) {
+    setError(null);
+    setScheduleMessage(null);
+
+    try {
+      await api<Match>(`/matches/${match.id}/start`, {
+        method: "POST",
+        body: {},
+      });
+      const matchesRes = await api<Match[]>(
+        getTournamentMatchesPath(tournamentId, competitionType)
+      );
+      setMatches(matchesRes);
+      setScheduleMessage(`Partido ${getMatchCode(match)} marcado como en juego.`);
+    } catch (err: unknown) {
+      if (err instanceof ApiError && err.status === 401) {
+        clearToken();
+        router.replace("/login");
+        return;
+      }
+      setError(getErrorMessage(err, "No se pudo comenzar el partido."));
     }
   }
 
@@ -1465,8 +1495,11 @@ export default function TournamentMatchesPage() {
                           */}
                           {(() => {
                             const hasTeamsDefined = hasDefinedTeams(match);
-                            const canLoadResult =
-                              hasTeamsDefined && (isFlash || !!match.scheduled_time);
+                            const canLoadResult = getCanLoadResult(
+                              match,
+                              competitionType,
+                              hasTeamsDefined
+                            );
                             if (match.status === "played") {
                               return (
                                 <Button onClick={() => { void openResultModal(match); }} disabled={!canResult || !hasTeamsDefined}>
@@ -1476,7 +1509,16 @@ export default function TournamentMatchesPage() {
                             }
                             return (
                               <>
-                                {(hasTeamsDefined && (isFlash || !!match.scheduled_time)) && (
+                                {isFlash && hasTeamsDefined && match.status === "pending" && (
+                                  <Button
+                                    onClick={() => { void startFlashMatch(match); }}
+                                    disabled={!canResult}
+                                    variant="secondary"
+                                  >
+                                    Comenzar
+                                  </Button>
+                                )}
+                                {(hasTeamsDefined && (isFlash ? match.status === "ongoing" : !!match.scheduled_time)) && (
                                   <Button
                                     onClick={() => { void openResultModal(match); }}
                                     disabled={!canResult || !canLoadResult}

@@ -169,6 +169,12 @@ function getMatchResultPath(matchId: number, competitionType: CompetitionType | 
     : `/matches/${matchId}/result`;
 }
 
+function getCanLoadResult(match: Match, competitionType: CompetitionType, hasTeamsDefined: boolean) {
+  if (!hasTeamsDefined) return false;
+  if (competitionType === "flash") return match.status === "ongoing";
+  return !!match.scheduled_time;
+}
+
 function toLocalIsoDate(date: Date) {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -2408,6 +2414,26 @@ export default function TournamentPlayoffsPage() {
     }
   }
 
+  async function startFlashMatch(match: Match) {
+    setError(null);
+    setBulkScheduleMessage(null);
+
+    try {
+      await api<Match>(`/matches/${match.id}/start`, {
+        method: "POST",
+        body: {},
+      });
+      await reloadMatches();
+    } catch (err: unknown) {
+      if (err instanceof ApiError && err.status === 401) {
+        clearToken();
+        router.replace("/login");
+        return;
+      }
+      setError(getErrorMessage(err, "No se pudo comenzar el partido."));
+    }
+  }
+
   function startManualStage(stage: PlayoffStage) {
     setManualStage(stage);
     setManualInitialTeamCount(STAGE_TEAM_COUNTS[stage]);
@@ -3357,8 +3383,7 @@ export default function TournamentPlayoffsPage() {
                               const canSchedule = !played && !isFlashCompetition;
                               const canLoadResult =
                                 !played
-                                && hasTeams
-                                && (isFlashCompetition || !!match.scheduled_time);
+                                && getCanLoadResult(match, competitionType, hasTeams);
                               const scheduleLabel = isFlashCompetition
                                 ? ""
                                 : formatSchedule(
@@ -3455,6 +3480,17 @@ export default function TournamentPlayoffsPage() {
                                               : match.scheduled_time
                                               ? "Editar horario"
                                               : "Programar partido"}
+                                          </Button>
+                                        )}
+                                        {isFlashCompetition && !played && hasTeams && match.status === "pending" && (
+                                          <Button
+                                            onClick={() => {
+                                              void startFlashMatch(match);
+                                            }}
+                                            disabled={!canEdit}
+                                            variant="secondary"
+                                          >
+                                            Comenzar
                                           </Button>
                                         )}
                                         {played ? (
