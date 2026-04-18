@@ -165,7 +165,7 @@ export default function TournamentMatchesPage() {
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<"unscheduled" | "scheduled" | "played">("unscheduled");
+  const [activeTab, setActiveTab] = useState<"unscheduled" | "playing" | "scheduled" | "played">("unscheduled");
   const [scheduleMatch, setScheduleMatch] = useState<Match | null>(null);
   const [scheduleDate, setScheduleDate] = useState("");
   const [scheduleHour, setScheduleHour] = useState("");
@@ -970,9 +970,20 @@ export default function TournamentMatchesPage() {
   );
   const isFlash = competitionType === "flash";
   const unscheduledMatches = useMemo(
+    () => {
+      if (isFlash) {
+        return categoryFilteredMatches.filter((match) => match.status === "pending");
+      }
+      return categoryFilteredMatches.filter(
+        (match) => match.status !== "played" && !match.scheduled_time
+      );
+    },
+    [categoryFilteredMatches, isFlash]
+  );
+  const playingMatches = useMemo(
     () =>
       categoryFilteredMatches.filter((match) =>
-        match.status !== "played" && (isFlash || !match.scheduled_time)
+        isFlash ? match.status === "ongoing" : false
       ),
     [categoryFilteredMatches, isFlash]
   );
@@ -1201,6 +1212,9 @@ export default function TournamentMatchesPage() {
     if (isFlash && activeTab === "scheduled") {
       setActiveTab("unscheduled");
     }
+    if (!isFlash && activeTab === "playing") {
+      setActiveTab("unscheduled");
+    }
   }, [isFlash, activeTab]);
   useEffect(() => {
     setSelectedMatchIds(new Set());
@@ -1208,6 +1222,8 @@ export default function TournamentMatchesPage() {
   const matchesForTab =
     activeTab === "unscheduled"
       ? unscheduledMatches
+      : activeTab === "playing"
+        ? playingMatches
       : activeTab === "scheduled"
         ? scheduledMatches
         : playedMatches;
@@ -1216,6 +1232,8 @@ export default function TournamentMatchesPage() {
       ? isFlash
         ? "No hay partidos pendientes."
         : "No hay partidos para programar."
+      : activeTab === "playing"
+        ? "No hay partidos en juego."
       : activeTab === "scheduled"
         ? "No hay partidos programados."
         : "No hay partidos jugados.";
@@ -1291,6 +1309,14 @@ export default function TournamentMatchesPage() {
                       ? `Pendientes (${unscheduledMatches.length})`
                       : `Faltan programar (${unscheduledMatches.length})`}
                   </Button>
+                  {isFlash && (
+                    <Button
+                      variant={activeTab === "playing" ? "primary" : "secondary"}
+                      onClick={() => setActiveTab("playing")}
+                    >
+                      En juego ({playingMatches.length})
+                    </Button>
+                  )}
                   {!isFlash && (
                     <Button
                       variant={activeTab === "scheduled" ? "primary" : "secondary"}
