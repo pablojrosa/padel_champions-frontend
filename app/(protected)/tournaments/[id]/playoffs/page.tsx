@@ -52,10 +52,13 @@ type ManualDraftStage = {
 type GroupRankingEntry = {
   groupId: number;
   groupName: string;
+  groupOrder: number;
   position: number;
   points: number;
   setDiff: number;
   gameDiff: number;
+  gamesFor: number;
+  won: number;
   teamId: number;
 };
 type SeedLabel = {
@@ -650,16 +653,28 @@ export default function TournamentPlayoffsPage() {
       return names.length > 0 ? names.join(" / ") : `Team #${teamId}`;
     };
 
-    divisionGroups.forEach(({ group, teamIds }) => {
+    const rankingDivisionGroups = [...divisionGroups].sort((a, b) =>
+      a.group.name.localeCompare(b.group.name)
+    );
+
+    rankingDivisionGroups.forEach(({ group, teamIds }, groupOrder) => {
       const groupTeamIds = new Set(teamIds);
       const stats = new Map<
         number,
-        { points: number; setsFor: number; setsAgainst: number; gamesFor: number; gamesAgainst: number }
+        {
+          points: number;
+          won: number;
+          setsFor: number;
+          setsAgainst: number;
+          gamesFor: number;
+          gamesAgainst: number;
+        }
       >();
 
       teamIds.forEach((teamId) => {
         stats.set(teamId, {
           points: 0,
+          won: 0,
           setsFor: 0,
           setsAgainst: 0,
           gamesFor: 0,
@@ -693,20 +708,50 @@ export default function TournamentPlayoffsPage() {
           if (setScore.b > setScore.a) setsWonB += 1;
         });
 
-        const pointsA = setsWonA > setsWonB ? (setsWonB === 0 ? 3 : 2) : setsWonA < setsWonB ? (setsWonA === 0 ? 0 : 1) : 0;
-        const pointsB = setsWonB > setsWonA ? (setsWonA === 0 ? 3 : 2) : setsWonB < setsWonA ? (setsWonB === 0 ? 0 : 1) : 0;
+        const teamAWon = setsWonA > setsWonB;
+        const teamBWon = setsWonB > setsWonA;
+        const pointsA =
+          competitionType === "flash"
+            ? teamAWon
+              ? 2
+              : 0
+            : teamAWon
+            ? setsWonB === 0
+              ? 3
+              : 2
+            : teamBWon
+            ? setsWonA === 0
+              ? 0
+              : 1
+            : 0;
+        const pointsB =
+          competitionType === "flash"
+            ? teamBWon
+              ? 2
+              : 0
+            : teamBWon
+            ? setsWonA === 0
+              ? 3
+              : 2
+            : teamAWon
+            ? setsWonB === 0
+              ? 0
+              : 1
+            : 0;
 
         const teamAStats = stats.get(match.team_a_id);
         const teamBStats = stats.get(match.team_b_id);
         if (!teamAStats || !teamBStats) return;
 
         teamAStats.points += pointsA;
+        if (teamAWon) teamAStats.won += 1;
         teamAStats.setsFor += setsWonA;
         teamAStats.setsAgainst += setsWonB;
         teamAStats.gamesFor += gamesA;
         teamAStats.gamesAgainst += gamesB;
 
         teamBStats.points += pointsB;
+        if (teamBWon) teamBStats.won += 1;
         teamBStats.setsFor += setsWonB;
         teamBStats.setsAgainst += setsWonA;
         teamBStats.gamesFor += gamesB;
@@ -716,12 +761,20 @@ export default function TournamentPlayoffsPage() {
       const rows = Array.from(stats.entries()).map(([teamId, values]) => ({
         teamId,
         points: values.points,
+        won: values.won,
         setDiff: values.setsFor - values.setsAgainst,
         gameDiff: values.gamesFor - values.gamesAgainst,
+        gamesFor: values.gamesFor,
       }));
 
       rows.sort((a, b) => {
         if (a.points !== b.points) return b.points - a.points;
+        if (competitionType === "flash") {
+          if (a.gameDiff !== b.gameDiff) return b.gameDiff - a.gameDiff;
+          if (a.gamesFor !== b.gamesFor) return b.gamesFor - a.gamesFor;
+          if (a.setDiff !== b.setDiff) return b.setDiff - a.setDiff;
+          return a.teamId - b.teamId;
+        }
         if (a.setDiff !== b.setDiff) return b.setDiff - a.setDiff;
         if (a.gameDiff !== b.gameDiff) return b.gameDiff - a.gameDiff;
         return labelForTeamId(a.teamId).localeCompare(labelForTeamId(b.teamId));
@@ -731,10 +784,13 @@ export default function TournamentPlayoffsPage() {
         rankEntries.push({
           groupId: group.id,
           groupName: group.name.replace(/^(group|grupo)\s*/i, "Zona "),
+          groupOrder,
           position: idx + 1,
           points: row.points,
           setDiff: row.setDiff,
           gameDiff: row.gameDiff,
+          gamesFor: row.gamesFor,
+          won: row.won,
           teamId: row.teamId,
         });
       });
@@ -750,7 +806,7 @@ export default function TournamentPlayoffsPage() {
     });
 
     return rankEntries;
-  }, [divisionGroups, matches, categoryFilter, genderFilter, teamsById]);
+  }, [divisionGroups, matches, categoryFilter, genderFilter, teamsById, competitionType]);
 
   const groupRankingByTeam = useMemo(() => {
     const map = new Map<number, GroupRankingEntry>();
@@ -768,12 +824,18 @@ export default function TournamentPlayoffsPage() {
       if (a.points !== b.points) return b.points - a.points;
       if (a.setDiff !== b.setDiff) return b.setDiff - a.setDiff;
       if (a.gameDiff !== b.gameDiff) return b.gameDiff - a.gameDiff;
+      if (competitionType === "flash") {
+        if (a.won !== b.won) return b.won - a.won;
+        if (a.position !== b.position) return a.position - b.position;
+        if (a.groupOrder !== b.groupOrder) return a.groupOrder - b.groupOrder;
+        return a.teamId - b.teamId;
+      }
       return labelForTeamId(a.teamId).localeCompare(labelForTeamId(b.teamId));
     });
     const map = new Map<number, number>();
     global.forEach((entry, idx) => map.set(entry.teamId, idx + 1));
     return map;
-  }, [rankedTeamsByGroup, teamsById]);
+  }, [rankedTeamsByGroup, teamsById, competitionType]);
 
   const sortedTeams = useMemo(() => {
     const labelFor = (team: Team) => {
@@ -808,6 +870,13 @@ export default function TournamentPlayoffsPage() {
       return labelFor(a).localeCompare(labelFor(b));
     });
   }, [teams, categoryFilter, genderFilter, overallRankingByTeam]);
+
+  const getFlashPlayoffTeamLabel = useCallback((teamId?: number | null) => {
+    const baseLabel = getTeamLabel(teamId);
+    if (competitionType !== "flash" || typeof teamId !== "number") return baseLabel;
+    const overallRank = overallRankingByTeam.get(teamId);
+    return overallRank ? `${baseLabel} (#${overallRank})` : baseLabel;
+  }, [competitionType, getTeamLabel, overallRankingByTeam]);
 
   const matchesByStage = useMemo(() => {
     const matchCategory = (match: Match) => {
@@ -1427,22 +1496,15 @@ export default function TournamentPlayoffsPage() {
     [manualSelectedIds]
   );
   const manualPreviewLabelBySlotKey = useMemo(() => {
-    const labelForTeamId = (teamId: number) => {
-      const team = teamsById.get(teamId);
-      if (!team) return `Team #${teamId}`;
-      const names = team.players?.map((player) => player.name).filter(Boolean) ?? [];
-      return names.length > 0 ? names.join(" / ") : `Team #${teamId}`;
-    };
-
     const map = new Map<string, string>();
     Object.entries(manualSlotValues).forEach(([slotKey, teamId]) => {
       if (typeof teamId === "number") {
-        map.set(slotKey, labelForTeamId(teamId));
+        map.set(slotKey, getFlashPlayoffTeamLabel(teamId));
       }
     });
 
     return map;
-  }, [manualSlotValues, teamsById]);
+  }, [manualSlotValues, getFlashPlayoffTeamLabel]);
   const playoffSeedLabelByMatchId = useMemo(() => {
     const map = new Map<number, SeedLabel>();
     if (activeStages.length === 0) return map;
@@ -1522,9 +1584,9 @@ export default function TournamentPlayoffsPage() {
         const mappedWinnerB = winnerBySlotIndex.get(slotB) ?? null;
         return {
           seedA:
-            manualSeedA ?? (mappedWinnerA ? getTeamLabel(mappedWinnerA) : "Por definir"),
+            manualSeedA ?? (mappedWinnerA ? getFlashPlayoffTeamLabel(mappedWinnerA) : "Por definir"),
           seedB:
-            manualSeedB ?? (mappedWinnerB ? getTeamLabel(mappedWinnerB) : "Por definir"),
+            manualSeedB ?? (mappedWinnerB ? getFlashPlayoffTeamLabel(mappedWinnerB) : "Por definir"),
         };
       });
 
@@ -1535,7 +1597,7 @@ export default function TournamentPlayoffsPage() {
     });
 
     return map;
-  }, [activeStages, defaultSeedLabelsByStage, getTeamLabel, manualPreviewLabelBySlotKey, matchesByStage]);
+  }, [activeStages, defaultSeedLabelsByStage, getFlashPlayoffTeamLabel, manualPreviewLabelBySlotKey, matchesByStage]);
 
   const loadManualSeeds = useCallback(async () => {
     if (!Number.isFinite(tournamentId)) return;
@@ -1683,7 +1745,9 @@ export default function TournamentPlayoffsPage() {
 
   function getMatchTeamLabel(match: Match, side: "a" | "b") {
     const teamId = side === "a" ? match.team_a_id : match.team_b_id;
-    if (typeof teamId === "number") return getTeamLabel(teamId);
+    if (typeof teamId === "number") {
+      return match.stage === "group" ? getTeamLabel(teamId) : getFlashPlayoffTeamLabel(teamId);
+    }
     if (match.stage === "group") return "Por definir";
     const seedLabel = playoffSeedLabelByMatchId.get(match.id);
     if (!seedLabel) return "Por definir";
@@ -3298,8 +3362,8 @@ export default function TournamentPlayoffsPage() {
                           return {
                             type: "placeholder",
                             key: `${stage}-placeholder-${idx}`,
-                            seedA: manualSeedA ?? (mappedWinnerA ? getTeamLabel(mappedWinnerA) : "Por definir"),
-                            seedB: manualSeedB ?? (mappedWinnerB ? getTeamLabel(mappedWinnerB) : "Por definir"),
+                            seedA: manualSeedA ?? (mappedWinnerA ? getFlashPlayoffTeamLabel(mappedWinnerA) : "Por definir"),
+                            seedB: manualSeedB ?? (mappedWinnerB ? getFlashPlayoffTeamLabel(mappedWinnerB) : "Por definir"),
                           };
                         }
                       );
@@ -3375,10 +3439,10 @@ export default function TournamentPlayoffsPage() {
                               const played = match.status === "played";
                               const hasTeams = hasDefinedTeams(match);
                               const teamALabel = hasTeams
-                                ? getTeamLabel(match.team_a_id)
+                                ? getFlashPlayoffTeamLabel(match.team_a_id)
                                 : item.seedA;
                               const teamBLabel = hasTeams
-                                ? getTeamLabel(match.team_b_id)
+                                ? getFlashPlayoffTeamLabel(match.team_b_id)
                                 : item.seedB;
                               const canSchedule = !played && !isFlashCompetition;
                               const canLoadResult =
