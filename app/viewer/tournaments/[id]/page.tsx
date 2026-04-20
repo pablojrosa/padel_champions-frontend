@@ -514,9 +514,13 @@ export default function PublicTournamentPage() {
     }
     return getTeamDivision(match.team_a_id) ?? getTeamDivision(match.team_b_id);
   }, [getTeamDivision]);
+  const competitionType = (tournament?.competition_type ?? "tournament") as CompetitionType;
   const generalRankingByTeamId = useMemo(() => {
     const rows = groups
-      .filter((group) => {
+      .slice()
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .map((group, groupOrder) => ({ group, groupOrder }))
+      .filter(({ group }) => {
         if (divisionFilter === "all") return true;
         return group.teams.some((team) => {
           const category = team.players?.[0]?.category ?? null;
@@ -525,8 +529,14 @@ export default function PublicTournamentPage() {
           return `${category} - ${genderLabel(gender)}` === divisionFilter;
         });
       })
-      .flatMap((group) => standingsByGroup[group.id]?.standings ?? [])
-      .filter((row) => {
+      .flatMap(({ group, groupOrder }) =>
+        (standingsByGroup[group.id]?.standings ?? []).map((row, positionIdx) => ({
+          row,
+          groupOrder,
+          position: positionIdx + 1,
+        }))
+      )
+      .filter(({ row }) => {
         if (divisionFilter === "all") return true;
         const category = row.team.players?.[0]?.category ?? null;
         const gender = row.team.players?.[0]?.gender ?? null;
@@ -535,20 +545,33 @@ export default function PublicTournamentPage() {
       });
 
     rows.sort((a, b) => {
-      if (a.points !== b.points) return b.points - a.points;
-      if (a.set_diff !== b.set_diff) return b.set_diff - a.set_diff;
-      if (a.game_diff !== b.game_diff) return b.game_diff - a.game_diff;
-      const labelA = a.team.players.map((player) => player.name).join(" / ") || `Team #${a.team.id}`;
-      const labelB = b.team.players.map((player) => player.name).join(" / ") || `Team #${b.team.id}`;
+      if (a.row.points !== b.row.points) return b.row.points - a.row.points;
+      if (a.row.set_diff !== b.row.set_diff) return b.row.set_diff - a.row.set_diff;
+      if (a.row.game_diff !== b.row.game_diff) return b.row.game_diff - a.row.game_diff;
+      if (competitionType === "flash") {
+        if (a.row.won !== b.row.won) return b.row.won - a.row.won;
+        if (a.position !== b.position) return a.position - b.position;
+        if (a.groupOrder !== b.groupOrder) return a.groupOrder - b.groupOrder;
+        return a.row.team.id - b.row.team.id;
+      }
+      const labelA = a.row.team.players.map((player) => player.name).join(" / ") || `Team #${a.row.team.id}`;
+      const labelB = b.row.team.players.map((player) => player.name).join(" / ") || `Team #${b.row.team.id}`;
       return labelA.localeCompare(labelB);
     });
 
     const rankMap = new Map<number, number>();
-    rows.forEach((row, idx) => {
+    rows.forEach(({ row }, idx) => {
       rankMap.set(row.team.id, idx + 1);
     });
     return rankMap;
-  }, [groups, standingsByGroup, divisionFilter]);
+  }, [groups, standingsByGroup, divisionFilter, competitionType]);
+
+  const getFlashPlayoffTeamLabel = useCallback((teamId?: number | null) => {
+    const baseLabel = getTeamLabel(teamId);
+    if (competitionType !== "flash" || typeof teamId !== "number") return baseLabel;
+    const overallRank = generalRankingByTeamId.get(teamId);
+    return overallRank ? `${baseLabel} (#${overallRank})` : baseLabel;
+  }, [competitionType, generalRankingByTeamId, getTeamLabel]);
 
   const filteredMatches = useMemo(() => {
     const normalized = query.trim().toLowerCase();
@@ -565,7 +588,6 @@ export default function PublicTournamentPage() {
     });
   }, [matches, query, divisionFilter, getTeamLabel, getMatchDivisionLabel]);
   const hasActiveFilters = query.trim().length > 0 || divisionFilter !== "all";
-  const competitionType = (tournament?.competition_type ?? "tournament") as CompetitionType;
   const descriptionText =
     competitionType === "flash" ? "" : defaultDescriptionByType[competitionType];
   const showDescriptionSection = competitionType !== "flash" && !!descriptionText;
@@ -744,8 +766,8 @@ export default function PublicTournamentPage() {
         const leftWinner = left?.winner_team_id ?? null;
         const rightWinner = right?.winner_team_id ?? null;
         return {
-          seedA: leftWinner ? getTeamLabel(leftWinner) : "Por definir",
-          seedB: rightWinner ? getTeamLabel(rightWinner) : "Por definir",
+          seedA: leftWinner ? getFlashPlayoffTeamLabel(leftWinner) : "Por definir",
+          seedB: rightWinner ? getFlashPlayoffTeamLabel(rightWinner) : "Por definir",
         };
       });
 
@@ -756,7 +778,7 @@ export default function PublicTournamentPage() {
     });
 
     return map;
-  }, [activeStages, defaultSeedLabelsByStage, getTeamLabel, matchesByStage]);
+  }, [activeStages, defaultSeedLabelsByStage, getFlashPlayoffTeamLabel, matchesByStage]);
 
   const finalWinner = useMemo(() => {
     const finals = playoffMatches
@@ -806,7 +828,9 @@ export default function PublicTournamentPage() {
 
   function getMatchTeamLabel(match: Match, side: "a" | "b") {
     const teamId = side === "a" ? match.team_a_id : match.team_b_id;
-    if (typeof teamId === "number") return getTeamLabel(teamId);
+    if (typeof teamId === "number") {
+      return match.stage === "group" ? getTeamLabel(teamId) : getFlashPlayoffTeamLabel(teamId);
+    }
     if (match.stage === "group") return "Por definir";
     const seedLabel = playoffSeedLabelByMatchId.get(match.id);
     if (!seedLabel) return "Por definir";
@@ -1163,8 +1187,8 @@ export default function PublicTournamentPage() {
                                 return {
                                   type: "placeholder",
                                   key: `${stage}-placeholder-${idx}`,
-                                  seedA: leftWinner ? getTeamLabel(leftWinner) : "Por definir",
-                                  seedB: rightWinner ? getTeamLabel(rightWinner) : "Por definir",
+                                  seedA: leftWinner ? getFlashPlayoffTeamLabel(leftWinner) : "Por definir",
+                                  seedB: rightWinner ? getFlashPlayoffTeamLabel(rightWinner) : "Por definir",
                                 };
                               }
                             );
@@ -1258,10 +1282,10 @@ export default function PublicTournamentPage() {
                                     const aWinner = hasTeams && match.winner_team_id === match.team_a_id;
                                     const bWinner = hasTeams && match.winner_team_id === match.team_b_id;
                                     const teamALabel = hasTeams
-                                      ? getTeamLabel(match.team_a_id)
+                                      ? getFlashPlayoffTeamLabel(match.team_a_id)
                                       : item.seedA;
                                     const teamBLabel = hasTeams
-                                      ? getTeamLabel(match.team_b_id)
+                                      ? getFlashPlayoffTeamLabel(match.team_b_id)
                                       : item.seedB;
                                     return (
                                       <div
