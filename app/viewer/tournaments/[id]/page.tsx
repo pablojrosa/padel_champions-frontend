@@ -1030,7 +1030,7 @@ export default function PublicTournamentPage() {
                 <button
                   type="button"
                   onClick={() => setActiveSection("groups")}
-                  className={`min-h-[44px] rounded-xl border px-3 py-2.5 font-semibold transition ${
+                  className={`min-h-[44px] rounded-xl border px-2 py-2.5 text-xs font-semibold transition ${
                     activeSection === "groups"
                       ? "border-emerald-200 bg-emerald-100 text-emerald-800 shadow-sm"
                       : "border-zinc-200 bg-white text-zinc-600"
@@ -1042,7 +1042,7 @@ export default function PublicTournamentPage() {
                   <button
                     type="button"
                     onClick={() => setActiveSection("matches")}
-                    className={`min-h-[44px] rounded-xl border px-3 py-2.5 font-semibold transition ${
+                    className={`min-h-[44px] rounded-xl border px-2 py-2.5 text-xs font-semibold transition ${
                       activeSection === "matches"
                         ? "border-emerald-200 bg-emerald-100 text-emerald-800 shadow-sm"
                         : "border-zinc-200 bg-white text-zinc-600"
@@ -1055,7 +1055,7 @@ export default function PublicTournamentPage() {
                   <button
                     type="button"
                     onClick={() => setActiveSection("results")}
-                    className={`min-h-[44px] rounded-xl border px-3 py-2.5 font-semibold transition ${
+                    className={`min-h-[44px] rounded-xl border px-2 py-2.5 text-xs font-semibold transition ${
                       activeSection === "results"
                         ? "border-emerald-200 bg-emerald-100 text-emerald-800 shadow-sm"
                         : "border-zinc-200 bg-white text-zinc-600"
@@ -1068,7 +1068,7 @@ export default function PublicTournamentPage() {
                   <button
                     type="button"
                     onClick={() => setActiveSection("playoffs")}
-                    className={`min-h-[44px] rounded-xl border px-3 py-2.5 font-semibold transition ${
+                    className={`min-h-[44px] rounded-xl border px-2 py-2.5 text-xs font-semibold transition ${
                       activeSection === "playoffs"
                         ? "border-emerald-200 bg-emerald-100 text-emerald-800 shadow-sm"
                         : "border-zinc-200 bg-white text-zinc-600"
