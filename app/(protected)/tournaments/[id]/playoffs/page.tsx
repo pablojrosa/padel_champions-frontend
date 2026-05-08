@@ -19,6 +19,7 @@ import type {
   PlayoffQualificationCriterion,
   PlayoffManualSeed,
   PlayoffManualSeedsUpsertRequest,
+  PlayoffWinnerRoute,
   PlayoffStage,
   Team,
   Tournament,
@@ -302,12 +303,102 @@ function assignWinnerSlotIndexes(
   return result;
 }
 
+function buildCustomWinnerSlotIndexes(
+  routes: PlayoffWinnerRoute[]
+): Map<number, number> {
+  const result = new Map<number, number>();
+  routes.forEach((route) => {
+    const sideIndex = route.target_side === "a" ? 0 : 1;
+    const slotIdx = route.target_match_index * 2 + sideIndex;
+    result.set(slotIdx, route.source_match_index);
+  });
+  return result;
+}
+
+function buildApaFiveGroupWinnerRoutes(): PlayoffWinnerRoute[] {
+  return [
+    {
+      source_stage: "round_of_16",
+      source_match_index: 0,
+      target_stage: "quarter",
+      target_match_index: 0,
+      target_side: "b",
+      category: "",
+      gender: "",
+    },
+    {
+      source_stage: "round_of_16",
+      source_match_index: 1,
+      target_stage: "quarter",
+      target_match_index: 3,
+      target_side: "a",
+      category: "",
+      gender: "",
+    },
+  ];
+}
+
 function normalizeGroupSeedLabel(groupName: string) {
   return groupName.replace(/^(group|grupo|zona)\s*/i, "Grupo ");
 }
 
 function formatSeedCandidate(seed: SeedCandidate) {
   return `Pareja ${seed.position} ${normalizeGroupSeedLabel(seed.groupName)}`;
+}
+
+function isApaFiveGroupRoutePattern(routes: PlayoffWinnerRoute[]) {
+  if (routes.length !== 2) return false;
+  const normalized = [...routes].sort(
+    (a, b) => a.source_match_index - b.source_match_index
+  );
+  return (
+    normalized[0]?.source_stage === "round_of_16"
+    && normalized[0]?.source_match_index === 0
+    && normalized[0]?.target_stage === "quarter"
+    && normalized[0]?.target_match_index === 0
+    && normalized[0]?.target_side === "b"
+    && normalized[1]?.source_stage === "round_of_16"
+    && normalized[1]?.source_match_index === 1
+    && normalized[1]?.target_stage === "quarter"
+    && normalized[1]?.target_match_index === 3
+    && normalized[1]?.target_side === "a"
+  );
+}
+
+function buildApaFiveGroupSeedLabels(
+  groupNames: string[]
+): Map<PlayoffStage, SeedLabel[]> {
+  const [groupA, groupB, groupC, groupD, groupE] = groupNames;
+  const map = new Map<PlayoffStage, SeedLabel[]>();
+  map.set("round_of_16", [
+    {
+      seedA: `Pareja 2 ${normalizeGroupSeedLabel(groupB)}`,
+      seedB: `Pareja 2 ${normalizeGroupSeedLabel(groupC)}`,
+    },
+    {
+      seedA: `Pareja 2 ${normalizeGroupSeedLabel(groupA)}`,
+      seedB: `Pareja 2 ${normalizeGroupSeedLabel(groupD)}`,
+    },
+  ]);
+  map.set("quarter", [
+    {
+      seedA: `Pareja 1 ${normalizeGroupSeedLabel(groupA)}`,
+      seedB: "Por definir",
+    },
+    {
+      seedA: `Pareja 1 ${normalizeGroupSeedLabel(groupE)}`,
+      seedB: `Pareja 1 ${normalizeGroupSeedLabel(groupD)}`,
+    },
+    {
+      seedA: `Pareja 1 ${normalizeGroupSeedLabel(groupC)}`,
+      seedB: `Pareja 2 ${normalizeGroupSeedLabel(groupE)}`,
+    },
+    {
+      seedA: "Por definir",
+      seedB: `Pareja 1 ${normalizeGroupSeedLabel(groupB)}`,
+    },
+  ]);
+  return map;
 }
 
 function rankSeedCandidate(seed: SeedCandidate) {
@@ -563,6 +654,7 @@ export default function TournamentPlayoffsPage() {
 
   const [manualStage, setManualStage] = useState<PlayoffStage | null>(null);
   const [manualSlotValues, setManualSlotValues] = useState<Record<string, number | "">>({});
+  const [playoffWinnerRoutes, setPlayoffWinnerRoutes] = useState<PlayoffWinnerRoute[]>([]);
   const [manualInitialTeamCount, setManualInitialTeamCount] = useState(2);
   const [manualError, setManualError] = useState<string | null>(null);
   const [manualStageOpen, setManualStageOpen] = useState(false);
@@ -641,6 +733,24 @@ export default function TournamentPlayoffsPage() {
     });
     return map;
   }, [groupSeedCandidates]);
+  const isApaFiveGroupBracket = useMemo(
+    () =>
+      groupSeedCandidates.length === 5
+      && isApaFiveGroupRoutePattern(playoffWinnerRoutes),
+    [groupSeedCandidates.length, playoffWinnerRoutes]
+  );
+  const effectiveSeedLabelsByStage = useMemo(() => {
+    const map = new Map(defaultSeedLabelsByStage);
+    if (isApaFiveGroupBracket) {
+      const apaLabels = buildApaFiveGroupSeedLabels(
+        groupSeedCandidates.map((candidate) => candidate.name)
+      );
+      apaLabels.forEach((labels, stage) => {
+        map.set(stage, labels);
+      });
+    }
+    return map;
+  }, [defaultSeedLabelsByStage, groupSeedCandidates, isApaFiveGroupBracket]);
 
   const rankedTeamsByGroup = useMemo(() => {
     if (categoryFilter === "all" || genderFilter === "all") return [];
@@ -1147,6 +1257,11 @@ export default function TournamentPlayoffsPage() {
       (entry) => entry.teamIds.length >= 2
     );
     const qualifiedTopTwoCount = baseQualified;
+    const hasApaFiveZoneSuggestion =
+      competitionType === "tournament"
+      && divisionGroups.length === 5
+      && allGroupsHaveAtLeastTwo
+      && qualifiedTopTwoCount === 10;
     const hasQuarterAlternativeFormat =
       (allGroupsHaveAtLeastTwo && qualifiedTopTwoCount >= 5 && qualifiedTopTwoCount <= 8)
       || divisionTeamCount === 7
@@ -1155,9 +1270,11 @@ export default function TournamentPlayoffsPage() {
     return PLAYOFF_STAGES.filter(
       (stage) =>
         STAGE_TEAM_COUNTS[stage] <= maxQualified
+        || (stage === "round_of_16" && hasApaFiveZoneSuggestion)
         || (stage === "quarter" && hasQuarterAlternativeFormat)
     );
   }, [
+    competitionType,
     matchesByStage,
     stagePendingAutomaticAssignment,
     latestStage,
@@ -1245,6 +1362,11 @@ export default function TournamentPlayoffsPage() {
     );
     const maxQualified = baseQualified + thirdsAvailable;
     const qualifiedTopTwoCount = baseQualified;
+    const apaFiveGroupSuggestionPossible =
+      competitionType === "tournament"
+      && autoGroupCount === 5
+      && allGroupsHaveAtLeastTwo
+      && qualifiedTopTwoCount === 10;
     const quarterTopTwoPossible =
       allGroupsHaveAtLeastTwo
       && qualifiedTopTwoCount >= 5
@@ -1285,11 +1407,16 @@ export default function TournamentPlayoffsPage() {
         return stage === "round_of_16" && quarterPlayInPossible && pendingMatchCount === 1;
       }
 
+      if (mode === "apa_five_group_suggestion") {
+        return stage === "round_of_16" && apaFiveGroupSuggestionPossible && pendingMatchCount === 2;
+      }
+
       return false;
     };
 
     availableStages.forEach((stage) => {
       const isQuarterStage = stage === "quarter";
+      const isRoundOf16Stage = stage === "round_of_16";
       const balancedEnabled =
         !isFirstAssignmentPhase || STAGE_TEAM_COUNTS[stage] <= maxQualified;
 
@@ -1348,6 +1475,22 @@ export default function TournamentPlayoffsPage() {
         }
       }
 
+      if (isRoundOf16Stage) {
+        const apaSuggestionEnabled =
+          isFirstAssignmentPhase
+          && apaFiveGroupSuggestionPossible
+          && isModeCompatibleForPending("apa_five_group_suggestion", stage);
+        if (apaSuggestionEnabled) {
+          options.push({
+            mode: "apa_five_group_suggestion",
+            label: "Sugerencia para 5 zonas",
+            description:
+              "Aplica el cuadro recomendado para 5 zonas con 2 clasificados por zona: dos cruces arrancan en 8vos y el resto entra directo en cuartos.",
+            enabled: true,
+          });
+        }
+      }
+
       if (
         stage === "round_of_16"
         && isFirstAssignmentPhase
@@ -1369,12 +1512,14 @@ export default function TournamentPlayoffsPage() {
     return map;
   }, [
     availableStages,
+    autoGroupCount,
     hasDefinedPlayoffTeams,
     hasPlayoffs,
     matchesByStage,
     stagePendingAutomaticAssignment,
     divisionTeamCount,
     divisionGroups,
+    competitionType,
   ]);
 
   const manualStageOptions = useMemo(() => {
@@ -1505,6 +1650,52 @@ export default function TournamentPlayoffsPage() {
 
     return map;
   }, [manualSlotValues, getFlashPlayoffTeamLabel]);
+  const hasApaFiveGroupStageShape = useMemo(() => {
+    const roundOf16Matches = matchesByStage.get("round_of_16") ?? [];
+    const quarterMatches = matchesByStage.get("quarter") ?? [];
+    return (
+      groupSeedCandidates.length === 5
+      && roundOf16Matches.length === 2
+      && quarterMatches.length >= 4
+    );
+  }, [groupSeedCandidates.length, matchesByStage]);
+  const isApaFiveGroupVisualBracket =
+    isApaFiveGroupBracket || hasApaFiveGroupStageShape;
+  const visualSeedLabelsByStage = useMemo(() => {
+    const map = new Map(effectiveSeedLabelsByStage);
+    if (isApaFiveGroupVisualBracket) {
+      const apaLabels = buildApaFiveGroupSeedLabels(
+        groupSeedCandidates.map((candidate) => candidate.name)
+      );
+      apaLabels.forEach((labels, stage) => {
+        map.set(stage, labels);
+      });
+    }
+    return map;
+  }, [effectiveSeedLabelsByStage, groupSeedCandidates, isApaFiveGroupVisualBracket]);
+  const winnerRoutesBySourceStage = useMemo(() => {
+    const map = new Map<PlayoffStage, PlayoffWinnerRoute[]>();
+    const routes =
+      playoffWinnerRoutes.length > 0
+        ? playoffWinnerRoutes
+        : hasApaFiveGroupStageShape
+        ? buildApaFiveGroupWinnerRoutes()
+        : [];
+    routes.forEach((route) => {
+      const current = map.get(route.source_stage) ?? [];
+      current.push(route);
+      map.set(route.source_stage, current);
+    });
+    map.forEach((routes) => {
+      routes.sort(
+        (a, b) =>
+          a.source_match_index - b.source_match_index
+          || a.target_match_index - b.target_match_index
+          || a.target_side.localeCompare(b.target_side)
+      );
+    });
+    return map;
+  }, [hasApaFiveGroupStageShape, playoffWinnerRoutes]);
   const playoffSeedLabelByMatchId = useMemo(() => {
     const map = new Map<number, SeedLabel>();
     if (activeStages.length === 0) return map;
@@ -1515,11 +1706,14 @@ export default function TournamentPlayoffsPage() {
       );
       const nextStageForOrdering =
         stageIdx < activeStages.length - 1 ? activeStages[stageIdx + 1] : null;
+      const customRoutesForOrdering = winnerRoutesBySourceStage.get(stage) ?? [];
       const nextStageMatchCountForOrdering = nextStageForOrdering
         ? Math.max(1, Math.floor(STAGE_TEAM_COUNTS[nextStageForOrdering] / 2))
         : 0;
       const winnerSlotByCurrentStageMatchIdx =
-        nextStageMatchCountForOrdering > 0
+        customRoutesForOrdering.length > 0
+          ? buildCustomWinnerSlotIndexes(customRoutesForOrdering)
+          : nextStageMatchCountForOrdering > 0
           ? assignWinnerSlotIndexes(
               stageMatchesRaw.length,
               nextStageMatchCountForOrdering
@@ -1538,7 +1732,7 @@ export default function TournamentPlayoffsPage() {
         .sort((a, b) => a.destination - b.destination || a.idx - b.idx)
         .map((item) => item.stageMatch);
 
-      const defaultSeedLabels = defaultSeedLabelsByStage.get(stage) ?? [];
+      const defaultSeedLabels = visualSeedLabelsByStage.get(stage) ?? [];
       const prevStage = stageIdx > 0 ? activeStages[stageIdx - 1] : null;
       const prevStageMatches = prevStage
         ? [...(matchesByStage.get(prevStage) ?? [])].sort((a, b) => a.id - b.id)
@@ -1550,10 +1744,11 @@ export default function TournamentPlayoffsPage() {
 
       const winnerBySlotIndex = new Map<number, number>();
       if (prevStage) {
-        const winnerSlotIndexes = assignWinnerSlotIndexes(
-          prevStageMatches.length,
-          expectedMatches
-        );
+        const previousStageRoutes = winnerRoutesBySourceStage.get(prevStage) ?? [];
+        const winnerSlotIndexes =
+          previousStageRoutes.length > 0
+            ? buildCustomWinnerSlotIndexes(previousStageRoutes)
+            : assignWinnerSlotIndexes(prevStageMatches.length, expectedMatches);
         winnerSlotIndexes.forEach((winnerIdx, slotIdx) => {
           const winnerTeamId = prevStageMatches[winnerIdx]?.winner_team_id ?? null;
           if (winnerTeamId) {
@@ -1562,21 +1757,24 @@ export default function TournamentPlayoffsPage() {
         });
       }
 
-      const seededPlaceholders = Array.from({ length: expectedMatches }, (_, idx) => {
-        const manualSeedA = manualPreviewLabelBySlotKey.get(
-          manualSlotKey(stage, idx, "a")
-        );
-        const manualSeedB = manualPreviewLabelBySlotKey.get(
-          manualSlotKey(stage, idx, "b")
-        );
+        const seededPlaceholders = Array.from({ length: expectedMatches }, (_, idx) => {
+          const manualSeedA = manualPreviewLabelBySlotKey.get(
+            manualSlotKey(stage, idx, "a")
+          );
+          const manualSeedB = manualPreviewLabelBySlotKey.get(
+            manualSlotKey(stage, idx, "b")
+          );
+          const defaultSeed =
+            !prevStage || (isApaFiveGroupVisualBracket && stage === "quarter")
+              ? defaultSeedLabels[idx]
+              : undefined;
 
-        if (!prevStage) {
-          const defaultSeed = defaultSeedLabels[idx];
-          return {
-            seedA: manualSeedA ?? defaultSeed?.seedA ?? "Por definir",
-            seedB: manualSeedB ?? defaultSeed?.seedB ?? "Por definir",
-          };
-        }
+          if (!prevStage) {
+            return {
+              seedA: manualSeedA ?? defaultSeed?.seedA ?? "Por definir",
+              seedB: manualSeedB ?? defaultSeed?.seedB ?? "Por definir",
+            };
+          }
 
         const slotA = idx * 2;
         const slotB = idx * 2 + 1;
@@ -1584,9 +1782,11 @@ export default function TournamentPlayoffsPage() {
         const mappedWinnerB = winnerBySlotIndex.get(slotB) ?? null;
         return {
           seedA:
-            manualSeedA ?? (mappedWinnerA ? getFlashPlayoffTeamLabel(mappedWinnerA) : "Por definir"),
+            manualSeedA
+            ?? (mappedWinnerA ? getFlashPlayoffTeamLabel(mappedWinnerA) : defaultSeed?.seedA ?? "Por definir"),
           seedB:
-            manualSeedB ?? (mappedWinnerB ? getFlashPlayoffTeamLabel(mappedWinnerB) : "Por definir"),
+            manualSeedB
+            ?? (mappedWinnerB ? getFlashPlayoffTeamLabel(mappedWinnerB) : defaultSeed?.seedB ?? "Por definir"),
         };
       });
 
@@ -1597,7 +1797,15 @@ export default function TournamentPlayoffsPage() {
     });
 
     return map;
-  }, [activeStages, defaultSeedLabelsByStage, getFlashPlayoffTeamLabel, manualPreviewLabelBySlotKey, matchesByStage]);
+  }, [
+    activeStages,
+    getFlashPlayoffTeamLabel,
+    isApaFiveGroupVisualBracket,
+    manualPreviewLabelBySlotKey,
+    matchesByStage,
+    visualSeedLabelsByStage,
+    winnerRoutesBySourceStage,
+  ]);
 
   const loadManualSeeds = useCallback(async () => {
     if (!Number.isFinite(tournamentId)) return;
@@ -1622,6 +1830,28 @@ export default function TournamentPlayoffsPage() {
         return;
       }
       setManualSlotValues({});
+    }
+  }, [router, tournamentId, categoryFilter, genderFilter]);
+
+  const loadWinnerRoutes = useCallback(async () => {
+    if (!Number.isFinite(tournamentId)) return;
+    if (categoryFilter === "all" || genderFilter === "all") {
+      setPlayoffWinnerRoutes([]);
+      return;
+    }
+
+    try {
+      const routes = await api<PlayoffWinnerRoute[]>(
+        `/tournaments/${tournamentId}/playoff-winner-routes?category=${encodeURIComponent(categoryFilter)}&gender=${encodeURIComponent(genderFilter)}`
+      );
+      setPlayoffWinnerRoutes(routes);
+    } catch (err: unknown) {
+      if (err instanceof ApiError && err.status === 401) {
+        clearToken();
+        router.replace("/login");
+        return;
+      }
+      setPlayoffWinnerRoutes([]);
     }
   }, [router, tournamentId, categoryFilter, genderFilter]);
 
@@ -1700,6 +1930,7 @@ export default function TournamentPlayoffsPage() {
       ]);
       setMatches(matchesRes);
       setStatus(statusRes.status);
+      await Promise.all([loadManualSeeds(), loadWinnerRoutes()]);
     } catch (err: unknown) {
       if (err instanceof ApiError && err.status === 401) {
         clearToken();
@@ -1708,7 +1939,7 @@ export default function TournamentPlayoffsPage() {
       }
       setError(getErrorMessage(err, "No se pudieron actualizar los partidos"));
     }
-  }, [competitionType, router, tournamentId]);
+  }, [competitionType, loadManualSeeds, loadWinnerRoutes, router, tournamentId]);
 
   useEffect(() => {
     loadPlayoffs();
@@ -1716,7 +1947,8 @@ export default function TournamentPlayoffsPage() {
 
   useEffect(() => {
     loadManualSeeds();
-  }, [loadManualSeeds]);
+    loadWinnerRoutes();
+  }, [loadManualSeeds, loadWinnerRoutes]);
 
   useEffect(() => {
     if (hasDefaultedFilters.current) return;
@@ -2718,6 +2950,7 @@ export default function TournamentPlayoffsPage() {
         body: payload,
       });
       setMatches((prev) => [...prev, ...created]);
+      await Promise.all([loadManualSeeds(), loadWinnerRoutes()]);
       setConfirmStage(null);
       setConfirmAutoMode(DEFAULT_AUTO_MODE);
     } catch (err: unknown) {
@@ -2757,6 +2990,7 @@ export default function TournamentPlayoffsPage() {
         body: payload,
       });
       setMatches((prev) => [...prev, ...created]);
+      await Promise.all([loadManualSeeds(), loadWinnerRoutes()]);
       setAutoGenerateOpen(false);
     } catch (err: unknown) {
       setActionError(getErrorMessage(err, "No se pudieron generar los cruces"));
@@ -2776,6 +3010,7 @@ export default function TournamentPlayoffsPage() {
       await api(`/tournaments/${tournamentId}/reset-playoffs${query}`, { method: "DELETE" });
       setMatches((prev) => prev.filter((m) => m.stage === "group"));
       setStatus("groups_finished");
+      await Promise.all([loadManualSeeds(), loadWinnerRoutes()]);
       setResetPlayoffsOpen(false);
     } catch (err: unknown) {
       setResetPlayoffsError(
@@ -2792,6 +3027,23 @@ export default function TournamentPlayoffsPage() {
     if (!confirmStage) return [];
     return autoModeOptionsByStage.get(confirmStage) ?? [];
   }, [confirmStage, autoModeOptionsByStage]);
+  const apaSuggestionOption = useMemo(
+    () =>
+      (autoModeOptionsByStage.get("round_of_16") ?? []).find(
+        (option) => option.mode === "apa_five_group_suggestion" && option.enabled
+      ) ?? null,
+    [autoModeOptionsByStage]
+  );
+  const automaticStageButtons = useMemo(() => {
+    if (!apaSuggestionOption) return availableStages;
+    return availableStages.filter((stage) => stage !== "round_of_16");
+  }, [apaSuggestionOption, availableStages]);
+  const confirmDialogTitle = useMemo(() => {
+    if (confirmAutoMode === "apa_five_group_suggestion") {
+      return "Aplicar sugerencia APA para 5 zonas";
+    }
+    return confirmStage ? `Generar ${STAGE_LABELS[confirmStage]}` : "Generar playoffs";
+  }, [confirmAutoMode, confirmStage]);
   useEffect(() => {
     if (!confirmStage) return;
     const enabledOptions = confirmStageAutoOptions.filter((option) => option.enabled);
@@ -2962,8 +3214,32 @@ export default function TournamentPlayoffsPage() {
                   <>
                     {!isFlashCompetition && (
                       <div className="flex flex-col gap-2">
+                        {apaSuggestionOption && (
+                          <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3">
+                            <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                              <div>
+                                <div className="text-sm font-semibold text-emerald-900">
+                                  Sugerencia APA para 5 zonas
+                                </div>
+                                <div className="text-xs text-emerald-800">
+                                  Aplica automaticamente el cuadro recomendado para 5 zonas con 2 clasificadas por zona.
+                                </div>
+                              </div>
+                              <Button
+                                variant="secondary"
+                                onClick={() => {
+                                  setConfirmStage("round_of_16");
+                                  setConfirmAutoMode("apa_five_group_suggestion");
+                                }}
+                                disabled={generating}
+                              >
+                                Aplicar sugerencia
+                              </Button>
+                            </div>
+                          </div>
+                        )}
                         <div className="text-sm font-semibold text-zinc-800">Instancias disponibles (automatico)</div>
-                        {availableStages.length === 0 ? (
+                        {automaticStageButtons.length === 0 ? (
                           <div className="text-sm text-zinc-600">
                             {!groupStageComplete && !latestStage
                               ? "Podes crear el cuadro vacio para programar horarios. Las parejas se completan cuando terminen grupos."
@@ -2973,7 +3249,7 @@ export default function TournamentPlayoffsPage() {
                           </div>
                         ) : (
                           <div className="flex flex-wrap gap-2">
-                            {availableStages.map((stage) => (
+                            {automaticStageButtons.map((stage) => (
                               <Button
                                 key={stage}
                                 onClick={() => {
@@ -3279,11 +3555,14 @@ export default function TournamentPlayoffsPage() {
                       );
                       const nextStageForOrdering =
                         stageIdx < activeStages.length - 1 ? activeStages[stageIdx + 1] : null;
+                      const customRoutesForOrdering = winnerRoutesBySourceStage.get(stage) ?? [];
                       const nextStageMatchCountForOrdering = nextStageForOrdering
                         ? Math.max(1, Math.floor(STAGE_TEAM_COUNTS[nextStageForOrdering] / 2))
                         : 0;
                       const winnerSlotByCurrentStageMatchIdx =
-                        nextStageMatchCountForOrdering > 0
+                        customRoutesForOrdering.length > 0
+                          ? buildCustomWinnerSlotIndexes(customRoutesForOrdering)
+                          : nextStageMatchCountForOrdering > 0
                           ? assignWinnerSlotIndexes(
                               stageMatchesRaw.length,
                               nextStageMatchCountForOrdering
@@ -3307,7 +3586,7 @@ export default function TournamentPlayoffsPage() {
                         )
                         .map((item) => item.stageMatch);
                       const prevStage = stageIdx > 0 ? activeStages[stageIdx - 1] : null;
-                      const defaultSeedLabels = defaultSeedLabelsByStage.get(stage) ?? [];
+                      const defaultSeedLabels = visualSeedLabelsByStage.get(stage) ?? [];
                       const prevStageMatches = prevStage
                         ? [...(matchesByStage.get(prevStage) ?? [])].sort(
                             (a, b) => a.id - b.id
@@ -3319,10 +3598,11 @@ export default function TournamentPlayoffsPage() {
                       );
                       const winnerBySlotIndex = new Map<number, number>();
                       if (prevStage) {
-                        const winnerSlotIndexes = assignWinnerSlotIndexes(
-                          prevStageMatches.length,
-                          expectedMatches
-                        );
+                        const previousStageRoutes = winnerRoutesBySourceStage.get(prevStage) ?? [];
+                        const winnerSlotIndexes =
+                          previousStageRoutes.length > 0
+                            ? buildCustomWinnerSlotIndexes(previousStageRoutes)
+                            : assignWinnerSlotIndexes(prevStageMatches.length, expectedMatches);
                         winnerSlotIndexes.forEach((winnerIdx, slotIdx) => {
                           const winnerTeamId =
                             prevStageMatches[winnerIdx]?.winner_team_id ?? null;
@@ -3353,6 +3633,10 @@ export default function TournamentPlayoffsPage() {
                           const slotB = idx * 2 + 1;
                           const mappedWinnerA = winnerBySlotIndex.get(slotA) ?? null;
                           const mappedWinnerB = winnerBySlotIndex.get(slotB) ?? null;
+                          const defaultSeed =
+                            isApaFiveGroupVisualBracket && stage === "quarter"
+                              ? defaultSeedLabels[idx]
+                              : undefined;
                           const manualSeedA = manualPreviewLabelBySlotKey.get(
                             manualSlotKey(stage, idx, "a")
                           );
@@ -3362,8 +3646,16 @@ export default function TournamentPlayoffsPage() {
                           return {
                             type: "placeholder",
                             key: `${stage}-placeholder-${idx}`,
-                            seedA: manualSeedA ?? (mappedWinnerA ? getFlashPlayoffTeamLabel(mappedWinnerA) : "Por definir"),
-                            seedB: manualSeedB ?? (mappedWinnerB ? getFlashPlayoffTeamLabel(mappedWinnerB) : "Por definir"),
+                            seedA:
+                              manualSeedA
+                              ?? (mappedWinnerA
+                                ? getFlashPlayoffTeamLabel(mappedWinnerA)
+                                : defaultSeed?.seedA ?? "Por definir"),
+                            seedB:
+                              manualSeedB
+                              ?? (mappedWinnerB
+                                ? getFlashPlayoffTeamLabel(mappedWinnerB)
+                                : defaultSeed?.seedB ?? "Por definir"),
                           };
                         }
                       );
@@ -3380,14 +3672,24 @@ export default function TournamentPlayoffsPage() {
                         }
                         return seededPlaceholders[idx];
                       });
-                      const baseMatches = initialStage
-                        ? Math.max(matchesByStage.get(initialStage)?.length ?? 0, 1)
-                        : 0;
-                      const rowHeight = 18;
-                      const cardSpan = 6;
-                      const gapSpan = 2;
+                      const baseMatches =
+                        isApaFiveGroupVisualBracket && initialStage === "round_of_16"
+                          ? STAGE_TEAM_COUNTS.quarter / 2
+                          : initialStage
+                          ? Math.max(matchesByStage.get(initialStage)?.length ?? 0, 1)
+                          : 0;
+                      const isApaFiveGroupExpandedLayout =
+                        isApaFiveGroupVisualBracket && initialStage === "round_of_16";
+                      const rowHeight = isApaFiveGroupExpandedLayout ? 17 : 18;
+                      const cardSpan = isApaFiveGroupExpandedLayout ? 8 : 6;
+                      const gapSpan = isApaFiveGroupExpandedLayout ? -3 : 2;
                       const baseStep = cardSpan + gapSpan;
-                      const totalRows = Math.max(1, baseMatches * baseStep);
+                      const totalRows = Math.max(
+                        1,
+                        isApaFiveGroupExpandedLayout
+                          ? baseMatches * baseStep * 2
+                          : baseMatches * baseStep
+                      );
                       const step = baseStep * Math.pow(2, stageIdx);
                       const offset =
                         stageIdx === 0
@@ -3403,13 +3705,32 @@ export default function TournamentPlayoffsPage() {
                             {STAGE_LABELS[stage]}
                           </div>
                           <div
-                            className="grid gap-2"
+                            className={
+                              isApaFiveGroupExpandedLayout
+                                ? "grid gap-x-2 gap-y-0"
+                                : "grid gap-2"
+                            }
                             style={{
                               gridTemplateRows: `repeat(${totalRows}, ${rowHeight}px)`,
+                              gridAutoRows: `${rowHeight}px`,
                             }}
                           >
                             {items.map((item, idx) => {
-                              const rowStart = idx * step + offset;
+                              const apaQuarterStep = baseStep * Math.pow(2, 1);
+                              const apaQuarterOffset = Math.max(
+                                1,
+                                Math.floor(apaQuarterStep / 2)
+                                  - Math.floor(cardSpan / 2)
+                                  + 1
+                              );
+                              const apaPlayInTargetQuarterIndex = idx === 0 ? 0 : 3;
+                              const rowStart =
+                                isApaFiveGroupVisualBracket
+                                && stage === "round_of_16"
+                                && idx <= 1
+                                  ? apaPlayInTargetQuarterIndex * apaQuarterStep
+                                    + apaQuarterOffset
+                                  : idx * step + offset;
                               const gridStyle = {
                                 gridRow: `${rowStart} / span ${cardSpan}`,
                               } as const;
@@ -3632,7 +3953,7 @@ export default function TournamentPlayoffsPage() {
 
       <Modal
         open={!!confirmStage}
-        title={confirmStage ? `Generar ${STAGE_LABELS[confirmStage]}` : "Generar playoffs"}
+        title={confirmDialogTitle}
         onClose={() => {
           setConfirmStage(null);
           setConfirmAutoMode(DEFAULT_AUTO_MODE);
@@ -3700,7 +4021,11 @@ export default function TournamentPlayoffsPage() {
                 )
               }
             >
-              {generating ? "Generando..." : "Confirmar"}
+              {generating
+                ? "Generando..."
+                : confirmAutoMode === "apa_five_group_suggestion"
+                ? "Aplicar sugerencia"
+                : "Confirmar"}
             </Button>
           </div>
         </div>
