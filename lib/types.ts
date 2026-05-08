@@ -324,7 +324,8 @@ export type PlayoffAutoMode =
   | "balanced"
   | "top_two_per_group"
   | "best_to_semi_quarter"
-  | "play_in_lowest_ranked";
+  | "play_in_lowest_ranked"
+  | "apa_five_group_suggestion";
 
 export type PlayoffQualificationCriterion =
   | "overall_ranking"
@@ -345,6 +346,16 @@ export type PlayoffManualSeed = {
   match_index: number;
   side: "a" | "b";
   team_id: number;
+  category: string;
+  gender: string;
+};
+
+export type PlayoffWinnerRoute = {
+  source_stage: PlayoffStage;
+  source_match_index: number;
+  target_stage: PlayoffStage;
+  target_match_index: number;
+  target_side: "a" | "b";
   category: string;
   gender: string;
 };
