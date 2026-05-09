@@ -64,7 +64,7 @@ const URL_STRICT_REGEX = /^(?:https?:\/\/|www\.)[^\s<>"']+$/i;
 const defaultDescriptionByType: Record<CompetitionType, string> = {
   tournament:
     "Reglas del torneo\n" +
-    "- Los partidos se juegan al mejor de 3 sets.\n" +
+    "- Los partidos se juegan al mejor de 3 sets. El 3 set es un supertiebreak (muere en 11).\n" +
     "- Si una pareja gana por 2 sets a 0, suma 3 puntos.\n" +
     "- Si una pareja gana por 2 sets a 1, suma 2 puntos.\n" +
     "- Si una pareja pierde por 1 set a 2, suma 1 punto.\n" +
@@ -72,7 +72,7 @@ const defaultDescriptionByType: Record<CompetitionType, string> = {
     "- Desempate: puntos, diferencia de sets y diferencia de games.",
   league:
     "Reglas de la liga\n" +
-    "- Los partidos se juegan al mejor de 3 sets.\n" +
+    "- Los partidos se juegan al mejor de 3 sets. El 3 set es un supertiebreak (muere en 11).\n" +
     "- Cada victoria suma 3 puntos.\n" +
     "- Cada derrota suma 0 puntos.\n" +
     "- Desempate: puntos, diferencia de sets y diferencia de games.\n" +
@@ -80,7 +80,7 @@ const defaultDescriptionByType: Record<CompetitionType, string> = {
   flash:
     "Reglas del relámpago\n" +
     "- Formato de eliminación directa.\n" +
-    "- Los partidos se juegan al mejor de 3 sets.\n" +
+    "- Los partidos se juegan al mejor de 3 sets. El 3 set es un supertiebreak (muere en 11).\n" +
     "- No hay fase de grupos.",
 };
 

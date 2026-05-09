@@ -37,7 +37,7 @@ const rulesContentByType: Record<CompetitionType, RulesContent> = {
     title: "Reglas del torneo",
     subtitle: "Cuando veas 2-0 o 2-1, se refiere a sets ganados y perdidos.",
     items: [
-      "Los partidos se juegan al mejor de 3 sets.",
+      "Los partidos se juegan al mejor de 3 sets. El 3 set es un supertiebreak (muere en 11).",
       "Si una pareja gana por 2 sets a 0, suma 3 puntos.",
       "Si una pareja gana por 2 sets a 1, suma 2 puntos.",
       "Si una pareja pierde por 1 set a 2, suma 1 punto.",
@@ -48,7 +48,7 @@ const rulesContentByType: Record<CompetitionType, RulesContent> = {
   league: {
     title: "Reglas de la liga",
     items: [
-      "Los partidos se juegan al mejor de 3 sets.",
+      "Los partidos se juegan al mejor de 3 sets. El 3 set es un supertiebreak (muere en 11).",
       "Cada victoria suma 3 puntos.",
       "Cada derrota suma 0 puntos.",
       "Desempate: puntos, diferencia de sets y diferencia de games.",
@@ -59,7 +59,7 @@ const rulesContentByType: Record<CompetitionType, RulesContent> = {
     title: "Reglas del relámpago",
     items: [
       "Formato de eliminación directa.",
-      "Los partidos se juegan al mejor de 3 sets.",
+      "Los partidos se juegan al mejor de 3 sets. El 3 set es un supertiebreak (muere en 11).",
       "No hay fase de grupos.",
     ],
   },
